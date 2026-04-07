@@ -1,13 +1,5 @@
 <script lang="ts">
   import { onMount } from "svelte";
-
-  // We'll use a simple hash-based router or just dynamic component loading based on path
-  // since we are in a simple SPA setup without a full router library installed yet.
-  // However, the user asked for `features/+page.svelte` style which implies SvelteKit or similar file-based routing.
-  // Since this is a Vite + Svelte project, we can simulate this structure or use a router.
-  // Given the constraints and the previous request, I will implement a simple file-based routing simulation
-  // that maps the current path to the components we just moved.
-
   import Home from "./lib/Home.svelte";
   import Features from "./features/+page.svelte";
   import Why from "./why/+page.svelte";
@@ -20,30 +12,64 @@
   import Settings from "./settings/+page.svelte";
   import CLI from "./cli/+page.svelte";
 
+  const routes: Record<string, { component: typeof Home; title: string }> = {
+    "/features": { component: Features, title: "Features" },
+    "/why": { component: Why, title: "Why DMART?" },
+    "/technical": { component: Technical, title: "Technical Overview" },
+    "/drivers": { component: Drivers, title: "Drivers & SDKs" },
+    "/access-control": { component: AccessControl, title: "Access Control" },
+    "/entity-lifecycle": {
+      component: EntityLifecycle,
+      title: "Entity Lifecycle",
+    },
+    "/plugins": { component: Plugins, title: "Plugins" },
+    "/api-docs": { component: ApiDocs, title: "API Documentation" },
+    "/settings": { component: Settings, title: "Configuration Settings" },
+    "/cli": { component: CLI, title: "CLI Reference" },
+  };
+
+  const docsPaths = [
+    "/technical",
+    "/entity-lifecycle",
+    "/settings",
+    "/api-docs",
+    "/access-control",
+    "/plugins",
+    "/cli",
+    "/drivers",
+  ];
+
   let currentPath = $state(window.location.pathname);
   let isDark = $state(false);
   let docsOpen = $state(false);
-
-  const docsPaths = [
-    "/access-control",
-    "/technical",
-    "/entity-lifecycle",
-    "/cli",
-    "/plugins",
-    "/api-docs",
-    "/settings",
-  ];
 
   function navigate(path: string) {
     window.history.pushState({}, "", path);
     currentPath = path;
     docsOpen = false;
+    updateTitle(path);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function toggleDocs(e: MouseEvent) {
+  function updateTitle(path: string) {
+    const route = routes[path];
+    document.title = route
+      ? `${route.title} - DMART`
+      : "DMART - Data-as-a-Service Platform";
+  }
+
+  function toggleDocs(e: MouseEvent | KeyboardEvent) {
     e.stopPropagation();
     docsOpen = !docsOpen;
+  }
+
+  function handleDocsKeydown(e: KeyboardEvent) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggleDocs(e);
+    } else if (e.key === "Escape") {
+      docsOpen = false;
+    }
   }
 
   function toggleTheme() {
@@ -65,6 +91,7 @@
   onMount(() => {
     const handlePopState = () => {
       currentPath = window.location.pathname;
+      updateTitle(currentPath);
     };
     window.addEventListener("popstate", handlePopState);
 
@@ -73,7 +100,6 @@
     };
     window.addEventListener("click", closeDropdown);
 
-    // Check for saved theme preference or system preference
     const savedTheme = localStorage.getItem("theme");
     if (
       savedTheme === "dark" ||
@@ -88,32 +114,20 @@
       document.documentElement.classList.add("light");
     }
 
+    updateTitle(currentPath);
+
     return () => {
       window.removeEventListener("popstate", handlePopState);
       window.removeEventListener("click", closeDropdown);
     };
   });
 
-  // Simple route matching
-  let Component = $derived.by(() => {
-    if (currentPath === "/features") return Features;
-    if (currentPath === "/why") return Why;
-    if (currentPath === "/technical") return Technical;
-    if (currentPath === "/drivers") return Drivers;
-    if (currentPath === "/access-control") return AccessControl;
-    if (currentPath === "/entity-lifecycle") return EntityLifecycle;
-    if (currentPath === "/plugins") return Plugins;
-    if (currentPath === "/api-docs") return ApiDocs;
-    if (currentPath === "/settings") return Settings;
-    if (currentPath === "/cli") return CLI;
-    return Home;
-  });
+  let Component = $derived(routes[currentPath]?.component ?? Home);
 
   let activeTab = $derived.by(() => {
     if (currentPath === "/features") return "features";
     if (currentPath === "/why") return "why";
     if (docsPaths.includes(currentPath)) return "docs";
-    if (currentPath === "/drivers") return "drivers";
     return "home";
   });
 </script>
@@ -121,7 +135,7 @@
 <main>
   <nav>
     <div class="nav-container">
-      <div class="logo" onclick={() => navigate("/")}>DMART</div>
+      <div class="logo" role="link" tabindex="0" onclick={() => navigate("/")} onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate("/"); } }}>DMART</div>
       <div class="links">
         <button
           onclick={() => navigate("/")}
@@ -135,9 +149,13 @@
           onclick={() => navigate("/why")}
           class:active={activeTab === "why"}>Why DMART?</button
         >
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="dropdown" onclick={toggleDocs}>
+        <div
+          class="dropdown"
+          role="menu"
+          tabindex="0"
+          onclick={toggleDocs}
+          onkeydown={handleDocsKeydown}
+        >
           <button class:active={activeTab === "docs"}>Docs ▾</button>
           {#if docsOpen}
             <div class="dropdown-menu">
@@ -330,7 +348,7 @@
     border-top: 1px solid var(--border-color);
     margin-top: auto;
     background: var(--bg-secondary);
-    font-family: var(--font-sans);
+    font-family: var(--font-mono);
     font-size: 0.85rem;
   }
 

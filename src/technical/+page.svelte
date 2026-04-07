@@ -1,34 +1,8 @@
 <script lang="ts">
-  import mermaid from "mermaid";
-  import { onMount } from "svelte";
-
-  function isDarkMode() {
-    return document.documentElement.classList.contains("dark");
-  }
-
-  async function renderMermaid() {
-    const theme = isDarkMode() ? "dark" : "neutral";
-    mermaid.initialize({ startOnLoad: false, theme });
-    document.querySelectorAll(".mermaid[data-original]").forEach((el) => {
-      el.removeAttribute("data-processed");
-      el.innerHTML = el.getAttribute("data-original")!;
-    });
-    await mermaid.run();
-  }
-
-  onMount(() => {
-    document.querySelectorAll("pre.mermaid").forEach((el) => {
-      el.setAttribute("data-original", el.innerHTML);
-    });
-    renderMermaid();
-
-    const onThemeChange = () => renderMermaid();
-    window.addEventListener("themechange", onThemeChange);
-    return () => window.removeEventListener("themechange", onThemeChange);
-  });
+  import { useMermaid } from "../lib/mermaid";
 </script>
 
-<div class="content">
+<div class="content" use:useMermaid>
   <h1>Technical Overview</h1>
 
   <div class="feature-section">
@@ -381,93 +355,8 @@ sequenceDiagram
 </div>
 
 <style>
-  .content {
-    color: var(--text-main);
-  }
-
-  h1 {
-    font-size: 2rem;
-    margin-bottom: 1rem;
-    color: var(--text-main);
-    border-bottom: 1px solid var(--border-color);
-    padding-bottom: 0.5rem;
-    text-transform: uppercase;
-  }
-
-  .feature-section {
-    margin-bottom: 3rem;
-    padding: 1.5rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-  }
-
-  h2 {
-    font-size: 1.5rem;
-    margin-bottom: 1rem;
-    color: var(--text-main);
-    text-transform: uppercase;
-  }
-
-  h3 {
-    font-size: 1.1rem;
-    margin-top: 1.5rem;
-    margin-bottom: 0.5rem;
-    color: var(--text-main);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    border-bottom: 1px dashed var(--border-color);
-    display: inline-block;
-    padding-bottom: 0.2rem;
-  }
-
-  p {
-    margin-bottom: 1rem;
-    line-height: 1.6;
-  }
-
-  ul {
-    margin-bottom: 1rem;
-    padding-left: 1.2rem;
-    list-style-type: square;
-  }
-
   ul ul {
     margin-top: 0.5rem;
     margin-bottom: 0.5rem;
-  }
-
-  li {
-    margin-bottom: 0.5rem;
-    color: var(--text-secondary);
-    line-height: 1.5;
-  }
-
-  strong {
-    color: var(--text-main);
-    font-weight: 700;
-  }
-
-  code {
-    font-family: "Courier New", Courier, monospace;
-    font-size: 0.85em;
-    background: var(--bg-color);
-    border: 1px solid var(--border-color);
-    padding: 0.1rem 0.35rem;
-  }
-
-  .diagram-container {
-    background: var(--bg-color);
-    padding: 1rem;
-    border: 1px solid var(--border-color);
-    margin: 1.5rem 0;
-    overflow-x: auto;
-  }
-
-  pre.mermaid {
-    background: transparent;
-    padding: 0;
-    margin: 0;
-    font-family: monospace;
-    border: none;
   }
 </style>

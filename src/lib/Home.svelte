@@ -9,8 +9,14 @@
 
   let visible = $state(false);
 
+  function handleCardKeydown(e: KeyboardEvent, path: string) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      navigate(path);
+    }
+  }
+
   onMount(() => {
-    // Trigger entrance animations
     requestAnimationFrame(() => {
       visible = true;
     });
@@ -88,7 +94,7 @@
 <section class="pillars">
   <h2 class="section-title">Core Pillars</h2>
   <div class="pillars-grid">
-    <div class="pillar" onclick={() => navigate("/features")}>
+    <div class="pillar" role="link" tabindex="0" onclick={() => navigate("/features")} onkeydown={(e) => handleCardKeydown(e, "/features")}>
       <div class="pillar-icon">⚡</div>
       <h3>Unified Data</h3>
       <p>
@@ -97,7 +103,7 @@
       </p>
       <span class="pillar-arrow">→</span>
     </div>
-    <div class="pillar" onclick={() => navigate("/features")}>
+    <div class="pillar" role="link" tabindex="0" onclick={() => navigate("/features")} onkeydown={(e) => handleCardKeydown(e, "/features")}>
       <div class="pillar-icon">🔍</div>
       <h3>Powerful Search</h3>
       <p>
@@ -106,7 +112,7 @@
       </p>
       <span class="pillar-arrow">→</span>
     </div>
-    <div class="pillar" onclick={() => navigate("/features")}>
+    <div class="pillar" role="link" tabindex="0" onclick={() => navigate("/features")} onkeydown={(e) => handleCardKeydown(e, "/features")}>
       <div class="pillar-icon">🔒</div>
       <h3>Access Control</h3>
       <p>
@@ -115,7 +121,7 @@
       </p>
       <span class="pillar-arrow">→</span>
     </div>
-    <div class="pillar" onclick={() => navigate("/technical")}>
+    <div class="pillar" role="link" tabindex="0" onclick={() => navigate("/technical")} onkeydown={(e) => handleCardKeydown(e, "/technical")}>
       <div class="pillar-icon">🔧</div>
       <h3>Extensible</h3>
       <p>
@@ -178,7 +184,7 @@
 <section class="explore">
   <h2 class="section-title">Explore</h2>
   <div class="explore-grid">
-    <div class="explore-card" onclick={() => navigate("/features")}>
+    <div class="explore-card" role="link" tabindex="0" onclick={() => navigate("/features")} onkeydown={(e) => handleCardKeydown(e, "/features")}>
       <div class="explore-card-header">
         <span class="explore-tag">OVERVIEW</span>
         <span class="explore-arrow">→</span>
@@ -189,7 +195,7 @@
         capabilities.
       </p>
     </div>
-    <div class="explore-card" onclick={() => navigate("/why")}>
+    <div class="explore-card" role="link" tabindex="0" onclick={() => navigate("/why")} onkeydown={(e) => handleCardKeydown(e, "/why")}>
       <div class="explore-card-header">
         <span class="explore-tag">PHILOSOPHY</span>
         <span class="explore-arrow">→</span>
@@ -200,7 +206,7 @@
         lock-in.
       </p>
     </div>
-    <div class="explore-card" onclick={() => navigate("/technical")}>
+    <div class="explore-card" role="link" tabindex="0" onclick={() => navigate("/technical")} onkeydown={(e) => handleCardKeydown(e, "/technical")}>
       <div class="explore-card-header">
         <span class="explore-tag">ARCHITECTURE</span>
         <span class="explore-arrow">→</span>
@@ -211,7 +217,7 @@
         and speed.
       </p>
     </div>
-    <div class="explore-card" onclick={() => navigate("/drivers")}>
+    <div class="explore-card" role="link" tabindex="0" onclick={() => navigate("/drivers")} onkeydown={(e) => handleCardKeydown(e, "/drivers")}>
       <div class="explore-card-header">
         <span class="explore-tag">SDKS</span>
         <span class="explore-arrow">→</span>

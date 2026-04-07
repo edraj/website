@@ -1,34 +1,8 @@
 <script lang="ts">
-    import mermaid from "mermaid";
-    import { onMount } from "svelte";
-
-    function isDarkMode() {
-        return document.documentElement.classList.contains("dark");
-    }
-
-    async function renderMermaid() {
-        const theme = isDarkMode() ? "dark" : "neutral";
-        mermaid.initialize({ startOnLoad: false, theme });
-        document.querySelectorAll(".mermaid[data-original]").forEach((el) => {
-            el.removeAttribute("data-processed");
-            el.innerHTML = el.getAttribute("data-original")!;
-        });
-        await mermaid.run();
-    }
-
-    onMount(() => {
-        document.querySelectorAll("pre.mermaid").forEach((el) => {
-            el.setAttribute("data-original", el.innerHTML);
-        });
-        renderMermaid();
-
-        const onThemeChange = () => renderMermaid();
-        window.addEventListener("themechange", onThemeChange);
-        return () => window.removeEventListener("themechange", onThemeChange);
-    });
+  import { useMermaid } from "../lib/mermaid";
 </script>
 
-<div class="content">
+<div class="content" use:useMermaid>
     <h1>Access Control</h1>
     <p class="intro">
         A deep technical overview of the D-MART Access Control system. The
@@ -416,249 +390,23 @@ graph TD
 </div>
 
 <style>
-    .content {
-        color: var(--text-main);
-    }
+  .path-example {
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    padding: 0.5rem 1rem;
+    margin: 0.75rem 0;
+    display: inline-block;
+  }
 
-    h1 {
-        font-size: 2rem;
-        margin-bottom: 1rem;
-        color: var(--text-main);
-        border-bottom: 1px solid var(--border-color);
-        padding-bottom: 0.5rem;
-        text-transform: uppercase;
-    }
+  .path-example code {
+    border: none;
+    background: transparent;
+    padding: 0;
+    font-size: 0.9rem;
+    font-weight: 700;
+  }
 
-    .intro {
-        font-size: 1.05rem;
-        color: var(--text-secondary);
-        margin-bottom: 2.5rem;
-        font-family: var(--font-sans);
-        line-height: 1.7;
-    }
-
-    .feature-section {
-        margin-bottom: 3rem;
-        padding: 1.5rem;
-        background: var(--bg-secondary);
-        border: 1px solid var(--border-color);
-    }
-
-    h2 {
-        font-size: 1.5rem;
-        margin-bottom: 1rem;
-        color: var(--text-main);
-        text-transform: uppercase;
-    }
-
-    h3 {
-        font-size: 1.1rem;
-        margin-top: 1.5rem;
-        margin-bottom: 0.5rem;
-        color: var(--text-main);
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        border-bottom: 1px dashed var(--border-color);
-        display: inline-block;
-        padding-bottom: 0.2rem;
-    }
-
-    p {
-        margin-bottom: 1rem;
-        line-height: 1.6;
-    }
-
-    ul,
-    ol {
-        margin-bottom: 1rem;
-        padding-left: 1.2rem;
-    }
-
-    ul {
-        list-style-type: square;
-    }
-
-    li {
-        margin-bottom: 0.5rem;
-        color: var(--text-secondary);
-        line-height: 1.5;
-    }
-
-    li strong {
-        color: var(--text-main);
-    }
-
-    strong {
-        color: var(--text-main);
-        font-weight: 700;
-    }
-
-    em {
-        font-style: italic;
-    }
-
-    code {
-        font-family: "Courier New", Courier, monospace;
-        font-size: 0.85em;
-        background: var(--bg-color);
-        border: 1px solid var(--border-color);
-        padding: 0.1rem 0.35rem;
-    }
-
-    .grid-list {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .item {
-        background: var(--bg-color);
-        padding: 1rem;
-        border: 1px solid var(--border-color);
-        display: flex;
-        flex-direction: column;
-        gap: 0.3rem;
-    }
-
-    .item strong {
-        color: var(--text-main);
-        font-size: 1rem;
-        text-transform: uppercase;
-    }
-
-    .item span {
-        font-size: 0.9rem;
-        color: var(--text-secondary);
-        line-height: 1.4;
-    }
-
-    .diagram-container {
-        background: var(--bg-color);
-        padding: 1rem;
-        border: 1px solid var(--border-color);
-        margin: 1.5rem 0;
-        overflow-x: auto;
-    }
-
-    pre.mermaid {
-        background: transparent;
-        padding: 0;
-        margin: 0;
-        font-family: monospace;
-        border: none;
-    }
-
-    .step-section {
-        margin-bottom: 1.5rem;
-        padding-bottom: 1.5rem;
-        border-bottom: 1px solid var(--border-color);
-    }
-
-    .step-section:last-child {
-        border-bottom: none;
-        margin-bottom: 0;
-        padding-bottom: 0;
-    }
-
-    .path-example {
-        background: var(--bg-color);
-        border: 1px solid var(--border-color);
-        padding: 0.5rem 1rem;
-        margin: 0.75rem 0;
-        display: inline-block;
-    }
-
-    .path-example code {
-        border: none;
-        background: transparent;
-        padding: 0;
-        font-size: 0.9rem;
-        font-weight: 700;
-    }
-
-    /* ─── TABLE ─── */
-    .table-container {
-        overflow-x: auto;
-        margin: 1rem 0;
-        border: 1px solid var(--border-color);
-    }
-
-    table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 0.85rem;
-    }
-
-    thead {
-        background: var(--bg-color);
-    }
-
-    th {
-        text-align: left;
-        padding: 0.75rem 1rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        font-size: 0.75rem;
-        color: var(--text-main);
-        border-bottom: 2px solid var(--text-main);
-    }
-
-    td {
-        padding: 0.75rem 1rem;
-        color: var(--text-secondary);
-        border-bottom: 1px solid var(--border-color);
-        vertical-align: top;
-        line-height: 1.5;
-    }
-
-    td code {
-        font-size: 0.8em;
-    }
-
-    tr:last-child td {
-        border-bottom: none;
-    }
-
-    /* ─── CODE BLOCKS ─── */
-    .code-container {
-        background: var(--bg-color);
-        border: 1px solid var(--border-color);
-        margin: 1rem 0;
-        overflow-x: auto;
-    }
-
-    .code-container pre {
-        margin: 0;
-        padding: 1.25rem;
-        background: transparent;
-        border: none;
-    }
-
-    .code-container code {
-        font-family: "Courier New", Courier, monospace;
-        font-size: 0.8rem;
-        line-height: 1.6;
-        color: var(--text-main);
-        background: transparent;
-        border: none;
-        padding: 0;
-        white-space: pre;
-    }
-
-    .code-note {
-        font-size: 0.85rem;
-        color: var(--text-secondary);
-        margin-top: 0.25rem;
-        margin-bottom: 2rem;
-        padding-left: 0.5rem;
-        border-left: 2px solid var(--border-color);
-    }
-
-    @media (max-width: 768px) {
-        .grid-list {
-            grid-template-columns: 1fr;
-        }
-    }
+  .code-note {
+    margin-bottom: 2rem;
+  }
 </style>

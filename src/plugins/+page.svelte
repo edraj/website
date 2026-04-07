@@ -1,5 +1,4 @@
 <script lang="ts">
-    import { onMount } from "svelte";
 </script>
 
 <div class="content">
@@ -238,247 +237,60 @@ async def hello():
 </div>
 
 <style>
-    .content {
-        color: var(--text-main);
-    }
+  .plugin-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
 
-    h1 {
-        font-size: 2rem;
-        margin-bottom: 1rem;
-        color: var(--text-main);
-        border-bottom: 1px solid var(--border-color);
-        padding-bottom: 0.5rem;
-        text-transform: uppercase;
-    }
+  .plugin-card {
+    background: var(--bg-color);
+    padding: 1rem;
+    border: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    position: relative;
+  }
 
-    .intro {
-        font-size: 1.05rem;
-        color: var(--text-secondary);
-        margin-bottom: 2.5rem;
-        font-family: var(--font-sans);
-        line-height: 1.7;
-    }
+  .plugin-card strong {
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
 
-    .feature-section {
-        margin-bottom: 3rem;
-        padding: 1.5rem;
-        background: var(--bg-secondary);
-        border: 1px solid var(--border-color);
-    }
+  .plugin-card span {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    line-height: 1.4;
+  }
 
-    h2 {
-        font-size: 1.5rem;
-        margin-bottom: 1rem;
-        color: var(--text-main);
-        text-transform: uppercase;
-    }
+  .plugin-tag {
+    display: inline-block;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    padding: 0.15rem 0.5rem;
+    border: 1px solid var(--border-color);
+    margin-top: 0.25rem;
+    align-self: flex-start;
+  }
 
-    h3 {
-        font-size: 1.1rem;
-        margin-top: 1.5rem;
-        margin-bottom: 0.5rem;
-        color: var(--text-main);
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        border-bottom: 1px dashed var(--border-color);
-        display: inline-block;
-        padding-bottom: 0.2rem;
-    }
+  .plugin-tag.active {
+    border-color: var(--text-main);
+    color: var(--text-main);
+  }
 
-    p {
-        margin-bottom: 1rem;
-        line-height: 1.6;
-    }
+  .plugin-tag.inactive {
+    color: var(--text-secondary);
+    opacity: 0.6;
+  }
 
-    strong {
-        color: var(--text-main);
-        font-weight: 700;
-    }
-
-    code {
-        font-family: "Courier New", Courier, monospace;
-        font-size: 0.85em;
-        background: var(--bg-color);
-        border: 1px solid var(--border-color);
-        padding: 0.1rem 0.35rem;
-    }
-
-    /* ─── PLUGIN GRID ─── */
+  @media (max-width: 768px) {
     .plugin-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-        gap: 1rem;
-        margin-bottom: 1rem;
+      grid-template-columns: 1fr;
     }
-
-    .plugin-card {
-        background: var(--bg-color);
-        padding: 1rem;
-        border: 1px solid var(--border-color);
-        display: flex;
-        flex-direction: column;
-        gap: 0.4rem;
-        position: relative;
-    }
-
-    .plugin-card strong {
-        font-size: 0.9rem;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-
-    .plugin-card span {
-        font-size: 0.85rem;
-        color: var(--text-secondary);
-        line-height: 1.4;
-    }
-
-    .plugin-tag {
-        display: inline-block;
-        font-size: 0.65rem !important;
-        font-weight: 700;
-        letter-spacing: 2px;
-        text-transform: uppercase;
-        padding: 0.15rem 0.5rem;
-        border: 1px solid var(--border-color);
-        margin-top: 0.25rem;
-        align-self: flex-start;
-    }
-
-    .plugin-tag.active {
-        border-color: var(--text-main);
-        color: var(--text-main) !important;
-    }
-
-    .plugin-tag.inactive {
-        color: var(--text-secondary) !important;
-        opacity: 0.6;
-    }
-
-    .grid-list {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .item {
-        background: var(--bg-color);
-        padding: 1rem;
-        border: 1px solid var(--border-color);
-        display: flex;
-        flex-direction: column;
-        gap: 0.3rem;
-    }
-
-    .item strong {
-        font-size: 1rem;
-        text-transform: uppercase;
-    }
-
-    .item span {
-        font-size: 0.85rem;
-        color: var(--text-secondary);
-        line-height: 1.4;
-    }
-
-    /* ─── TABLE ─── */
-    .table-container {
-        overflow-x: auto;
-        margin: 1rem 0;
-        border: 1px solid var(--border-color);
-    }
-
-    table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 0.85rem;
-    }
-
-    thead {
-        background: var(--bg-color);
-    }
-
-    th {
-        text-align: left;
-        padding: 0.75rem 1rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        font-size: 0.75rem;
-        color: var(--text-main);
-        border-bottom: 2px solid var(--text-main);
-    }
-
-    td {
-        padding: 0.75rem 1rem;
-        color: var(--text-secondary);
-        border-bottom: 1px solid var(--border-color);
-        vertical-align: top;
-        line-height: 1.5;
-    }
-
-    tr:last-child td {
-        border-bottom: none;
-    }
-
-    /* ─── CODE ─── */
-    .step-section {
-        margin-bottom: 1.5rem;
-        padding-bottom: 1.5rem;
-        border-bottom: 1px solid var(--border-color);
-    }
-
-    .step-section:last-child {
-        border-bottom: none;
-        margin-bottom: 0;
-        padding-bottom: 0;
-    }
-
-    .code-container {
-        background: var(--bg-color);
-        border: 1px solid var(--border-color);
-        margin: 1rem 0;
-        overflow-x: auto;
-    }
-
-    .code-container.python {
-        border-left: 3px solid var(--text-main);
-    }
-
-    .code-container pre {
-        margin: 0;
-        padding: 1.25rem;
-        background: transparent;
-        border: none;
-    }
-
-    .code-container code {
-        font-family: "Courier New", Courier, monospace;
-        font-size: 0.8rem;
-        line-height: 1.6;
-        color: var(--text-main);
-        background: transparent;
-        border: none;
-        padding: 0;
-        white-space: pre;
-    }
-
-    .code-note {
-        font-size: 0.85rem;
-        color: var(--text-secondary);
-        margin-top: 0.25rem;
-        margin-bottom: 0.5rem;
-        padding-left: 0.5rem;
-        border-left: 2px solid var(--border-color);
-    }
-
-    @media (max-width: 768px) {
-        .plugin-grid {
-            grid-template-columns: 1fr;
-        }
-        .grid-list {
-            grid-template-columns: 1fr;
-        }
-    }
+  }
 </style>

@@ -1,6 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-
   let copiedCommand = $state<string | null>(null);
 
   function copyToClipboard(text: string) {
@@ -97,66 +95,12 @@
 </div>
 
 <style>
-  .content {
-    color: var(--text-main);
-  }
-
-  h1 {
-    font-size: 2rem;
-    margin-bottom: 1rem;
-    color: var(--text-main);
-    border-bottom: 1px solid var(--border-color);
-    padding-bottom: 0.5rem;
-    text-transform: uppercase;
-  }
-
-  .intro {
-    font-size: 1.1rem;
-    color: var(--text-secondary);
-    margin-bottom: 2rem;
-    font-family: var(--font-sans);
-  }
-
-  .feature-section {
-    margin-bottom: 3rem;
-    padding: 1.5rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-  }
-
-  h2 {
-    font-size: 1.5rem;
-    margin-bottom: 1rem;
-    color: var(--text-main);
-    text-transform: uppercase;
-  }
-
   .grid-list {
-    display: grid;
     grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 1rem;
-    margin-bottom: 1.5rem;
   }
 
   .item {
-    background: var(--bg-color);
-    padding: 1rem;
-    border: 1px solid var(--border-color);
-    display: flex;
-    flex-direction: column;
     gap: 0.5rem;
-  }
-
-  .item strong {
-    color: var(--text-main);
-    font-size: 1rem;
-    text-transform: uppercase;
-  }
-
-  .item span {
-    font-size: 0.9rem;
-    color: var(--text-secondary);
-    line-height: 1.4;
   }
 
   .code-container {
