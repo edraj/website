@@ -161,8 +161,8 @@ graph TD
                     Groups.
                 </li>
                 <li>
-                    <strong>Storage:</strong> Permissions are flattened and stored
-                    in Redis for fast lookup.
+                    <strong>Storage:</strong> Permissions are stored in the SQL database
+                    for fast lookup.
                 </li>
             </ul>
         </div>

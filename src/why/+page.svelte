@@ -75,9 +75,8 @@ graph TD
       <div class="item">
         <strong>Ownership</strong>
         <span
-          >Choose between open, human-readable flat files (JSON/Text/Binary) for
-          zero vendor lock-in, or a standard SQL database for enterprise
-          compatibility.</span
+          >Choose between a standard SQL database for enterprise
+          compatibility, or a lightweight embedded SQLite for simplicity.</span
         >
       </div>
       <div class="item">

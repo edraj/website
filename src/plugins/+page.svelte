@@ -55,14 +55,6 @@
                 <span class="plugin-tag active">Active</span>
             </div>
             <div class="plugin-card">
-                <strong>redis_db_update</strong>
-                <span
-                    >Updates the Redis index when resources are created,
-                    updated, or deleted.</span
-                >
-                <span class="plugin-tag inactive">Inactive</span>
-            </div>
-            <div class="plugin-card">
                 <strong>resource_folders_creation</strong>
                 <span
                     >Automatically creates necessary folder structures when a

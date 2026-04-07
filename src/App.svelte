@@ -18,6 +18,7 @@
   import Plugins from "./plugins/+page.svelte";
   import ApiDocs from "./api-docs/+page.svelte";
   import Settings from "./settings/+page.svelte";
+  import CLI from "./cli/+page.svelte";
 
   let currentPath = $state(window.location.pathname);
   let isDark = $state(false);
@@ -27,6 +28,7 @@
     "/access-control",
     "/technical",
     "/entity-lifecycle",
+    "/cli",
     "/plugins",
     "/api-docs",
     "/settings",
@@ -103,6 +105,7 @@
     if (currentPath === "/plugins") return Plugins;
     if (currentPath === "/api-docs") return ApiDocs;
     if (currentPath === "/settings") return Settings;
+    if (currentPath === "/cli") return CLI;
     return Home;
   });
 
@@ -152,6 +155,7 @@
               >Access Control</button
               >
               <button onclick={() => navigate("/plugins")}>Plugins</button>
+              <button onclick={() => navigate("/cli")}>CLI</button>
               <button onclick={() => navigate("/drivers")}>Drivers</button>
             </div>
           {/if}

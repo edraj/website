@@ -36,7 +36,7 @@
     <p>
       DMART is a Data-as-a-Service (DaaS) platform. It treats data as
       commodities, optimized for small to medium footprints (&lt;=300M entries),
-      using flat-files and Redis.
+      using SQL database.
     </p>
   </div>
 
@@ -52,7 +52,7 @@ graph TD
 
     subgraph "Backend"
         API -->|RW| FS[File System]
-        API -->|Index| Redis[Redis]
+        API -->|RW| DB[(SQL Database)]
     end
 
     subgraph "Frontend"
@@ -65,7 +65,7 @@ graph TD
     <ul>
       <li><strong>Language:</strong> Python 3.12+ (asyncio).</li>
       <li><strong>Web:</strong> FastAPI, Pydantic.</li>
-      <li><strong>Storage:</strong> Flat-file system + Redis (RediSearch).</li>
+      <li><strong>Storage:</strong> SQL database (PostgreSQL/SQLite).</li>
       <li><strong>Auth:</strong> JWT stateless.</li>
     </ul>
 
@@ -109,10 +109,10 @@ classDiagram
     <h2>Key Features</h2>
 
     <h3>Storage</h3>
-    <p>Human-readable flat files. Rebuild index from disk.</p>
+    <p>Human-readable SQL database. Built for ACID compliance.</p>
 
     <h3>Search</h3>
-    <p>RediSearch backed. Full-text, filtering, aggregation.</p>
+    <p>SQL-backed full-text search. Filtering, aggregation.</p>
 
     <h3>Access Control</h3>
     <p>RBAC + ACL. Granular permissions.</p>

@@ -117,31 +117,10 @@
     <div class="feature-section">
         <h2>Database &amp; Storage</h2>
         <p>
-            D-MART supports two modes for data persistence and two modes for
-            operational data.
+            D-MART uses a SQL database for all data persistence.
         </p>
-
-        <div class="grid-list">
-            <div class="item">
-                <strong>active_data_db</strong>
-                <span
-                    ><code>"file"</code> — File system + Redis indexing
-                    (default)<br /><code>"sql"</code> — SQL database for both</span
-                >
-            </div>
-            <div class="item">
-                <strong>active_operational_db</strong>
-                <span
-                    ><code>"redis"</code> (default)<br /><code>"manticore"</code
-                    ></span
-                >
-            </div>
-        </div>
 
         <h3>SQL Database</h3>
-        <p class="code-note">
-            Used when <code>active_data_db</code> is <code>"sql"</code>.
-        </p>
         <div class="table-container">
             <table>
                 <thead>
@@ -198,57 +177,6 @@
                         ><td><code>database_pool_recycle</code></td><td
                             >Pool recycle time (seconds)</td
                         ><td><code>30</code></td></tr
-                    >
-                </tbody>
-            </table>
-        </div>
-
-        <h3>Redis</h3>
-        <p class="code-note">
-            Used for operational data and indexing in <code>"file"</code> mode.
-        </p>
-        <div class="table-container">
-            <table>
-                <thead>
-                    <tr><th>Setting</th><th>Description</th><th>Default</th></tr
-                    >
-                </thead>
-                <tbody>
-                    <tr
-                        ><td><code>redis_host</code></td><td>Redis hostname</td
-                        ><td><code>"127.0.0.1"</code></td></tr
-                    >
-                    <tr
-                        ><td><code>redis_port</code></td><td>Redis port</td><td
-                            ><code>6379</code></td
-                        ></tr
-                    >
-                    <tr
-                        ><td><code>redis_password</code></td><td
-                            >Redis password</td
-                        ><td><code>""</code></td></tr
-                    >
-                    <tr
-                        ><td><code>redis_pool_max_connections</code></td><td
-                            >Max pool connections</td
-                        ><td><code>20</code></td></tr
-                    >
-                </tbody>
-            </table>
-        </div>
-
-        <h3>File System</h3>
-        <div class="table-container">
-            <table>
-                <thead>
-                    <tr><th>Setting</th><th>Description</th><th>Default</th></tr
-                    >
-                </thead>
-                <tbody>
-                    <tr
-                        ><td><code>files_query</code></td><td
-                            >Method used for querying files</td
-                        ><td><code>"scandir"</code></td></tr
                     >
                 </tbody>
             </table>

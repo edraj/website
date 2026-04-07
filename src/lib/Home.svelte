@@ -101,7 +101,7 @@
       <div class="pillar-icon">🔍</div>
       <h3>Powerful Search</h3>
       <p>
-        Full-text search, filtering, aggregation. Powered by RediSearch for
+        Full-text search, filtering, aggregation. Powered by SQL full-text
         blazing performance.
       </p>
       <span class="pillar-arrow">→</span>
@@ -207,7 +207,7 @@
       </div>
       <h3>Technical</h3>
       <p>
-        FastAPI backend, flat-file storage, Redis indexing. Built for simplicity
+        FastAPI backend, SQL database storage. Built for simplicity
         and speed.
       </p>
     </div>

@@ -101,9 +101,8 @@ graph TD
         authors, and specific data attributes.
       </li>
       <li>
-        <strong>Adaptable Backend:</strong> Uses RediSearch for high-performance
-        indexing in <code>'file'</code> mode, or native SQL capabilities in
-        <code>'sql'</code> mode.
+        <strong>Native SQL Search:</strong> Uses SQL full-text search capabilities
+        for high-performance querying.
       </li>
     </ul>
   </div>

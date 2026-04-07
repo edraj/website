@@ -38,8 +38,8 @@
       as a streamlined, low-code information inventory system. It treats data
       assets as commodities, allowing for structured, unstructured, and binary
       data management. Optimized for small to medium data footprints (&lt;=300
-      million primary entries), it emphasizes data longevity through flat-file
-      storage while leveraging Redis for high-performance indexing and search.
+      million primary entries), it uses a SQL database for data longevity and
+      ACID compliance.
     </p>
   </div>
 
@@ -57,9 +57,7 @@ graph TD
     LB -->|ASGI| API["FastAPI Backend"]
 
     subgraph "Backend Services"
-        API -->|"Mode: file"| FS["File System Storage"]
-        API -->|"Mode: file"| Redis["Redis + RediSearch"]
-        API -->|"Mode: sql"| SQL["SQL Database (e.g. PostgreSQL)"]
+        API -->|RW| SQL["SQL Database (e.g. PostgreSQL/SQLite)"]
     end
 
     subgraph "Frontend"
@@ -67,8 +65,7 @@ graph TD
         Tauri["Tauri Desktop App"] -->|"API Calls"| API
     end
 
-    FS -->|"file Mode"| Backup["Backup Systems"]
-    SQL -->|"sql Mode"| Backup
+    SQL -->|Backup| Backup["Backup Systems"]
       </pre>
     </div>
 
@@ -84,17 +81,16 @@ graph TD
       </li>
       <li><strong>ASGI Server:</strong> Hypercorn.</li>
       <li>
-        <strong>Data Persistence:</strong> DMART operates in two distinct modes:
+        <strong>Data Persistence:</strong> DMART uses a SQL database as the single source
+        of truth:
         <ul>
           <li>
-            <strong>'file' Mode:</strong> Flat-file system (JSON, text, binary) organized
-            in a hierarchical folder structure. Redis (with RediSearch and RedisJSON)
-            is used for high-speed indexing, querying, and caching.
+            <strong>PostgreSQL:</strong> Recommended for production deployments with
+            ACID compliance and relational integrity.
           </li>
           <li>
-            <strong>'sql' Mode:</strong> A relational database (e.g., PostgreSQL)
-            serves as the single source of truth, replacing both the file system
-            and Redis.
+            <strong>SQLite:</strong> Lightweight embedded option for development
+            and small deployments.
           </li>
         </ul>
       </li>
@@ -206,32 +202,15 @@ classDiagram
 
     <h3>4.1 Storage &amp; Data Longevity</h3>
     <p>
-      In <strong>'file' mode</strong>, data is stored directly on the file
-      system in a human-readable format. The entire Redis index can be rebuilt
-      from disk at any time (<code>dmart.py reindex</code>).
-    </p>
-    <ul>
-      <li>
-        <strong>Meta Files:</strong>
-        <code>[subpath]/.dm/[shortname]/meta.[type].json</code>
-      </li>
-      <li>
-        <strong>Payload Files:</strong> <code>[subpath]/[payload_file]</code>
-      </li>
-      <li>
-        <strong>Attachments:</strong> Stored within the <code>.dm</code> hidden folder
-        structure.
-      </li>
-    </ul>
-    <p>
-      In <strong>'sql' mode</strong>, data is stored in normalized database
-      tables, ensuring ACID compliance and standard relational integrity.
+      Data is stored in normalized database tables, ensuring ACID compliance
+      and standard relational integrity. DMART supports PostgreSQL for
+      production and SQLite for development/small deployments.
     </p>
 
     <h3>4.2 Advanced Search &amp; Querying</h3>
     <p>
-      The <code>/query</code> endpoint supports a rich query language backed by RediSearch
-      in 'file' mode or native SQL in 'sql' mode:
+      The <code>/query</code> endpoint supports a rich query language using native SQL
+      with full-text search capabilities:
     </p>
     <ul>
       <li>

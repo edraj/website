@@ -77,7 +77,7 @@ graph TD
     <ul>
       <li><strong>Full-Text Search</strong>: Across all data.</li>
       <li><strong>Advanced Filtering</strong>: By tags, dates, authors.</li>
-      <li><strong>RediSearch</strong>: High-performance indexing.</li>
+      <li><strong>SQL Full-Text</strong>: Native database search capabilities.</li>
     </ul>
   </div>
 
