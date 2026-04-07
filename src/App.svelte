@@ -203,6 +203,11 @@
 
   <footer>
     <p>&copy; {new Date().getFullYear()} DMART. Open Source Data Platform.</p>
+    <p class="footer-links">
+      <a href="https://github.com/edraj/dmart" target="_blank" rel="noopener noreferrer">GitHub</a>
+      <span class="footer-sep">|</span>
+      <a href="https://github.com/edraj/dmart/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">License</a>
+    </p>
   </footer>
 </main>
 
@@ -213,12 +218,19 @@
   }
 
   nav {
-    background: var(--bg-color);
-    border-bottom: 1px solid var(--border-color);
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
     position: sticky;
     top: 0;
     z-index: 100;
-    padding: 1rem 0;
+    padding: 0.75rem 0;
+  }
+
+  :global(:root.dark) nav {
+    background: rgba(15, 15, 26, 0.85);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
   }
 
   .nav-container {
@@ -231,45 +243,50 @@
   }
 
   .logo {
-    font-size: 1.5rem;
-    font-weight: 800;
-    color: var(--text-main);
+    font-size: 1.6rem;
+    font-weight: 900;
+    color: var(--primary-color);
     cursor: pointer;
     letter-spacing: 2px;
     text-transform: uppercase;
+    transition: opacity 0.2s ease;
+  }
+
+  .logo:hover {
+    opacity: 0.85;
   }
 
   .links {
     display: flex;
-    gap: 1rem;
+    gap: 0.5rem;
     align-items: center;
   }
 
   nav button {
     background: transparent;
     border: none;
-    padding: 0.5rem 0;
-    font-size: 1rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.95rem;
     color: var(--text-secondary);
-    border-radius: 0;
+    border-radius: var(--radius-sm);
     font-weight: 500;
-    text-transform: uppercase;
-    border-bottom: 1px solid transparent;
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s ease, border-color 0.2s ease;
   }
 
   nav button:hover {
-    color: var(--text-main);
+    color: var(--primary-color);
     background: transparent;
-    border-bottom: 1px solid var(--text-main);
+    border-bottom: 2px solid var(--primary-color);
     box-shadow: none;
     transform: none;
   }
 
   nav button.active {
-    color: var(--text-main);
+    color: var(--primary-color);
     background: transparent;
-    font-weight: 700;
-    border-bottom: 1px solid var(--text-main);
+    font-weight: 600;
+    border-bottom: 2px solid var(--primary-color);
   }
 
   /* ─── DROPDOWN ─── */
@@ -282,57 +299,74 @@
     position: absolute;
     top: calc(100% + 0.5rem);
     left: 0;
-    min-width: 200px;
-    background: var(--bg-color);
+    min-width: 210px;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
     z-index: 200;
     display: flex;
     flex-direction: column;
+    padding: 0.35rem 0;
+    animation: dropdown-in 0.15s ease-out;
+  }
+
+  :global(:root.dark) .dropdown-menu {
+    background: rgba(22, 22, 37, 0.95);
+  }
+
+  @keyframes dropdown-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
   .dropdown-menu button {
-    padding: 0.65rem 1rem;
+    padding: 0.6rem 1rem;
     text-align: left;
-    font-size: 0.85rem;
-    border-bottom: 1px solid var(--border-color);
-    white-space: nowrap;
-  }
-
-  .dropdown-menu button:last-child {
+    font-size: 0.88rem;
     border-bottom: none;
+    white-space: nowrap;
+    border-radius: 0;
+    transition: background-color 0.15s ease, color 0.15s ease;
   }
 
   .dropdown-menu button:hover {
-    background: var(--bg-secondary);
-    color: var(--text-main);
-    border-bottom: 1px solid var(--border-color);
-  }
-
-  .dropdown-menu button:last-child:hover {
+    background: var(--accent-light);
+    color: var(--primary-color);
     border-bottom: none;
   }
 
   .theme-toggle {
-    margin-left: 1rem;
-    font-size: 1.2rem;
-    padding: 0.2rem 0.5rem;
+    margin-left: 0.75rem;
+    font-size: 1.15rem;
+    padding: 0.35rem 0.55rem;
     border: 1px solid var(--border-color);
-    border-radius: 4px;
+    border-radius: var(--radius-md);
     cursor: pointer;
+    transition: border-color 0.2s ease, background-color 0.2s ease;
   }
 
   .theme-toggle:hover {
-    border-color: var(--text-main);
-    background: var(--bg-secondary);
-    border-bottom: 1px solid var(--text-main);
+    border-color: var(--primary-color);
+    background: var(--accent-light);
+    border-bottom: 1px solid var(--primary-color);
   }
 
   .page-container {
-    max-width: 900px;
+    max-width: 960px;
     margin: 0 auto;
-    padding: 4rem 2rem;
+    padding: 3.5rem 2.5rem;
     background: var(--bg-color);
     min-height: 80vh;
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
   }
 
   main {
@@ -343,17 +377,36 @@
 
   footer {
     text-align: center;
-    padding: 0.75rem 1rem;
+    padding: 1.5rem 1rem;
     color: var(--text-secondary);
     border-top: 1px solid var(--border-color);
     margin-top: auto;
     background: var(--bg-secondary);
-    font-family: var(--font-mono);
     font-size: 0.85rem;
   }
 
   footer p {
     margin: 0;
+    line-height: 1.6;
+  }
+
+  footer .footer-links {
+    margin-top: 0.4rem;
+  }
+
+  footer a {
+    color: var(--text-secondary);
+    text-decoration: none;
+    transition: color 0.2s ease;
+  }
+
+  footer a:hover {
+    color: var(--primary-color);
+  }
+
+  :global(.footer-sep) {
+    color: var(--border-color);
+    margin: 0 0.5rem;
   }
 
   @media (max-width: 768px) {
@@ -371,6 +424,19 @@
     .dropdown-menu {
       left: 50%;
       transform: translateX(-50%);
+    }
+    .page-container {
+      padding: 2rem 1.25rem;
+    }
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not(.light)) nav {
+      background: rgba(15, 15, 26, 0.85);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
+    }
+    :global(:root:not(.light)) .dropdown-menu {
+      background: rgba(22, 22, 37, 0.95);
     }
   }
 </style>

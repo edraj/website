@@ -248,15 +248,21 @@ async def hello():
     background: var(--bg-color);
     padding: 1rem;
     border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
     display: flex;
     flex-direction: column;
     gap: 0.4rem;
     position: relative;
+    transition: box-shadow 0.2s, transform 0.2s;
+  }
+
+  .plugin-card:hover {
+    box-shadow: var(--shadow-sm);
+    transform: translateY(-1px);
   }
 
   .plugin-card strong {
     font-size: 0.9rem;
-    text-transform: uppercase;
     letter-spacing: 0.5px;
   }
 
@@ -274,13 +280,15 @@ async def hello():
     text-transform: uppercase;
     padding: 0.15rem 0.5rem;
     border: 1px solid var(--border-color);
+    border-radius: 100px;
     margin-top: 0.25rem;
     align-self: flex-start;
   }
 
   .plugin-tag.active {
-    border-color: var(--text-main);
-    color: var(--text-main);
+    background: var(--accent-light);
+    border-color: var(--primary-color);
+    color: var(--primary-color);
   }
 
   .plugin-tag.inactive {

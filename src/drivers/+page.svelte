@@ -108,11 +108,12 @@
     align-items: center;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
   }
 
   .code-block {
     padding: 0.5rem;
-    font-family: monospace;
+    font-family: var(--font-mono);
     font-size: 0.85rem;
     white-space: nowrap;
     overflow-x: auto;
@@ -130,26 +131,27 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: color 0.2s;
+    transition: color 0.2s, background-color 0.2s;
     min-width: 40px;
   }
 
   .copy-btn:hover {
     color: var(--text-main);
-    background-color: var(--bg-color);
+    background-color: var(--accent-light);
   }
 
   a {
-    color: var(--text-main);
+    color: var(--primary-color);
     text-decoration: none;
     font-weight: 700;
-    text-transform: uppercase;
     font-size: 0.85rem;
     margin-top: auto;
     display: inline-block;
+    transition: opacity 0.2s;
   }
 
   a:hover {
     text-decoration: underline;
+    opacity: 0.85;
   }
 </style>

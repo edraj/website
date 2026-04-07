@@ -852,6 +852,7 @@
   /* h2 code override for route labels */
   h2 code {
     font-size: 0.85em;
+    font-family: var(--font-mono);
     text-transform: none;
     margin-left: 0.5rem;
   }
@@ -862,6 +863,12 @@
     padding: 1rem;
     background: var(--bg-color);
     border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    transition: box-shadow 0.2s;
+  }
+
+  .endpoint:hover {
+    box-shadow: var(--shadow-sm);
   }
 
   .endpoint:last-child {
@@ -877,6 +884,7 @@
 
   .endpoint-header code {
     font-size: 0.85rem;
+    font-family: var(--font-mono);
     font-weight: 700;
     background: transparent;
     border: none;
@@ -891,47 +899,48 @@
     font-weight: 800;
     text-transform: uppercase;
     letter-spacing: 1px;
-    font-family: "Courier New", Courier, monospace;
-    border: 1px solid;
+    font-family: var(--font-mono);
+    border: none;
+    border-radius: var(--radius-sm);
     min-width: 55px;
     text-align: center;
   }
 
   .method.get {
+    background: #e8f5e9;
     color: #2e7d32;
-    border-color: #2e7d32;
   }
 
   .method.post {
+    background: #e3f2fd;
     color: #1565c0;
-    border-color: #1565c0;
   }
 
   .method.put {
+    background: #fff3e0;
     color: #e65100;
-    border-color: #e65100;
   }
 
   .method.delete {
+    background: #ffebee;
     color: #c62828;
-    border-color: #c62828;
   }
 
   :global(.dark) .method.get {
+    background: #1b3a1b;
     color: #66bb6a;
-    border-color: #66bb6a;
   }
   :global(.dark) .method.post {
+    background: #0d2948;
     color: #42a5f5;
-    border-color: #42a5f5;
   }
   :global(.dark) .method.put {
+    background: #3d2200;
     color: #ffa726;
-    border-color: #ffa726;
   }
   :global(.dark) .method.delete {
+    background: #3d0c0c;
     color: #ef5350;
-    border-color: #ef5350;
   }
 
   .endpoint p {
@@ -940,13 +949,10 @@
     color: var(--text-secondary);
   }
 
-  .params {
-    font-size: 0.85rem;
-  }
-
   /* Code blocks inside endpoints use a slightly different bg */
   .endpoint .code-container {
-    background: var(--bg-secondary);
+    background: var(--code-bg);
+    border-radius: var(--radius-md);
     margin: 0.75rem 0;
   }
 
