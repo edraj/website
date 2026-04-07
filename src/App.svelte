@@ -1,13 +1,5 @@
 <script lang="ts">
   import { onMount } from "svelte";
-
-  // We'll use a simple hash-based router or just dynamic component loading based on path
-  // since we are in a simple SPA setup without a full router library installed yet.
-  // However, the user asked for `features/+page.svelte` style which implies SvelteKit or similar file-based routing.
-  // Since this is a Vite + Svelte project, we can simulate this structure or use a router.
-  // Given the constraints and the previous request, I will implement a simple file-based routing simulation
-  // that maps the current path to the components we just moved.
-
   import Home from "./lib/Home.svelte";
   import Features from "./features/+page.svelte";
   import Why from "./why/+page.svelte";
@@ -20,30 +12,64 @@
   import Settings from "./settings/+page.svelte";
   import CLI from "./cli/+page.svelte";
 
+  const routes: Record<string, { component: typeof Home; title: string }> = {
+    "/features": { component: Features, title: "Features" },
+    "/why": { component: Why, title: "Why DMART?" },
+    "/technical": { component: Technical, title: "Technical Overview" },
+    "/drivers": { component: Drivers, title: "Drivers & SDKs" },
+    "/access-control": { component: AccessControl, title: "Access Control" },
+    "/entity-lifecycle": {
+      component: EntityLifecycle,
+      title: "Entity Lifecycle",
+    },
+    "/plugins": { component: Plugins, title: "Plugins" },
+    "/api-docs": { component: ApiDocs, title: "API Documentation" },
+    "/settings": { component: Settings, title: "Configuration Settings" },
+    "/cli": { component: CLI, title: "CLI Reference" },
+  };
+
+  const docsPaths = [
+    "/technical",
+    "/entity-lifecycle",
+    "/settings",
+    "/api-docs",
+    "/access-control",
+    "/plugins",
+    "/cli",
+    "/drivers",
+  ];
+
   let currentPath = $state(window.location.pathname);
   let isDark = $state(false);
   let docsOpen = $state(false);
-
-  const docsPaths = [
-    "/access-control",
-    "/technical",
-    "/entity-lifecycle",
-    "/cli",
-    "/plugins",
-    "/api-docs",
-    "/settings",
-  ];
 
   function navigate(path: string) {
     window.history.pushState({}, "", path);
     currentPath = path;
     docsOpen = false;
+    updateTitle(path);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function toggleDocs(e: MouseEvent) {
+  function updateTitle(path: string) {
+    const route = routes[path];
+    document.title = route
+      ? `${route.title} - DMART`
+      : "DMART - Data-as-a-Service Platform";
+  }
+
+  function toggleDocs(e: MouseEvent | KeyboardEvent) {
     e.stopPropagation();
     docsOpen = !docsOpen;
+  }
+
+  function handleDocsKeydown(e: KeyboardEvent) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggleDocs(e);
+    } else if (e.key === "Escape") {
+      docsOpen = false;
+    }
   }
 
   function toggleTheme() {
@@ -65,6 +91,7 @@
   onMount(() => {
     const handlePopState = () => {
       currentPath = window.location.pathname;
+      updateTitle(currentPath);
     };
     window.addEventListener("popstate", handlePopState);
 
@@ -73,7 +100,6 @@
     };
     window.addEventListener("click", closeDropdown);
 
-    // Check for saved theme preference or system preference
     const savedTheme = localStorage.getItem("theme");
     if (
       savedTheme === "dark" ||
@@ -88,32 +114,20 @@
       document.documentElement.classList.add("light");
     }
 
+    updateTitle(currentPath);
+
     return () => {
       window.removeEventListener("popstate", handlePopState);
       window.removeEventListener("click", closeDropdown);
     };
   });
 
-  // Simple route matching
-  let Component = $derived.by(() => {
-    if (currentPath === "/features") return Features;
-    if (currentPath === "/why") return Why;
-    if (currentPath === "/technical") return Technical;
-    if (currentPath === "/drivers") return Drivers;
-    if (currentPath === "/access-control") return AccessControl;
-    if (currentPath === "/entity-lifecycle") return EntityLifecycle;
-    if (currentPath === "/plugins") return Plugins;
-    if (currentPath === "/api-docs") return ApiDocs;
-    if (currentPath === "/settings") return Settings;
-    if (currentPath === "/cli") return CLI;
-    return Home;
-  });
+  let Component = $derived(routes[currentPath]?.component ?? Home);
 
   let activeTab = $derived.by(() => {
     if (currentPath === "/features") return "features";
     if (currentPath === "/why") return "why";
     if (docsPaths.includes(currentPath)) return "docs";
-    if (currentPath === "/drivers") return "drivers";
     return "home";
   });
 </script>
@@ -121,7 +135,7 @@
 <main>
   <nav>
     <div class="nav-container">
-      <div class="logo" onclick={() => navigate("/")}>DMART</div>
+      <div class="logo" role="link" tabindex="0" onclick={() => navigate("/")} onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate("/"); } }}>DMART</div>
       <div class="links">
         <button
           onclick={() => navigate("/")}
@@ -135,9 +149,13 @@
           onclick={() => navigate("/why")}
           class:active={activeTab === "why"}>Why DMART?</button
         >
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="dropdown" onclick={toggleDocs}>
+        <div
+          class="dropdown"
+          role="menu"
+          tabindex="0"
+          onclick={toggleDocs}
+          onkeydown={handleDocsKeydown}
+        >
           <button class:active={activeTab === "docs"}>Docs ▾</button>
           {#if docsOpen}
             <div class="dropdown-menu">
@@ -185,6 +203,11 @@
 
   <footer>
     <p>&copy; {new Date().getFullYear()} DMART. Open Source Data Platform.</p>
+    <p class="footer-links">
+      <a href="https://github.com/edraj/dmart" target="_blank" rel="noopener noreferrer">GitHub</a>
+      <span class="footer-sep">|</span>
+      <a href="https://github.com/edraj/dmart/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">License</a>
+    </p>
   </footer>
 </main>
 
@@ -195,12 +218,19 @@
   }
 
   nav {
-    background: var(--bg-color);
-    border-bottom: 1px solid var(--border-color);
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
     position: sticky;
     top: 0;
     z-index: 100;
-    padding: 1rem 0;
+    padding: 0.75rem 0;
+  }
+
+  :global(:root.dark) nav {
+    background: rgba(15, 15, 26, 0.85);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
   }
 
   .nav-container {
@@ -213,45 +243,50 @@
   }
 
   .logo {
-    font-size: 1.5rem;
-    font-weight: 800;
-    color: var(--text-main);
+    font-size: 1.6rem;
+    font-weight: 900;
+    color: var(--primary-color);
     cursor: pointer;
     letter-spacing: 2px;
     text-transform: uppercase;
+    transition: opacity 0.2s ease;
+  }
+
+  .logo:hover {
+    opacity: 0.85;
   }
 
   .links {
     display: flex;
-    gap: 1rem;
+    gap: 0.5rem;
     align-items: center;
   }
 
   nav button {
     background: transparent;
     border: none;
-    padding: 0.5rem 0;
-    font-size: 1rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.95rem;
     color: var(--text-secondary);
-    border-radius: 0;
+    border-radius: var(--radius-sm);
     font-weight: 500;
-    text-transform: uppercase;
-    border-bottom: 1px solid transparent;
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s ease, border-color 0.2s ease;
   }
 
   nav button:hover {
-    color: var(--text-main);
+    color: var(--primary-color);
     background: transparent;
-    border-bottom: 1px solid var(--text-main);
+    border-bottom: 2px solid var(--primary-color);
     box-shadow: none;
     transform: none;
   }
 
   nav button.active {
-    color: var(--text-main);
+    color: var(--primary-color);
     background: transparent;
-    font-weight: 700;
-    border-bottom: 1px solid var(--text-main);
+    font-weight: 600;
+    border-bottom: 2px solid var(--primary-color);
   }
 
   /* ─── DROPDOWN ─── */
@@ -264,57 +299,74 @@
     position: absolute;
     top: calc(100% + 0.5rem);
     left: 0;
-    min-width: 200px;
-    background: var(--bg-color);
+    min-width: 210px;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
     z-index: 200;
     display: flex;
     flex-direction: column;
+    padding: 0.35rem 0;
+    animation: dropdown-in 0.15s ease-out;
+  }
+
+  :global(:root.dark) .dropdown-menu {
+    background: rgba(22, 22, 37, 0.95);
+  }
+
+  @keyframes dropdown-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
   .dropdown-menu button {
-    padding: 0.65rem 1rem;
+    padding: 0.6rem 1rem;
     text-align: left;
-    font-size: 0.85rem;
-    border-bottom: 1px solid var(--border-color);
-    white-space: nowrap;
-  }
-
-  .dropdown-menu button:last-child {
+    font-size: 0.88rem;
     border-bottom: none;
+    white-space: nowrap;
+    border-radius: 0;
+    transition: background-color 0.15s ease, color 0.15s ease;
   }
 
   .dropdown-menu button:hover {
-    background: var(--bg-secondary);
-    color: var(--text-main);
-    border-bottom: 1px solid var(--border-color);
-  }
-
-  .dropdown-menu button:last-child:hover {
+    background: var(--accent-light);
+    color: var(--primary-color);
     border-bottom: none;
   }
 
   .theme-toggle {
-    margin-left: 1rem;
-    font-size: 1.2rem;
-    padding: 0.2rem 0.5rem;
+    margin-left: 0.75rem;
+    font-size: 1.15rem;
+    padding: 0.35rem 0.55rem;
     border: 1px solid var(--border-color);
-    border-radius: 4px;
+    border-radius: var(--radius-md);
     cursor: pointer;
+    transition: border-color 0.2s ease, background-color 0.2s ease;
   }
 
   .theme-toggle:hover {
-    border-color: var(--text-main);
-    background: var(--bg-secondary);
-    border-bottom: 1px solid var(--text-main);
+    border-color: var(--primary-color);
+    background: var(--accent-light);
+    border-bottom: 1px solid var(--primary-color);
   }
 
   .page-container {
-    max-width: 900px;
+    max-width: 960px;
     margin: 0 auto;
-    padding: 4rem 2rem;
+    padding: 3.5rem 2.5rem;
     background: var(--bg-color);
     min-height: 80vh;
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
   }
 
   main {
@@ -325,17 +377,36 @@
 
   footer {
     text-align: center;
-    padding: 0.75rem 1rem;
+    padding: 1.5rem 1rem;
     color: var(--text-secondary);
     border-top: 1px solid var(--border-color);
     margin-top: auto;
     background: var(--bg-secondary);
-    font-family: var(--font-sans);
     font-size: 0.85rem;
   }
 
   footer p {
     margin: 0;
+    line-height: 1.6;
+  }
+
+  footer .footer-links {
+    margin-top: 0.4rem;
+  }
+
+  footer a {
+    color: var(--text-secondary);
+    text-decoration: none;
+    transition: color 0.2s ease;
+  }
+
+  footer a:hover {
+    color: var(--primary-color);
+  }
+
+  :global(.footer-sep) {
+    color: var(--border-color);
+    margin: 0 0.5rem;
   }
 
   @media (max-width: 768px) {
@@ -353,6 +424,19 @@
     .dropdown-menu {
       left: 50%;
       transform: translateX(-50%);
+    }
+    .page-container {
+      padding: 2rem 1.25rem;
+    }
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not(.light)) nav {
+      background: rgba(15, 15, 26, 0.85);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
+    }
+    :global(:root:not(.light)) .dropdown-menu {
+      background: rgba(22, 22, 37, 0.95);
     }
   }
 </style>

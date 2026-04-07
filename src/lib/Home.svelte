@@ -9,8 +9,14 @@
 
   let visible = $state(false);
 
+  function handleCardKeydown(e: KeyboardEvent, path: string) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      navigate(path);
+    }
+  }
+
   onMount(() => {
-    // Trigger entrance animations
     requestAnimationFrame(() => {
       visible = true;
     });
@@ -88,7 +94,7 @@
 <section class="pillars">
   <h2 class="section-title">Core Pillars</h2>
   <div class="pillars-grid">
-    <div class="pillar" onclick={() => navigate("/features")}>
+    <div class="pillar" role="link" tabindex="0" onclick={() => navigate("/features")} onkeydown={(e) => handleCardKeydown(e, "/features")}>
       <div class="pillar-icon">⚡</div>
       <h3>Unified Data</h3>
       <p>
@@ -97,7 +103,7 @@
       </p>
       <span class="pillar-arrow">→</span>
     </div>
-    <div class="pillar" onclick={() => navigate("/features")}>
+    <div class="pillar" role="link" tabindex="0" onclick={() => navigate("/features")} onkeydown={(e) => handleCardKeydown(e, "/features")}>
       <div class="pillar-icon">🔍</div>
       <h3>Powerful Search</h3>
       <p>
@@ -106,7 +112,7 @@
       </p>
       <span class="pillar-arrow">→</span>
     </div>
-    <div class="pillar" onclick={() => navigate("/features")}>
+    <div class="pillar" role="link" tabindex="0" onclick={() => navigate("/features")} onkeydown={(e) => handleCardKeydown(e, "/features")}>
       <div class="pillar-icon">🔒</div>
       <h3>Access Control</h3>
       <p>
@@ -115,7 +121,7 @@
       </p>
       <span class="pillar-arrow">→</span>
     </div>
-    <div class="pillar" onclick={() => navigate("/technical")}>
+    <div class="pillar" role="link" tabindex="0" onclick={() => navigate("/technical")} onkeydown={(e) => handleCardKeydown(e, "/technical")}>
       <div class="pillar-icon">🔧</div>
       <h3>Extensible</h3>
       <p>
@@ -178,7 +184,7 @@
 <section class="explore">
   <h2 class="section-title">Explore</h2>
   <div class="explore-grid">
-    <div class="explore-card" onclick={() => navigate("/features")}>
+    <div class="explore-card" role="link" tabindex="0" onclick={() => navigate("/features")} onkeydown={(e) => handleCardKeydown(e, "/features")}>
       <div class="explore-card-header">
         <span class="explore-tag">OVERVIEW</span>
         <span class="explore-arrow">→</span>
@@ -189,7 +195,7 @@
         capabilities.
       </p>
     </div>
-    <div class="explore-card" onclick={() => navigate("/why")}>
+    <div class="explore-card" role="link" tabindex="0" onclick={() => navigate("/why")} onkeydown={(e) => handleCardKeydown(e, "/why")}>
       <div class="explore-card-header">
         <span class="explore-tag">PHILOSOPHY</span>
         <span class="explore-arrow">→</span>
@@ -200,7 +206,7 @@
         lock-in.
       </p>
     </div>
-    <div class="explore-card" onclick={() => navigate("/technical")}>
+    <div class="explore-card" role="link" tabindex="0" onclick={() => navigate("/technical")} onkeydown={(e) => handleCardKeydown(e, "/technical")}>
       <div class="explore-card-header">
         <span class="explore-tag">ARCHITECTURE</span>
         <span class="explore-arrow">→</span>
@@ -211,7 +217,7 @@
         and speed.
       </p>
     </div>
-    <div class="explore-card" onclick={() => navigate("/drivers")}>
+    <div class="explore-card" role="link" tabindex="0" onclick={() => navigate("/drivers")} onkeydown={(e) => handleCardKeydown(e, "/drivers")}>
       <div class="explore-card-header">
         <span class="explore-tag">SDKS</span>
         <span class="explore-arrow">→</span>
@@ -246,8 +252,7 @@
 <style>
   /* ─── HERO ─── */
   .hero {
-    padding: 5rem 2rem 3rem;
-    border-bottom: 1px solid var(--border-color);
+    padding: 6rem 2rem 3rem;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -277,20 +282,22 @@
     font-weight: 700;
     letter-spacing: 3px;
     text-transform: uppercase;
-    border: 1px solid var(--text-main);
-    padding: 0.25rem 0.75rem;
+    background: var(--accent-light);
+    color: var(--primary-color);
+    border: none;
+    padding: 0.3rem 1rem;
     margin-bottom: 1.5rem;
-    color: var(--text-main);
+    border-radius: 100px;
   }
 
   .hero-title {
-    font-size: 4.5rem;
+    font-size: 5rem;
     font-weight: 900;
     line-height: 0.95;
     margin: 0 0 1.5rem 0;
     border: none;
     padding: 0;
-    letter-spacing: -2px;
+    letter-spacing: -3px;
   }
 
   .hero-title-line {
@@ -298,12 +305,12 @@
   }
 
   .hero-title-line.accent {
-    color: var(--text-secondary);
+    color: var(--primary-color);
   }
 
   .hero-subtitle {
-    font-size: 1.05rem;
-    line-height: 1.7;
+    font-size: 1.1rem;
+    line-height: 1.8;
     margin-bottom: 2rem;
     color: var(--text-secondary);
     max-width: 420px;
@@ -314,7 +321,7 @@
   }
 
   .hero-ascii pre {
-    font-family: "Courier New", Courier, monospace;
+    font-family: var(--font-mono);
     font-size: 0.8rem;
     line-height: 1.4;
     color: var(--text-secondary);
@@ -324,6 +331,8 @@
     margin: 0;
     white-space: pre;
     overflow-x: auto;
+    border-radius: 8px;
+    box-shadow: var(--shadow-sm);
   }
 
   .cta-group {
@@ -334,27 +343,37 @@
   }
 
   button.primary {
-    background-color: var(--text-main);
-    color: var(--bg-color);
+    background-color: var(--primary-color);
+    color: #fff;
     padding: 0.7rem 1.8rem;
     font-size: 0.9rem;
-    border: 1px solid var(--text-main);
+    border: 1px solid var(--primary-color);
     font-weight: 700;
     letter-spacing: 1px;
+    border-radius: 6px;
+    transition: opacity 0.2s;
   }
 
   button.primary:hover {
-    background-color: var(--bg-color);
-    color: var(--text-main);
+    opacity: 0.85;
   }
 
   button.secondary {
     background-color: transparent;
-    border: 1px solid var(--text-main);
+    border: 1px solid var(--primary-color);
     padding: 0.7rem 1.8rem;
     font-size: 0.9rem;
-    color: var(--text-main);
+    color: var(--primary-color);
     letter-spacing: 1px;
+    border-radius: 6px;
+    transition:
+      background-color 0.2s,
+      color 0.2s;
+  }
+
+  button.secondary:hover {
+    background-color: var(--primary-color);
+    color: #fff;
   }
 
   .cta-link {
@@ -368,13 +387,12 @@
   }
 
   .cta-link:hover {
-    color: var(--text-main);
-    opacity: 1;
+    color: var(--primary-color);
   }
 
   /* ─── STATS ─── */
   .stats {
-    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-secondary);
     padding: 0;
   }
 
@@ -390,14 +408,14 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 2rem 3rem;
+    padding: 2.5rem 3rem;
     gap: 0.25rem;
   }
 
   .stat-value {
     font-size: 1.8rem;
     font-weight: 900;
-    color: var(--text-main);
+    color: var(--primary-color);
     letter-spacing: -1px;
   }
 
@@ -435,32 +453,37 @@
   .pillars-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 0;
+    gap: 1.5rem;
   }
 
   .pillar {
     padding: 2rem;
     border: 1px solid var(--border-color);
+    border-radius: 12px;
     cursor: pointer;
     position: relative;
-    transition: background-color 0.2s;
+    transition:
+      box-shadow 0.2s,
+      transform 0.2s;
     display: flex;
     flex-direction: column;
   }
 
   .pillar:hover {
-    background: var(--bg-color);
-    border-color: var(--text-main);
-    z-index: 1;
-  }
-
-  .pillar + .pillar {
-    margin-left: -1px;
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
   }
 
   .pillar-icon {
-    font-size: 1.5rem;
+    font-size: 2rem;
     margin-bottom: 1rem;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--accent-light);
+    border-radius: 50%;
   }
 
   .pillar h3 {
@@ -488,7 +511,7 @@
 
   .pillar:hover .pillar-arrow {
     transform: translateX(4px);
-    color: var(--text-main);
+    color: var(--primary-color);
   }
 
   /* ─── HOW IT WORKS ─── */
@@ -520,7 +543,8 @@
   .step-num {
     font-size: 2rem;
     font-weight: 900;
-    color: var(--border-color);
+    color: var(--primary-color);
+    opacity: 0.3;
     min-width: 3rem;
     line-height: 1;
     letter-spacing: -1px;
@@ -529,8 +553,6 @@
   .step-content h3 {
     font-size: 1rem;
     margin-bottom: 0.3rem;
-    text-transform: uppercase;
-    letter-spacing: 1px;
   }
 
   .step-content p {
@@ -556,15 +578,19 @@
 
   .explore-card {
     border: 1px solid var(--border-color);
+    border-radius: 12px;
     padding: 2rem;
     cursor: pointer;
-    transition: border-color 0.2s;
+    transition:
+      box-shadow 0.2s,
+      transform 0.2s;
     display: flex;
     flex-direction: column;
   }
 
   .explore-card:hover {
-    border-color: var(--text-main);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
   }
 
   .explore-card-header {
@@ -578,7 +604,10 @@
     font-size: 0.65rem;
     font-weight: 700;
     letter-spacing: 2px;
-    color: var(--text-secondary);
+    color: var(--primary-color);
+    background: var(--accent-light);
+    padding: 0.2rem 0.6rem;
+    border-radius: 100px;
   }
 
   .explore-arrow {
@@ -591,14 +620,12 @@
 
   .explore-card:hover .explore-arrow {
     transform: translateX(4px);
-    color: var(--text-main);
+    color: var(--primary-color);
   }
 
   .explore-card h3 {
     font-size: 1.2rem;
     margin-bottom: 0.5rem;
-    text-transform: uppercase;
-    letter-spacing: 1px;
   }
 
   .explore-card p {
@@ -611,8 +638,8 @@
 
   /* ─── CTA BANNER ─── */
   .cta-banner {
-    border-top: 1px solid var(--border-color);
-    padding: 4rem 2rem;
+    background: var(--bg-secondary);
+    padding: 5rem 2rem;
     text-align: center;
   }
 
@@ -625,7 +652,6 @@
     font-size: 1.5rem;
     margin-bottom: 2rem;
     line-height: 1.4;
-    letter-spacing: 2px;
   }
 
   .cta-banner .cta-group {
@@ -660,15 +686,7 @@
 
     .pillars-grid {
       grid-template-columns: repeat(2, 1fr);
-    }
-
-    .pillar + .pillar {
-      margin-left: 0;
-    }
-
-    .pillar:nth-child(3),
-    .pillar:nth-child(4) {
-      margin-top: -1px;
+      gap: 1rem;
     }
 
     .explore-grid {
@@ -687,10 +705,6 @@
 
     .pillars-grid {
       grid-template-columns: 1fr;
-    }
-
-    .pillar:nth-child(n + 2) {
-      margin-top: -1px;
     }
 
     .stat {

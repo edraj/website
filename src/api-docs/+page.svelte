@@ -1,5 +1,4 @@
 <script lang="ts">
-    import { onMount } from "svelte";
 </script>
 
 <div class="content">
@@ -850,288 +849,125 @@
 </div>
 
 <style>
-    .content {
-        color: var(--text-main);
-    }
+  /* h2 code override for route labels */
+  h2 code {
+    font-size: 0.85em;
+    font-family: var(--font-mono);
+    text-transform: none;
+    margin-left: 0.5rem;
+  }
 
-    h1 {
-        font-size: 2rem;
-        margin-bottom: 1rem;
-        color: var(--text-main);
-        border-bottom: 1px solid var(--border-color);
-        padding-bottom: 0.5rem;
-        text-transform: uppercase;
-    }
+  /* ─── ENDPOINT CARDS ─── */
+  .endpoint {
+    margin-bottom: 1.5rem;
+    padding: 1rem;
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    transition: box-shadow 0.2s;
+  }
 
-    .intro {
-        font-size: 1.05rem;
-        color: var(--text-secondary);
-        margin-bottom: 2.5rem;
-        font-family: var(--font-sans);
-        line-height: 1.7;
-    }
+  .endpoint:hover {
+    box-shadow: var(--shadow-sm);
+  }
 
-    .feature-section {
-        margin-bottom: 3rem;
-        padding: 1.5rem;
-        background: var(--bg-secondary);
-        border: 1px solid var(--border-color);
-    }
+  .endpoint:last-child {
+    margin-bottom: 0;
+  }
 
-    h2 {
-        font-size: 1.5rem;
-        margin-bottom: 1rem;
-        color: var(--text-main);
-        text-transform: uppercase;
-    }
+  .endpoint-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+  }
 
-    h2 code {
-        font-size: 0.85em;
-        text-transform: none;
-        margin-left: 0.5rem;
-    }
+  .endpoint-header code {
+    font-size: 0.85rem;
+    font-family: var(--font-mono);
+    font-weight: 700;
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: var(--text-main);
+  }
 
-    h3 {
-        font-size: 1.1rem;
-        margin-top: 1.5rem;
-        margin-bottom: 0.5rem;
-        color: var(--text-main);
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        border-bottom: 1px dashed var(--border-color);
-        display: inline-block;
-        padding-bottom: 0.2rem;
-    }
+  .method {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    font-size: 0.7rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-family: var(--font-mono);
+    border: none;
+    border-radius: var(--radius-sm);
+    min-width: 55px;
+    text-align: center;
+  }
 
-    p {
-        margin-bottom: 1rem;
-        line-height: 1.6;
-    }
+  .method.get {
+    background: #e8f5e9;
+    color: #2e7d32;
+  }
 
-    strong {
-        color: var(--text-main);
-        font-weight: 700;
-    }
+  .method.post {
+    background: #e3f2fd;
+    color: #1565c0;
+  }
 
-    code {
-        font-family: "Courier New", Courier, monospace;
-        font-size: 0.85em;
-        background: var(--bg-color);
-        border: 1px solid var(--border-color);
-        padding: 0.1rem 0.35rem;
-    }
+  .method.put {
+    background: #fff3e0;
+    color: #e65100;
+  }
 
-    /* ─── GRID & ITEMS ─── */
-    .grid-list {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
+  .method.delete {
+    background: #ffebee;
+    color: #c62828;
+  }
 
-    .item {
-        background: var(--bg-color);
-        padding: 1rem;
-        border: 1px solid var(--border-color);
-        display: flex;
-        flex-direction: column;
-        gap: 0.3rem;
-    }
+  :global(.dark) .method.get {
+    background: #1b3a1b;
+    color: #66bb6a;
+  }
+  :global(.dark) .method.post {
+    background: #0d2948;
+    color: #42a5f5;
+  }
+  :global(.dark) .method.put {
+    background: #3d2200;
+    color: #ffa726;
+  }
+  :global(.dark) .method.delete {
+    background: #3d0c0c;
+    color: #ef5350;
+  }
 
-    .item strong {
-        font-size: 1rem;
-        text-transform: uppercase;
-    }
+  .endpoint p {
+    margin-bottom: 0.5rem;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+  }
 
-    .item span {
-        font-size: 0.85rem;
-        color: var(--text-secondary);
-        line-height: 1.4;
-    }
+  /* Code blocks inside endpoints use a slightly different bg */
+  .endpoint .code-container {
+    background: var(--code-bg);
+    border-radius: var(--radius-md);
+    margin: 0.75rem 0;
+  }
 
-    /* ─── TABLE ─── */
-    .table-container {
-        overflow-x: auto;
-        margin: 1rem 0;
-        border: 1px solid var(--border-color);
-    }
+  .endpoint .code-container pre {
+    padding: 1rem;
+  }
 
-    table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 0.85rem;
-    }
-
-    thead {
-        background: var(--bg-color);
-    }
-
-    th {
-        text-align: left;
-        padding: 0.75rem 1rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        font-size: 0.75rem;
-        color: var(--text-main);
-        border-bottom: 2px solid var(--text-main);
-    }
-
-    td {
-        padding: 0.75rem 1rem;
-        color: var(--text-secondary);
-        border-bottom: 1px solid var(--border-color);
-        vertical-align: top;
-        line-height: 1.5;
-    }
-
-    tr:last-child td {
-        border-bottom: none;
-    }
-
-    td code {
-        font-size: 0.8em;
-    }
-
-    /* ─── ENDPOINT CARDS ─── */
-    .endpoint {
-        margin-bottom: 1.5rem;
-        padding: 1rem;
-        background: var(--bg-color);
-        border: 1px solid var(--border-color);
-    }
-
-    .endpoint:last-child {
-        margin-bottom: 0;
-    }
-
+  @media (max-width: 768px) {
     .endpoint-header {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        margin-bottom: 0.5rem;
+      flex-wrap: wrap;
     }
 
     .endpoint-header code {
-        font-size: 0.85rem;
-        font-weight: 700;
-        background: transparent;
-        border: none;
-        padding: 0;
-        color: var(--text-main);
+      font-size: 0.75rem;
+      word-break: break-all;
     }
-
-    .method {
-        display: inline-block;
-        padding: 0.15rem 0.5rem;
-        font-size: 0.7rem;
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        font-family: "Courier New", Courier, monospace;
-        border: 1px solid;
-        min-width: 55px;
-        text-align: center;
-    }
-
-    .method.get {
-        color: #2e7d32;
-        border-color: #2e7d32;
-    }
-
-    .method.post {
-        color: #1565c0;
-        border-color: #1565c0;
-    }
-
-    .method.put {
-        color: #e65100;
-        border-color: #e65100;
-    }
-
-    .method.delete {
-        color: #c62828;
-        border-color: #c62828;
-    }
-
-    :global(.dark) .method.get {
-        color: #66bb6a;
-        border-color: #66bb6a;
-    }
-    :global(.dark) .method.post {
-        color: #42a5f5;
-        border-color: #42a5f5;
-    }
-    :global(.dark) .method.put {
-        color: #ffa726;
-        border-color: #ffa726;
-    }
-    :global(.dark) .method.delete {
-        color: #ef5350;
-        border-color: #ef5350;
-    }
-
-    .endpoint p {
-        margin-bottom: 0.5rem;
-        font-size: 0.9rem;
-        color: var(--text-secondary);
-    }
-
-    .params {
-        font-size: 0.85rem !important;
-    }
-
-    /* ─── CODE BLOCKS ─── */
-    .code-container {
-        background: var(--bg-secondary);
-        border: 1px solid var(--border-color);
-        margin: 0.75rem 0;
-        overflow-x: auto;
-    }
-
-    .feature-section > .code-container {
-        background: var(--bg-color);
-    }
-
-    .code-container pre {
-        margin: 0;
-        padding: 1rem;
-        background: transparent;
-        border: none;
-    }
-
-    .code-container code {
-        font-family: "Courier New", Courier, monospace;
-        font-size: 0.8rem;
-        line-height: 1.6;
-        color: var(--text-main);
-        background: transparent;
-        border: none;
-        padding: 0;
-        white-space: pre;
-    }
-
-    .code-note {
-        font-size: 0.85rem;
-        color: var(--text-secondary);
-        margin-top: 0.25rem;
-        margin-bottom: 0.5rem;
-        padding-left: 0.5rem;
-        border-left: 2px solid var(--border-color);
-    }
-
-    @media (max-width: 768px) {
-        .grid-list {
-            grid-template-columns: 1fr;
-        }
-
-        .endpoint-header {
-            flex-wrap: wrap;
-        }
-
-        .endpoint-header code {
-            font-size: 0.75rem;
-            word-break: break-all;
-        }
-    }
+  }
 </style>
