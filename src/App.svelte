@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import type { Component } from "svelte";
   import AuroraBackground from "./lib/AuroraBackground.svelte";
   import Home from "./lib/Home.svelte";
   import Features from "./features/+page.svelte";
@@ -13,7 +14,9 @@
   import Settings from "./settings/+page.svelte";
   import CLI from "./cli/+page.svelte";
 
-  const routes: Record<string, { component: typeof Home; title: string }> = {
+  type PageComponent = Component<Record<string, never>>;
+
+  const routes: Record<string, { component: PageComponent; title: string }> = {
     "/features": { component: Features, title: "Features" },
     "/why": { component: Why, title: "Why DMART?" },
     "/technical": { component: Technical, title: "Technical Overview" },
@@ -123,7 +126,7 @@
     };
   });
 
-  let Component = $derived(routes[currentPath]?.component ?? Home);
+  let CurrentPage = $derived(routes[currentPath]?.component);
 
   let activeTab = $derived.by(() => {
     if (currentPath === "/features") return "features";
@@ -198,9 +201,9 @@
 
   {#if activeTab === "home"}
     <Home {navigate} />
-  {:else}
+  {:else if CurrentPage}
     <div class="page-container">
-      <Component />
+      <CurrentPage />
     </div>
   {/if}
 
