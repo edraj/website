@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import AuroraBackground from "./lib/AuroraBackground.svelte";
   import Home from "./lib/Home.svelte";
   import Features from "./features/+page.svelte";
   import Why from "./why/+page.svelte";
@@ -132,6 +133,8 @@
   });
 </script>
 
+<AuroraBackground />
+
 <main>
   <nav>
     <div class="nav-container">
@@ -213,15 +216,17 @@
 
 <style>
   :global(body) {
-    background-color: var(--bg-secondary);
+    background-color: var(--bg-color);
     color: var(--text-main);
   }
 
   nav {
-    background: rgba(255, 255, 255, 0.85);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+    border-bottom: 1px solid transparent;
+    border-image: var(--gradient-hairline) 1;
     position: sticky;
     top: 0;
     z-index: 100;
@@ -229,7 +234,7 @@
   }
 
   :global(:root.dark) nav {
-    background: rgba(15, 15, 26, 0.85);
+    background: rgba(15, 15, 26, 0.72);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
   }
 
@@ -245,15 +250,30 @@
   .logo {
     font-size: 1.6rem;
     font-weight: 900;
-    color: var(--primary-color);
+    background: var(--gradient-iri);
+    background-size: 200% 200%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
     cursor: pointer;
     letter-spacing: 2px;
     text-transform: uppercase;
-    transition: opacity 0.2s ease;
+    transition: filter 0.3s ease;
   }
 
   .logo:hover {
-    opacity: 0.85;
+    filter: brightness(1.12) saturate(1.1);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .logo {
+      animation: logo-shimmer 10s ease-in-out infinite;
+    }
+  }
+
+  @keyframes logo-shimmer {
+    0%, 100% { background-position: 0% 50%; }
+    50%      { background-position: 100% 50%; }
   }
 
   .links {
@@ -277,7 +297,8 @@
   nav button:hover {
     color: var(--primary-color);
     background: transparent;
-    border-bottom: 2px solid var(--primary-color);
+    border-bottom: 2px solid transparent;
+    border-image: linear-gradient(90deg, var(--iri-1), var(--iri-3), var(--iri-4)) 1;
     box-shadow: none;
     transform: none;
   }
@@ -286,7 +307,8 @@
     color: var(--primary-color);
     background: transparent;
     font-weight: 600;
-    border-bottom: 2px solid var(--primary-color);
+    border-bottom: 2px solid transparent;
+    border-image: linear-gradient(90deg, var(--iri-1), var(--iri-3), var(--iri-4)) 1;
   }
 
   /* ─── DROPDOWN ─── */
@@ -364,7 +386,11 @@
     max-width: 960px;
     margin: 0 auto;
     padding: 3.5rem 2.5rem;
-    background: var(--bg-color);
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-border);
+    border-top: none;
     min-height: 80vh;
     border-radius: 0 0 var(--radius-lg) var(--radius-lg);
   }
@@ -379,9 +405,10 @@
     text-align: center;
     padding: 1.5rem 1rem;
     color: var(--text-secondary);
-    border-top: 1px solid var(--border-color);
+    border-top: 1px solid transparent;
+    border-image: var(--gradient-hairline) 1;
     margin-top: auto;
-    background: var(--bg-secondary);
+    background: transparent;
     font-size: 0.85rem;
   }
 

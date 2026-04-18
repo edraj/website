@@ -15,6 +15,27 @@
   --code-bg: #f0f0f8;
   --accent-light: #eef2ff;
 
+  /* Iridescent stops */
+  --iri-1: #6366f1;
+  --iri-2: #8b5cf6;
+  --iri-3: #d946ef;
+  --iri-4: #22d3ee;
+  --iri-5: #f0abfc;
+
+  /* Iridescent gradients */
+  --gradient-iri: linear-gradient(135deg, var(--iri-1) 0%, var(--iri-2) 35%, var(--iri-3) 70%, var(--iri-4) 100%);
+  --gradient-iri-soft: linear-gradient(135deg, #eef2ff 0%, #faf5ff 50%, #ecfeff 100%);
+  --gradient-hairline: linear-gradient(90deg, transparent, var(--iri-2) 50%, transparent);
+  --gradient-hairline-v: linear-gradient(180deg, transparent, var(--iri-2) 50%, transparent);
+
+  /* Glass surfaces */
+  --glass-bg: rgba(255, 255, 255, 0.55);
+  --glass-border: rgba(139, 92, 246, 0.18);
+  --glass-blur: 16px;
+
+  /* Glow */
+  --glow-iri: 0 0 60px -20px rgba(217, 70, 239, 0.55);
+
   /* UI Elements */
   --radius-sm: 4px;
   --radius-md: 6px;
@@ -29,6 +50,7 @@
   --font-mono: 'JetBrains Mono', 'Courier New', monospace;
 
   font-family: var(--font-sans);
+  font-feature-settings: "ss01", "cv11";
   line-height: 1.6;
   font-weight: 400;
 
@@ -40,6 +62,13 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Register --angle for conic-gradient animation */
+@property --angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
 }
 
 /* Dark Mode Overrides */
@@ -56,6 +85,17 @@
 
   --code-bg: #1e1e30;
   --accent-light: #1e1b4b;
+
+  /* Iridescent — dark */
+  --iri-1: #818cf8;
+  --iri-2: #a78bfa;
+  --iri-3: #e879f9;
+  --iri-4: #67e8f9;
+  --iri-5: #f5d0fe;
+  --gradient-iri-soft: linear-gradient(135deg, #1e1b4b 0%, #2a1454 50%, #083344 100%);
+  --glass-bg: rgba(22, 22, 37, 0.55);
+  --glass-border: rgba(167, 139, 250, 0.22);
+  --glow-iri: 0 0 80px -10px rgba(232, 121, 249, 0.45);
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2), 0 1px 3px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.2), 0 4px 12px rgba(0, 0, 0, 0.3);
@@ -76,6 +116,16 @@
 
     --code-bg: #1e1e30;
     --accent-light: #1e1b4b;
+
+    --iri-1: #818cf8;
+    --iri-2: #a78bfa;
+    --iri-3: #e879f9;
+    --iri-4: #67e8f9;
+    --iri-5: #f5d0fe;
+    --gradient-iri-soft: linear-gradient(135deg, #1e1b4b 0%, #2a1454 50%, #083344 100%);
+    --glass-bg: rgba(22, 22, 37, 0.55);
+    --glass-border: rgba(167, 139, 250, 0.22);
+    --glow-iri: 0 0 80px -10px rgba(232, 121, 249, 0.45);
 
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2), 0 1px 3px rgba(0, 0, 0, 0.3);
     --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.2), 0 4px 12px rgba(0, 0, 0, 0.3);
@@ -175,7 +225,8 @@ button:focus-visible {
   font-size: 2rem;
   margin-bottom: 1.5rem;
   color: var(--text-main);
-  border-left: 4px solid var(--primary-color);
+  border-left: 4px solid transparent;
+  border-image: linear-gradient(180deg, var(--iri-1), var(--iri-3), var(--iri-4)) 1;
   padding-left: 1rem;
   padding-bottom: 0;
   border-bottom: none;
@@ -192,8 +243,10 @@ button:focus-visible {
 .content .feature-section {
   margin-bottom: 3rem;
   padding: 1.5rem;
-  background: var(--bg-color);
-  border: 1px solid var(--border-color);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
 }
@@ -210,7 +263,8 @@ button:focus-visible {
   margin-bottom: 0.5rem;
   color: var(--text-main);
   letter-spacing: 0.5px;
-  border-bottom: 2px solid var(--primary-color);
+  border-bottom: 2px solid transparent;
+  border-image: linear-gradient(90deg, var(--iri-1), var(--iri-3), var(--iri-4)) 1;
   display: inline-block;
   padding-bottom: 0.2rem;
 }
@@ -282,7 +336,8 @@ button:focus-visible {
 }
 
 .content .item:hover {
-  box-shadow: var(--shadow-md);
+  box-shadow: 0 0 0 1px var(--glass-border), var(--shadow-md);
+  border-color: var(--glass-border);
 }
 
 .content .item strong {
@@ -329,7 +384,7 @@ button:focus-visible {
 }
 
 .content thead {
-  background: var(--bg-secondary);
+  background: var(--gradient-iri-soft);
 }
 
 .content th {
@@ -369,11 +424,13 @@ button:focus-visible {
 }
 
 .content .code-container.tree {
-  border-left: 3px solid var(--primary-color);
+  border-left: 3px solid transparent;
+  border-image: linear-gradient(180deg, var(--iri-2), var(--iri-3)) 1;
 }
 
 .content .code-container.python {
-  border-left: 3px solid var(--primary-color);
+  border-left: 3px solid transparent;
+  border-image: linear-gradient(180deg, var(--iri-2), var(--iri-3)) 1;
 }
 
 .content .code-container pre {
@@ -400,7 +457,8 @@ button:focus-visible {
   margin-top: 0.25rem;
   margin-bottom: 0.5rem;
   padding-left: 0.5rem;
-  border-left: 2px solid var(--primary-color);
+  border-left: 2px solid transparent;
+  border-image: linear-gradient(180deg, var(--iri-2), var(--iri-3)) 1;
 }
 
 /* ─── STEP SECTIONS ─── */
@@ -423,8 +481,8 @@ button:focus-visible {
   text-align: center;
   margin-top: 1rem;
   padding: 1rem 1.25rem;
-  background: var(--accent-light);
-  border: 1px solid var(--border-color);
+  background: var(--gradient-iri-soft);
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius-md);
   font-weight: 500;
 }

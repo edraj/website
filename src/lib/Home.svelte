@@ -8,6 +8,7 @@
   let { navigate }: Props = $props();
 
   let visible = $state(false);
+  let revealRoot: HTMLElement | undefined = $state();
 
   function handleCardKeydown(e: KeyboardEvent, path: string) {
     if (e.key === "Enter" || e.key === " ") {
@@ -20,16 +21,35 @@
     requestAnimationFrame(() => {
       visible = true;
     });
+
+    if (!revealRoot || typeof IntersectionObserver === "undefined") return;
+
+    const targets = revealRoot.querySelectorAll<HTMLElement>(".reveal");
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("in-view");
+            observer.unobserve(entry.target);
+          }
+        }
+      },
+      { rootMargin: "0px 0px -10% 0px", threshold: 0.08 },
+    );
+    targets.forEach((el) => observer.observe(el));
+
+    return () => observer.disconnect();
   });
 </script>
 
+<div class="home-root" bind:this={revealRoot}>
 <!-- ═══ HERO ═══ -->
 <section class="hero" class:visible>
   <div class="hero-inner">
     <div class="hero-badge">OPEN SOURCE</div>
     <h1 class="hero-title">
       <span class="hero-title-line">DATA</span>
-      <span class="hero-title-line accent">MART</span>
+      <span class="hero-title-line accent shimmer">MART</span>
     </h1>
     <p class="hero-subtitle">
       A unified Data-as-a-Service platform.<br />
@@ -66,7 +86,7 @@
 </section>
 
 <!-- ═══ STATS ═══ -->
-<section class="stats">
+<section class="stats reveal">
   <div class="stats-inner">
     <div class="stat">
       <span class="stat-value">≤300M</span>
@@ -91,7 +111,7 @@
 </section>
 
 <!-- ═══ PILLARS ═══ -->
-<section class="pillars">
+<section class="pillars reveal">
   <h2 class="section-title">Core Pillars</h2>
   <div class="pillars-grid">
     <div class="pillar" role="link" tabindex="0" onclick={() => navigate("/features")} onkeydown={(e) => handleCardKeydown(e, "/features")}>
@@ -134,7 +154,7 @@
 </section>
 
 <!-- ═══ HOW IT WORKS ═══ -->
-<section class="how-it-works">
+<section class="how-it-works reveal">
   <h2 class="section-title">How It Works</h2>
   <div class="steps">
     <div class="step">
@@ -181,7 +201,7 @@
 </section>
 
 <!-- ═══ EXPLORE SECTIONS ═══ -->
-<section class="explore">
+<section class="explore reveal">
   <h2 class="section-title">Explore</h2>
   <div class="explore-grid">
     <div class="explore-card" role="link" tabindex="0" onclick={() => navigate("/features")} onkeydown={(e) => handleCardKeydown(e, "/features")}>
@@ -232,9 +252,9 @@
 </section>
 
 <!-- ═══ CTA BANNER ═══ -->
-<section class="cta-banner">
+<section class="cta-banner reveal">
   <div class="cta-banner-inner">
-    <h2>Stop managing databases.<br />Start managing assets.</h2>
+    <h2>Stop managing databases.<br /><span class="shimmer">Start managing assets.</span></h2>
     <div class="cta-group">
       <button class="primary" onclick={() => navigate("/features")}
         >Get Started</button
@@ -248,6 +268,7 @@
     </div>
   </div>
 </section>
+</div>
 
 <style>
   /* ─── HERO ─── */
@@ -282,12 +303,13 @@
     font-weight: 700;
     letter-spacing: 3px;
     text-transform: uppercase;
-    background: var(--accent-light);
+    background: var(--gradient-iri-soft);
     color: var(--primary-color);
-    border: none;
+    border: 1px solid var(--glass-border);
     padding: 0.3rem 1rem;
     margin-bottom: 1.5rem;
     border-radius: 100px;
+    box-shadow: 0 1px 2px rgba(139, 92, 246, 0.08);
   }
 
   .hero-title {
@@ -305,7 +327,22 @@
   }
 
   .hero-title-line.accent {
-    color: var(--primary-color);
+    background: var(--gradient-iri);
+    background-size: 220% 220%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .shimmer {
+      animation: shimmer 9s ease-in-out infinite;
+    }
+  }
+
+  @keyframes shimmer {
+    0%, 100% { background-position: 0% 50%; }
+    50%      { background-position: 100% 50%; }
   }
 
   .hero-subtitle {
@@ -318,6 +355,17 @@
 
   .hero-ascii {
     flex-shrink: 0;
+    padding: 2px;
+    background: var(--gradient-iri);
+    background-size: 200% 200%;
+    border-radius: 14px;
+    box-shadow: var(--glow-iri);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .hero-ascii {
+      animation: shimmer 14s ease-in-out infinite;
+    }
   }
 
   .hero-ascii pre {
@@ -325,14 +373,17 @@
     font-size: 0.8rem;
     line-height: 1.4;
     color: var(--text-secondary);
-    border: 1px solid var(--border-color);
+    border: none;
     padding: 1.5rem;
     background: var(--bg-color);
     margin: 0;
     white-space: pre;
     overflow-x: auto;
-    border-radius: 8px;
-    box-shadow: var(--shadow-sm);
+    border-radius: 12px;
+  }
+
+  :global(:root.dark) .hero-ascii pre {
+    color: var(--iri-2);
   }
 
   .cta-group {
@@ -343,19 +394,28 @@
   }
 
   button.primary {
-    background-color: var(--primary-color);
+    background: var(--gradient-iri);
+    background-size: 160% 160%;
+    background-position: 0% 50%;
     color: #fff;
     padding: 0.7rem 1.8rem;
     font-size: 0.9rem;
-    border: 1px solid var(--primary-color);
+    border: none;
     font-weight: 700;
     letter-spacing: 1px;
-    border-radius: 6px;
-    transition: opacity 0.2s;
+    border-radius: 8px;
+    box-shadow: 0 4px 14px -4px rgba(139, 92, 246, 0.55);
+    transition: background-position 0.4s ease, box-shadow 0.2s ease, transform 0.15s ease;
   }
 
   button.primary:hover {
-    opacity: 0.85;
+    background-position: 100% 50%;
+    box-shadow: 0 6px 20px -4px rgba(217, 70, 239, 0.55);
+    transform: translateY(-1px);
+  }
+
+  button.primary:active {
+    transform: translateY(0);
   }
 
   button.secondary {
@@ -392,7 +452,10 @@
 
   /* ─── STATS ─── */
   .stats {
-    background: var(--bg-secondary);
+    background: var(--gradient-iri-soft);
+    border-top: 1px solid transparent;
+    border-bottom: 1px solid transparent;
+    border-image: var(--gradient-hairline) 1;
     padding: 0;
   }
 
@@ -415,7 +478,10 @@
   .stat-value {
     font-size: 1.8rem;
     font-weight: 900;
-    color: var(--primary-color);
+    background: var(--gradient-iri);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
     letter-spacing: -1px;
   }
 
@@ -429,7 +495,7 @@
   .stat-divider {
     width: 1px;
     height: 3rem;
-    background: var(--border-color);
+    background: var(--gradient-hairline-v);
   }
 
   /* ─── SECTION TITLE ─── */
@@ -458,32 +524,85 @@
 
   .pillar {
     padding: 2rem;
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-border);
+    border-radius: 14px;
     cursor: pointer;
     position: relative;
+    isolation: isolate;
     transition:
-      box-shadow 0.2s,
-      transform 0.2s;
+      box-shadow 0.25s ease,
+      transform 0.25s ease;
     display: flex;
     flex-direction: column;
   }
 
+  .pillar::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    padding: 1px;
+    background: conic-gradient(
+      from var(--angle, 0deg),
+      var(--iri-1),
+      var(--iri-3),
+      var(--iri-4),
+      var(--iri-1)
+    );
+    -webkit-mask:
+      linear-gradient(#000, #000) content-box,
+      linear-gradient(#000, #000);
+    mask:
+      linear-gradient(#000, #000) content-box,
+      linear-gradient(#000, #000);
+    -webkit-mask-composite: xor;
+            mask-composite: exclude;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+  }
+
   .pillar:hover {
-    box-shadow: var(--shadow-md);
-    transform: translateY(-2px);
+    box-shadow: 0 12px 30px -12px rgba(139, 92, 246, 0.4), var(--shadow-md);
+    transform: translateY(-3px);
+  }
+
+  .pillar:hover::before {
+    opacity: 1;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .pillar:hover::before {
+      animation: spin 6s linear infinite;
+    }
+  }
+
+  @keyframes spin {
+    to { --angle: 360deg; }
   }
 
   .pillar-icon {
-    font-size: 2rem;
+    font-size: 1.5rem;
     margin-bottom: 1rem;
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--accent-light);
+    background: var(--gradient-iri);
+    background-size: 200% 200%;
     border-radius: 50%;
+    box-shadow: 0 4px 12px -4px rgba(139, 92, 246, 0.45);
+    filter: saturate(1.05);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .pillar:hover .pillar-icon {
+      animation: shimmer 5s ease-in-out infinite;
+    }
   }
 
   .pillar h3 {
@@ -519,7 +638,8 @@
     max-width: 800px;
     margin: 0 auto;
     padding: 4rem 2rem;
-    border-top: 1px solid var(--border-color);
+    border-top: 1px solid transparent;
+    border-image: var(--gradient-hairline) 1;
   }
 
   .steps {
@@ -532,7 +652,8 @@
     display: flex;
     gap: 2rem;
     padding: 1.5rem 0;
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: 1px solid transparent;
+    border-image: var(--gradient-hairline) 1;
     align-items: flex-start;
   }
 
@@ -541,10 +662,13 @@
   }
 
   .step-num {
-    font-size: 2rem;
+    font-size: 2.2rem;
     font-weight: 900;
-    color: var(--primary-color);
-    opacity: 0.3;
+    background: var(--gradient-iri);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    opacity: 0.55;
     min-width: 3rem;
     line-height: 1;
     letter-spacing: -1px;
@@ -567,7 +691,8 @@
     max-width: 1200px;
     margin: 0 auto;
     padding: 4rem 2rem;
-    border-top: 1px solid var(--border-color);
+    border-top: 1px solid transparent;
+    border-image: var(--gradient-hairline) 1;
   }
 
   .explore-grid {
@@ -577,20 +702,44 @@
   }
 
   .explore-card {
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-border);
+    border-radius: 14px;
     padding: 2rem;
     cursor: pointer;
+    position: relative;
+    overflow: hidden;
     transition:
-      box-shadow 0.2s,
-      transform 0.2s;
+      box-shadow 0.25s ease,
+      transform 0.25s ease,
+      border-color 0.25s ease;
     display: flex;
     flex-direction: column;
   }
 
+  .explore-card::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: var(--gradient-iri);
+    transform: scaleY(0);
+    transform-origin: top;
+    transition: transform 0.3s ease;
+  }
+
   .explore-card:hover {
-    box-shadow: var(--shadow-md);
-    transform: translateY(-2px);
+    box-shadow: 0 10px 28px -12px rgba(139, 92, 246, 0.35), var(--shadow-md);
+    transform: translateY(-3px);
+    border-color: transparent;
+  }
+
+  .explore-card:hover::after {
+    transform: scaleY(1);
   }
 
   .explore-card-header {
@@ -605,7 +754,8 @@
     font-weight: 700;
     letter-spacing: 2px;
     color: var(--primary-color);
-    background: var(--accent-light);
+    background: var(--gradient-iri-soft);
+    border: 1px solid var(--glass-border);
     padding: 0.2rem 0.6rem;
     border-radius: 100px;
   }
@@ -638,9 +788,20 @@
 
   /* ─── CTA BANNER ─── */
   .cta-banner {
-    background: var(--bg-secondary);
+    background: var(--gradient-iri-soft);
+    border-top: 1px solid transparent;
+    border-image: var(--gradient-hairline) 1;
     padding: 5rem 2rem;
     text-align: center;
+    position: relative;
+  }
+
+  .cta-banner h2 .shimmer {
+    background: var(--gradient-iri);
+    background-size: 220% 220%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
   }
 
   .cta-banner-inner {
@@ -656,6 +817,21 @@
 
   .cta-banner .cta-group {
     justify-content: center;
+  }
+
+  /* ─── SCROLL REVEAL ─── */
+  @media (prefers-reduced-motion: no-preference) {
+    .reveal {
+      opacity: 0;
+      transform: translateY(14px);
+      transition:
+        opacity 0.7s ease,
+        transform 0.7s ease;
+    }
+    .reveal:global(.in-view) {
+      opacity: 1;
+      transform: none;
+    }
   }
 
   /* ─── RESPONSIVE ─── */
