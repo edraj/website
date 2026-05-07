@@ -11,6 +11,7 @@
   import EntityLifecycle from "./entity-lifecycle/+page.svelte";
   import Plugins from "./plugins/+page.svelte";
   import ApiDocs from "./api-docs/+page.svelte";
+  import QuerySearch from "./query-search/+page.svelte";
   import Settings from "./settings/+page.svelte";
   import CLI from "./cli/+page.svelte";
 
@@ -28,6 +29,7 @@
     },
     "/plugins": { component: Plugins, title: "Plugins" },
     "/api-docs": { component: ApiDocs, title: "API Documentation" },
+    "/query-search": { component: QuerySearch, title: "Query Search" },
     "/settings": { component: Settings, title: "Configuration Settings" },
     "/cli": { component: CLI, title: "CLI Reference" },
   };
@@ -37,6 +39,7 @@
     "/entity-lifecycle",
     "/settings",
     "/api-docs",
+    "/query-search",
     "/access-control",
     "/plugins",
     "/cli",
@@ -174,6 +177,9 @@
               <button onclick={() => navigate("/settings")}>Settings</button>
               <button onclick={() => navigate("/api-docs")}
                 >API Reference</button
+              >
+              <button onclick={() => navigate("/query-search")}
+                >Query Search</button
               >
               <button onclick={() => navigate("/access-control")}
               >Access Control</button
