@@ -4,7 +4,7 @@
 <div class="content">
     <h1>Entity Lifecycle &amp; Management</h1>
     <p class="intro">
-        A technical overview of the entity lifecycle within D-MART. Entities are
+        A technical overview of the entity lifecycle within DMART. Entities are
         the fundamental units of data storage and management, defined by a
         common structure that includes metadata and a payload.
     </p>
@@ -49,8 +49,8 @@
     "ar": "الوصف هنا"
   },
   "tags": ["tag1", "tag2"],
-  "created_at": "2023-10-27T10:00:00",
-  "updated_at": "2023-10-27T10:00:00",
+  "created_at": "2026-07-06T10:00:00",
+  "updated_at": "2026-07-06T10:00:00",
   "owner_shortname": "admin_user",
   "owner_group_shortname": "editors",
   "payload": {
@@ -67,9 +67,12 @@
     <div class="feature-section">
         <h2>Creating &amp; Managing Entities</h2>
         <p>
-            Entities are primarily managed through the REST API. When D-MART is
-            configured in <code>'file'</code> mode, they can also be managed directly
-            via the file system.
+            Entities are managed through the REST API — the single runtime path
+            for all create, read, update, and delete operations. Every entity is
+            persisted to <strong>PostgreSQL</strong>, which is the sole source of
+            truth. The same entities can also be exported to (and imported from)
+            the <code>.dm</code> JSON file layout for backup, migration, and
+            seeding.
         </p>
 
         <div class="step-section">
@@ -151,13 +154,149 @@
                     </tbody>
                 </table>
             </div>
+
+            <h4>Cascade Delete: <code>force</code> &amp; <code>dry_run</code></h4>
+            <p>
+                Two request-level flags (siblings of <code>request_type</code>,
+                applied only to <code>delete</code>) control how far a delete
+                reaches. <code>force: true</code> cascades — it removes a folder
+                (or a user) together with everything it contains / owns.
+                <code>dry_run: true</code> removes <strong>nothing</strong>: it runs
+                the same statements inside a transaction that is rolled back and
+                reports the projected blast radius instead.
+            </p>
+
+            <div class="code-container">
+                <pre><code
+                        >{`{
+  "space_name": "s",
+  "request_type": "delete",
+  "force": true,
+  "dry_run": true,
+  "records": [
+    {
+      "resource_type": "folder",
+      "shortname": "f",
+      "subpath": "/"
+    }
+  ]
+}`}</code
+                    ></pre>
+            </div>
+
+            <p>
+                Each deleted record comes back annotated with an
+                <code>affected</code> total plus a per-category <code>report</code>.
+                On a dry run <code>dry_run: true</code> is echoed and the numbers
+                are a projection of what a real delete would remove:
+            </p>
+
+            <div class="code-container">
+                <pre><code
+                        >{`{
+  "resource_type": "folder",
+  "shortname": "f",
+  "subpath": "/",
+  "attributes": {
+    "affected": 42,
+    "report": {
+      "entries": 30,
+      "attachments": 9,
+      "histories": 3,
+      "locks": 0
+    },
+    "dry_run": true
+  }
+}`}</code
+                    ></pre>
+            </div>
+
+            <p class="code-note">
+                A plain (non-<code>force</code>) delete of a user that has
+                created records is rejected — you must pass
+                <code>force: true</code> to delete the user and everything they
+                own. A force-delete can never wipe the <code>management</code> space,
+                even if the target user owns it. Drop <code>dry_run</code> (or set
+                it to <code>false</code>) to actually commit the cascade.
+            </p>
+
+            <h4>Reassigning Ownership: <code>assign</code></h4>
+            <p>
+                The <code>assign</code> request type transfers an entry's owner
+                to another user. <code>owner_shortname</code> is required in
+                <code>attributes</code> and the target user must already exist;
+                an optional <code>collaborators</code> map records additional
+                assignees. The permission check uses the dedicated
+                <code>assign</code> action (not <code>update</code>), so an admin
+                can grant "edit but not transfer ownership" separately.
+            </p>
+
+            <div class="code-container">
+                <pre><code
+                        >{`{
+  "space_name": "data",
+  "request_type": "assign",
+  "records": [
+    {
+      "resource_type": "content",
+      "shortname": "my_new_article",
+      "subpath": "/articles",
+      "attributes": {
+        "owner_shortname": "alice",
+        "collaborators": { "reviewer": "carol" }
+      }
+    }
+  ]
+}`}</code
+                    ></pre>
+            </div>
+
+            <h4>Per-Entry ACLs: <code>update_acl</code></h4>
+            <p>
+                The <code>update_acl</code> request type sets the per-entry
+                access control list from <code>attributes.acl</code>. Each ACL
+                entry names a <code>user_shortname</code> and the list of
+                <code>allowed_actions</code> that user may take on this specific
+                entry — a per-entry grant layered on top of the role/permission
+                model.
+            </p>
+
+            <div class="code-container">
+                <pre><code
+                        >{`{
+  "space_name": "data",
+  "request_type": "update_acl",
+  "records": [
+    {
+      "resource_type": "content",
+      "shortname": "my_new_article",
+      "subpath": "/articles",
+      "attributes": {
+        "acl": [
+          {
+            "user_shortname": "bob",
+            "allowed_actions": ["view", "update"]
+          }
+        ]
+      }
+    }
+  ]
+}`}</code
+                    ></pre>
+            </div>
         </div>
 
         <div class="step-section">
-            <h3>2. Via File System ('file' mode only)</h3>
+            <h3>2. Export &amp; Import (Backup / Migration / Seeding)</h3>
             <p>
-                When using the <code>file</code> adapter (default), entities are
-                stored as JSON files in the <code>spaces</code> directory.
+                Entities live in PostgreSQL at runtime, but they can be
+                round-tripped to and from a portable <code>.dm</code> JSON file
+                layout via the CLI (<code>export</code>, <code>import</code>,
+                <code>seed</code>, <code>migrate</code>). This zip-based format
+                mirrors each entity as a <code>meta.&lt;type&gt;.json</code> file and
+                is used for backups, migrations, and seeding sample data — it is
+                <strong>not</strong> a live editing mode; the database always
+                remains the source of truth.
             </p>
 
             <div class="code-container tree">
@@ -173,24 +312,15 @@
                     ></pre>
             </div>
 
-            <p><strong>To create an entity manually:</strong></p>
+            <p><strong>Each exported entity is represented by:</strong></p>
             <ol>
-                <li>Create the directory structure</li>
-                <li>Add the <code>meta.&lt;type&gt;.json</code> file</li>
+                <li>The directory structure for its space and subpath</li>
+                <li>A <code>meta.&lt;type&gt;.json</code> file with its metadata</li>
                 <li>
-                    (Optional) Add the payload file if the body is externalized
+                    (Optional) A separate payload file when the body is
+                    externalized
                 </li>
             </ol>
-        </div>
-
-        <div class="step-section">
-            <h3>3. Via SQL Database ('sql' mode)</h3>
-            <p>
-                When configured in <code>'sql'</code> mode, entities are stored in
-                relational database tables. While direct SQL access is possible for
-                administrative tasks, it is recommended to manage entities via the
-                API to ensure data integrity and proper event triggering.
-            </p>
         </div>
     </div>
 
@@ -198,7 +328,7 @@
     <div class="feature-section">
         <h2>Types of Records</h2>
         <p>
-            D-MART supports various resource types, each serving a specific
+            DMART supports various resource types, each serving a specific
             purpose:
         </p>
 
@@ -215,7 +345,7 @@
                 <strong>Data</strong>
                 <span
                     ><code>content</code>, <code>schema</code>,
-                    <code>json</code>, <code>file</code>,
+                    <code>json</code>, <code>data_asset</code>,
                     <code>media</code></span
                 >
             </div>
@@ -241,7 +371,7 @@
                 <strong>Big Data</strong>
                 <span
                     ><code>parquet</code>, <code>csv</code>, <code>jsonl</code>,
-                    <code>sqlite</code>, <code>duckdb</code></span
+                    <code>sqlite</code></span
                 >
             </div>
         </div>

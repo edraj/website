@@ -40,7 +40,7 @@ graph TD
         D_App2["Mobile App"] --&gt; API
         D_App3["Microservice"] --&gt; API
         API &lt;--&gt; Engine["DMART Engine"]
-        Engine &lt;--&gt; Store[("Data Assets&#60;br/&#62;Files or Database")]
+        Engine &lt;--&gt; Store[("PostgreSQL&#60;br/&#62;+ JSON Export")]
     end
       </pre>
     </div>
@@ -49,23 +49,25 @@ graph TD
       <div class="item">
         <strong>Ownership</strong>
         <span
-          >Choose between a standard SQL database for enterprise
-          compatibility, or a lightweight embedded SQLite for simplicity.</span
+          >Your data lives in a standard PostgreSQL database you control, and can
+          be exported in full to plain JSON files at any time — no proprietary
+          lock-in.</span
         >
       </div>
       <div class="item">
         <strong>Accessibility</strong>
         <span
           >A unified, standardized API layer means any application or
-          microservice can access your data securely, regardless of the
-          underlying storage.</span
+          microservice can access your data securely through one consistent
+          interface.</span
         >
       </div>
       <div class="item">
         <strong>Resilience</strong>
         <span
-          >Whether file-based or SQL-backed, your data is structured for
-          longevity, version control, and easy inspection.</span
+          >Data is stored in battle-tested PostgreSQL and can be exported to
+          human-readable JSON files, keeping it structured for longevity,
+          version control, and easy inspection.</span
         >
       </div>
     </div>
@@ -89,7 +91,7 @@ graph TD
         (CMS), a customer database (CRM), and a product inventory system simultaneously.
       </li>
       <li>
-        <strong>Low Maintenance:</strong> Simple file-based structure with "batteries-included"
+        <strong>Low Maintenance:</strong> A single self-contained binary with "batteries-included"
         features like user management and access control.
       </li>
       <li>

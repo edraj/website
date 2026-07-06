@@ -94,7 +94,7 @@
     </div>
     <div class="stat-divider"></div>
     <div class="stat">
-      <span class="stat-value">3</span>
+      <span class="stat-value">4</span>
       <span class="stat-label">Client SDKs</span>
     </div>
     <div class="stat-divider"></div>
@@ -192,8 +192,8 @@
       <div class="step-content">
         <h3>Integrate Everywhere</h3>
         <p>
-          Use official SDKs for Python, TypeScript, and Dart. Or call the REST
-          API directly.
+          Use official SDKs for Python, TypeScript, Dart, and C#/.NET. Or call
+          the REST API directly.
         </p>
       </div>
     </div>
@@ -233,8 +233,8 @@
       </div>
       <h3>Technical</h3>
       <p>
-        FastAPI backend, SQL database storage. Built for simplicity
-        and speed.
+        ASP.NET Core on .NET, PostgreSQL-backed. A single Native-AOT
+        binary — built for simplicity and speed.
       </p>
     </div>
     <div class="explore-card" role="link" tabindex="0" onclick={() => navigate("/drivers")} onkeydown={(e) => handleCardKeydown(e, "/drivers")}>
@@ -244,8 +244,8 @@
       </div>
       <h3>Drivers</h3>
       <p>
-        Official client libraries for Python, TypeScript/JavaScript, and
-        Dart/Flutter.
+        Official client libraries for Python, TypeScript/JavaScript,
+        Dart/Flutter, and C#/.NET.
       </p>
     </div>
   </div>

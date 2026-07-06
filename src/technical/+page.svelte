@@ -28,59 +28,73 @@
       <pre class="mermaid">
 graph TD
     User["User / Client"] -->|"HTTP/REST"| LB["Load Balancer / Reverse Proxy"]
-    LB -->|ASGI| API["FastAPI Backend"]
+    LB -->|HTTP| API["ASP.NET Core (Kestrel)"]
 
-    subgraph "Backend Services"
-        API -->|RW| SQL["SQL Database (e.g. PostgreSQL/SQLite)"]
+    subgraph "Backend (AOT binary)"
+        API -->|RW| SQL["PostgreSQL (Npgsql)"]
+        API -->|"MCP /mcp"| MCP["MCP Server"]
     end
 
-    subgraph "Frontend"
-        SPA["Svelte SPA"] -->|"API Calls"| API
-        Tauri["Tauri Desktop App"] -->|"API Calls"| API
+    subgraph "Embedded Frontend"
+        CXB["CXB (/cxb)"] -->|"API Calls"| API
+        CAT["Catalog (/cat)"] -->|"API Calls"| API
     end
 
-    SQL -->|Backup| Backup["Backup Systems"]
+    SQL -->|"Export (zip)"| Backup["Backup / Import-Export"]
       </pre>
     </div>
 
     <h3>Backend Stack</h3>
     <ul>
       <li>
-        <strong>Language:</strong> Python 3.12+ with extensive use of
-        <code>asyncio</code> for concurrent request handling.
+        <strong>Language &amp; Runtime:</strong> C# on .NET 10, compiled ahead of
+        time with <strong>Native AOT</strong> into a single self-contained
+        binary (~40&nbsp;MB) — no runtime install required. JSON is
+        source-generated (System.Text.Json), and the same binary bundles both
+        the server and the CLI client.
       </li>
       <li>
-        <strong>Web Framework:</strong> FastAPI, leveraging Pydantic for data validation
-        and OpenAPI schema generation.
-      </li>
-      <li><strong>ASGI Server:</strong> Hypercorn.</li>
-      <li>
-        <strong>Data Persistence:</strong> DMART uses a SQL database as the single source
-        of truth:
-        <ul>
-          <li>
-            <strong>PostgreSQL:</strong> Recommended for production deployments with
-            ACID compliance and relational integrity.
-          </li>
-          <li>
-            <strong>SQLite:</strong> Lightweight embedded option for development
-            and small deployments.
-          </li>
-        </ul>
+        <strong>Web Framework:</strong> ASP.NET Core Minimal APIs on the
+        <strong>Kestrel</strong> HTTP server, built with the slim/AOT host
+        (<code>WebApplication.CreateSlimBuilder</code>). Endpoints are
+        route groups (<code>MapGroup</code>), not MVC controllers. Swagger/OpenAPI
+        is served at <code>/docs</code>.
       </li>
       <li>
-        <strong>Authentication:</strong> JWT-based stateless authentication.
+        <strong>Data Persistence:</strong>
+        <strong>PostgreSQL</strong> (via Npgsql) is the single source of truth
+        for all runtime data — ACID compliant with relational integrity. There
+        is no Redis and no filesystem runtime store; caches are in-process only.
+      </li>
+      <li>
+        <strong>Authentication:</strong> JWT Bearer (HS256, Argon2-hashed
+        passwords), plus a full OAuth 2.1 Authorization Server with Google,
+        Facebook, and Apple sign-in.
+      </li>
+      <li>
+        <strong>Interoperability:</strong> Built-in MCP server at
+        <code>/mcp</code> (Streamable HTTP) and WebSocket endpoints for realtime
+        updates.
       </li>
     </ul>
 
     <h3>Frontend Stack</h3>
+    <p>
+      DMART ships two <strong>Svelte 5 + Vite</strong> admin SPAs that are
+      <strong>embedded directly into the .NET binary</strong> and served by
+      ASP.NET middleware — no separate frontend deployment:
+    </p>
     <ul>
-      <li><strong>Framework:</strong> Svelte + Vite.</li>
-      <li><strong>Routing:</strong> Routify (@roxi/routify).</li>
-      <li><strong>State Management:</strong> Svelte Stores.</li>
-      <li><strong>UI:</strong> Flowbite Svelte / SvelteStrap.</li>
       <li>
-        <strong>Desktop:</strong> Tauri (Rust-based) for cross-platform desktop applications.
+        <strong>CXB (<code>/cxb</code>):</strong> the Customer eXperience Builder
+        — the primary administrative interface.
+      </li>
+      <li>
+        <strong>Catalog (<code>/cat</code>):</strong> a user-oriented SPA.
+      </li>
+      <li>
+        <strong>Under the hood:</strong> Svelte 5, @roxi/routify v3, Vite, and
+        Svelte stores for state.
       </li>
     </ul>
   </div>
@@ -122,8 +136,12 @@ graph TD
         Media, Comment, Reaction, Relationship.
       </li>
       <li>
-        <strong>DataAsset:</strong> Specialized attachments for Json, Csv, Sqlite,
-        Duckdb, Parquet.
+        <strong>DataAsset:</strong> Specialized attachments for tabular/binary
+        data files — supported content types are <strong>CSV</strong>,
+        <strong>JSONL</strong>, <strong>SQLite</strong>, and
+        <strong>Parquet</strong>. Here <code>sqlite</code> is only a
+        data-asset content type, never the database backend (the backend is
+        always PostgreSQL).
       </li>
       <li>
         <strong>Ticket:</strong> Extends Meta for workflow states, reporters, and
@@ -135,17 +153,17 @@ graph TD
       <pre class="mermaid">
 classDiagram
     class Resource &#123;
-        +ConfigDict model_config
+        &lt;&lt;abstract&gt;&gt;
     &#125;
     class Payload &#123;
-        +ContentType content_type
-        +str body
+        +ContentType ContentType
+        +string Body
     &#125;
     class Meta &#123;
-        +UUID uuid
-        +str shortname
-        +Translation displayname
-        +Payload payload
+        +Guid Uuid
+        +string Shortname
+        +Translation Displayname
+        +Payload Payload
     &#125;
 
     Resource &lt;|-- Payload
@@ -157,16 +175,17 @@ classDiagram
     Meta &lt;|-- Content
     Meta &lt;|-- Schema
     Meta &lt;|-- Attachment
+    Meta &lt;|-- Ticket
 
     Actor &lt;|-- User
 
     Attachment &lt;|-- DataAsset
     Attachment &lt;|-- Comment
-    Attachment &lt;|-- Ticket
 
-    DataAsset &lt;|-- Json
     DataAsset &lt;|-- Csv
+    DataAsset &lt;|-- Jsonl
     DataAsset &lt;|-- Sqlite
+    DataAsset &lt;|-- Parquet
       </pre>
     </div>
   </div>
@@ -176,15 +195,19 @@ classDiagram
 
     <h3>4.1 Storage &amp; Data Longevity</h3>
     <p>
-      Data is stored in normalized database tables, ensuring ACID compliance
-      and standard relational integrity. DMART supports PostgreSQL for
-      production and SQLite for development/small deployments.
+      Data is stored in normalized PostgreSQL tables, ensuring ACID compliance
+      and standard relational integrity. PostgreSQL is the sole runtime store;
+      the on-disk <code>spaces/</code> + <code>.dm/</code> layout is used only as
+      a portable import/export, seed, and migration format (zip round-trips),
+      never as a live data store.
     </p>
 
     <h3>4.2 Advanced Search &amp; Querying</h3>
     <p>
-      The <code>/query</code> endpoint supports a rich query language using native SQL
-      with full-text search capabilities:
+      The <code>/query</code> endpoint supports a rich query language that is
+      compiled to SQL. Search runs on PostgreSQL with trigram indexes
+      (<code>pg_trgm</code> + GIN on jsonb), with optional
+      <strong>pgvector</strong> semantic search for cosine-similarity matching:
     </p>
     <ul>
       <li>
@@ -244,8 +267,13 @@ classDiagram
 
     <h3>4.6 Plugin System</h3>
     <p>
-      Event-driven plugin architecture with API plugins (new endpoints) and Hook
-      plugins (before/after action interceptors).
+      Event-driven plugin architecture built around two C# interfaces:
+      <code>IApiPlugin</code> (new endpoints mounted at
+      <code>/&#123;shortname&#125;</code>) and <code>IHookPlugin</code>
+      (before/after action interceptors). Beyond managed C# plugins, DMART also
+      loads <strong>native plugins</strong> from <code>~/.dmart/plugins</code> —
+      either crash-safe subprocess executables (JSON-lines over stdin/stdout) or
+      shared libraries via a C ABI — enabling extensions written in any language.
     </p>
   </div>
 
@@ -260,23 +288,23 @@ sequenceDiagram
     participant Router
     participant AccessControl
     participant PluginManager
-    participant DB_Adapter
+    participant SqlAdapter
 
-    Client->>Middleware: HTTP Request
-    Middleware->>Middleware: Auth &amp; Logging
-    Middleware->>Router: Route Request
+    Client->>Middleware: HTTP Request (Kestrel)
+    Middleware->>Middleware: JWT Auth &amp; Logging
+    Middleware->>Router: Route Request (Minimal API)
     Router->>AccessControl: Check Permissions (RBAC/ACL)
     alt Access Denied
         AccessControl-->>Client: 403 Forbidden
     else Access Granted
         Router->>PluginManager: Trigger Before Hooks
-        PluginManager->>PluginManager: Run Sync Hooks
+        PluginManager->>PluginManager: Run IHookPlugin handlers
 
-        Router->>DB_Adapter: Perform Action (CRUD)
-        DB_Adapter->>DB_Adapter: Update Storage &amp; Index
+        Router->>SqlAdapter: Perform Action (CRUD)
+        SqlAdapter->>SqlAdapter: Persist to PostgreSQL &amp; Index
 
         Router->>PluginManager: Trigger After Hooks
-        PluginManager->>PluginManager: Run Async Side Effects
+        PluginManager->>PluginManager: Run async side effects (Task)
 
         Router-->>Client: HTTP Response
     end
@@ -313,6 +341,15 @@ sequenceDiagram
       <li>
         <strong><code>/info</code></strong>: System information and manifest.
       </li>
+      <li>
+        <strong><code>/mcp</code></strong>: Model Context Protocol server
+        (Streamable HTTP) exposing DMART tools to AI clients, paired with the
+        OAuth 2.1 Authorization Server for client onboarding.
+      </li>
+      <li>
+        <strong><code>/docs</code></strong>: Swagger UI and OpenAPI schema
+        (<code>/docs/openapi.json</code>).
+      </li>
     </ul>
   </div>
 
@@ -321,9 +358,10 @@ sequenceDiagram
     <p>DMART natively handles analytical data files:</p>
     <ul>
       <li>
-        Specialized support for <strong>DuckDB</strong> and
-        <strong>SQLite</strong> attachments — perform SQL queries directly on attached
-        files via the API.
+        Specialized support for <strong>SQLite</strong> attachments — perform
+        SQL queries directly on attached files via the API. Note that
+        <code>sqlite</code> here is a data-asset content type only, not the
+        database backend (the backend is always PostgreSQL).
       </li>
       <li>
         <strong>Parquet</strong>, <strong>JSONL</strong>, and
@@ -336,19 +374,26 @@ sequenceDiagram
     <h2>7. Deployment</h2>
     <ul>
       <li>
+        <strong>Single Binary:</strong> Native-AOT publish produces one
+        self-contained <code>dmart</code> executable (~40&nbsp;MB) with no
+        runtime dependency — copy and run. The embedded admin UIs and sample
+        seed data ship inside it, and the same binary doubles as the CLI
+        (<code>seed</code>, <code>import</code>, <code>export</code>,
+        <code>migrate</code>).
+      </li>
+      <li>
         <strong>Containerized:</strong> Docker/Podman images available (<code
           >ghcr.io/edraj/dmart</code
         >).
       </li>
       <li>
-        <strong>Config:</strong> Environment variables via
-        <code>config.env</code>.
+        <strong>Config:</strong> Environment variables / <code>config.env</code>,
+        bound and validated once at startup (strict unknown-key rejection, no
+        hot reload).
       </li>
       <li>
-        <strong>Admin Scripts:</strong> Helpers for passwords, reindexing, and backups.
-      </li>
-      <li>
-        <strong>Offline:</strong> Scripts for air-gapped/offline installation.
+        <strong>External dependency:</strong> a PostgreSQL instance — no Redis,
+        no separate search cluster required.
       </li>
     </ul>
   </div>

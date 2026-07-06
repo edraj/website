@@ -4,16 +4,24 @@
 <div class="content">
     <h1>DMART CLI</h1>
     <p class="intro">
-        The <code>dmart</code> script is the primary entry point for managing the
-        DMART backend. It provides commands for running the server, interacting
-        via CLI, managing data, performing migrations, and more.
+        <code>dmart</code> is a single self-contained Native-AOT binary that is
+        both the server and the CLI client. The same executable starts the
+        ASP.NET Core / Kestrel HTTP server and exposes subcommands for managing
+        data, applying schema migrations, seeding sample spaces, running health
+        checks, and more.
     </p>
 
     <div class="feature-section">
         <h2>Usage</h2>
         <div class="code-container">
-            <pre><code>dmart &lt;command&gt; [arguments]</code></pre>
+            <pre><code>dmart [subcommand] [options]</code></pre>
         </div>
+        <p>
+            With no subcommand, <code>dmart</code> prints its help. Configuration
+            is resolved once at startup from
+            <code>$BACKEND_ENV &rarr; ./config.env &rarr; ~/.dmart/config.env</code>,
+            then overlaid with environment variables.
+        </p>
     </div>
 
     <div class="feature-section">
@@ -21,131 +29,226 @@
 
         <div class="step-section">
             <h3>1. serve</h3>
-            <p>Starts the DMART FastAPI backend server using Hypercorn.</p>
-            <p><strong>Options:</strong></p>
-            <ul>
-                <li>
-                    <code>--open-cxb</code>: Opens the CXB page in the browser after
-                    the server starts.
-                </li>
-                <li>
-                    <code>--dmart-config &lt;path&gt;</code>: Path to
-                    <code>config.env</code> file.
-                </li>
-                <li>
-                    <code>--cxb-config &lt;path&gt;</code>: Path to CXB
-                    <code>config.json</code> file.
-                </li>
-            </ul>
-            <div class="code-container">
-                <pre><code>dmart serve --open-cxb --dmart-config my_custom_config.env</code></pre>
-            </div>
-        </div>
-
-        <div class="step-section">
-            <h3>2. hyper</h3>
             <p>
-                Starts the application using Hypercorn with full access to its
-                command-line arguments.
+                Starts the DMART HTTP server (ASP.NET Core Minimal APIs on
+                Kestrel). This is the default action when a non-flag argument is
+                passed.
             </p>
             <p><strong>Options:</strong></p>
             <ul>
                 <li>
-                    Accepts all standard <code>hypercorn</code> arguments (-b, -w,
-                    --certfile, --keyfile).
+                    <code>--cxb-config &lt;path&gt;</code>: Path to the CXB admin
+                    UI <code>config.json</code> file.
                 </li>
-                <li><code>--open-cxb</code>: Opens CXB page in browser.</li>
             </ul>
             <div class="code-container">
-                <pre><code>dmart hyper -b 0.0.0.0:8000 -w 4</code></pre>
+                <pre><code>dmart serve --cxb-config my_cxb_config.json</code></pre>
             </div>
         </div>
 
         <div class="step-section">
-            <h3>3. cli</h3>
+            <h3>2. migrate</h3>
             <p>
-                Starts the interactive shell/CLI for communicating with the DMART
-                backend.
+                Creates or updates the PostgreSQL schema without starting the
+                server. Idempotent &mdash; safe to run repeatedly.
             </p>
-            <div class="code-container">
-                <pre><code>dmart cli
-dmart cli --config my_cli_config.ini</code></pre>
-            </div>
-        </div>
-
-        <div class="step-section">
-            <h3>4. ws</h3>
-            <p>Starts the standalone WebSocket server.</p>
-            <div class="code-container">
-                <pre><code>dmart ws --dmart-config prod_config.env</code></pre>
-            </div>
-        </div>
-
-        <div class="step-section">
-            <h3>5. wt</h3>
-            <p>Starts the standalone WebTransporter server.</p>
-            <div class="code-container">
-                <pre><code>dmart wt</code></pre>
-            </div>
-        </div>
-
-        <div class="step-section">
-            <h3>6. export</h3>
-            <p>Exports data from the database into a JSON-based ZIP archive.</p>
-            <p><strong>Options:</strong></p>
-            <ul>
-                <li>
-                    <code>--space_name &lt;name&gt;</code>: Specific space to export
-                    (optional).
-                </li>
-                <li>
-                    <code>--output &lt;path&gt;</code>: Output path for the ZIP file.
-                </li>
-            </ul>
-            <div class="code-container">
-                <pre><code>dmart export --output all_spaces.zip
-dmart export --space_name school --output .
-dmart export --space_name school --output school.zip</code></pre>
-            </div>
-        </div>
-
-        <div class="step-section">
-            <h3>7. import</h3>
-            <p>Imports data from a ZIP archive or directory into the database.</p>
-            <div class="code-container">
-                <pre><code>dmart import school.zip</code></pre>
-            </div>
-        </div>
-
-        <div class="step-section">
-            <h3>8. settings</h3>
-            <p>Prints the current application settings as formatted JSON.</p>
-            <div class="code-container">
-                <pre><code>dmart settings</code></pre>
-            </div>
-        </div>
-
-        <div class="step-section">
-            <h3>9. set_password</h3>
-            <p>Sets or updates an administrator password securely.</p>
-            <div class="code-container">
-                <pre><code>dmart set_password</code></pre>
-            </div>
-        </div>
-
-        <div class="step-section">
-            <h3>10. migrate</h3>
-            <p>Executes Alembic database migrations.</p>
             <div class="code-container">
                 <pre><code>dmart migrate</code></pre>
             </div>
         </div>
 
         <div class="step-section">
-            <h3>11. init</h3>
+            <h3>3. seed</h3>
             <p>
-                Initializes the DMART environment by copying sample spaces to
-                <code>~/.dmart/spaces</code>.
+                Seeds the bundled sample spaces and/or populates the database.
+                The sample spaces are embedded in the binary, so seeding works
+                standalone.
+            </p>
+            <p><strong>Modes:</strong></p>
+            <ul>
+                <li>
+                    no argument: copy bundled spaces to the spaces folder <em>and</em>
+                    import them into the database.
+                </li>
+                <li>
+                    <code>files-only</code>: copy bundled spaces to the spaces
+                    folder (fallback <code>~/.dmart/spaces</code>).
+                </li>
+                <li>
+                    <code>db-only</code>: import the spaces folder into the
+                    database.
+                </li>
+                <li>
+                    <code>--force</code>: overwrite existing files / upsert
+                    existing rows (default: skip both).
+                </li>
+            </ul>
+            <div class="code-container">
+                <pre><code>dmart seed
+dmart seed files-only
+dmart seed db-only --force</code></pre>
+            </div>
+        </div>
+
+        <div class="step-section">
+            <h3>4. import</h3>
+            <p>
+                Loads a zip or folder export into the database. By default,
+                existing rows are skipped (idempotent).
+            </p>
+            <p><strong>Options:</strong></p>
+            <ul>
+                <li><code>-r</code> / <code>--replace</code>: overwrite existing rows.</li>
+                <li><code>--fast</code>, <code>--fast-parallelism=N</code>, <code>--batch-size=N</code>: tune throughput.</li>
+                <li>
+                    <code>--resume</code>: resume a crashed filesystem import from
+                    a sidecar checkpoint
+                    (<code>&lt;source&gt;/.dmart-import-checkpoint.json</code>).
+                </li>
+            </ul>
+            <div class="code-container">
+                <pre><code>dmart import school.zip
+dmart import ./spaces --fast --replace</code></pre>
+            </div>
+        </div>
+
+        <div class="step-section">
+            <h3>5. export</h3>
+            <p>
+                Exports a space to a zip archive in the DMART on-disk layout
+                (<code>spaces/</code> + <code>.dm/meta.*.json</code>). This layout
+                is a transfer/backup format &mdash; PostgreSQL remains the source
+                of truth.
+            </p>
+            <p><strong>Output resolution:</strong></p>
+            <ul>
+                <li><code>--output</code> unset &rarr; <code>./&lt;space&gt;.zip</code></li>
+                <li><code>--output .</code> &rarr; <code>./&lt;space&gt;.zip</code></li>
+                <li><code>--output some/dir/</code> &rarr; <code>some/dir/&lt;space&gt;.zip</code></li>
+                <li><code>--output snap.zip</code> &rarr; <code>snap.zip</code></li>
+            </ul>
+            <div class="code-container">
+                <pre><code>dmart export school
+dmart export school --output .
+dmart export school --output snapshots/school.zip</code></pre>
+            </div>
+        </div>
+
+        <div class="step-section">
+            <h3>6. preflight</h3>
+            <p>
+                Scans a legacy filesystem export for integrity issues (duplicate
+                UUIDs, missing owners, schema-noncompliant payloads) and auto-fixes
+                them before <code>dmart import</code>.
+            </p>
+            <div class="code-container">
+                <pre><code>dmart preflight ./spaces
+dmart preflight --dry-run --workers 4 ./spaces</code></pre>
+            </div>
+        </div>
+
+        <div class="step-section">
+            <h3>7. settings</h3>
+            <p>
+                Prints the effective settings as JSON (secrets redacted). Shares
+                its projection with <code>GET /info/settings</code> so CLI and API
+                output stay in sync.
+            </p>
+            <div class="code-container">
+                <pre><code>dmart settings</code></pre>
+            </div>
+        </div>
+
+        <div class="step-section">
+            <h3>8. passwd</h3>
+            <p>
+                Sets the password for a user (Argon2-hashed). The shortname may be
+                passed positionally; passwords are read from a prompt, never the
+                command line.
+            </p>
+            <div class="code-container">
+                <pre><code>dmart passwd
+dmart passwd dmart</code></pre>
+            </div>
+        </div>
+
+        <div class="step-section">
+            <h3>9. check</h3>
+            <p>Runs health checks on a space.</p>
+            <div class="code-container">
+                <pre><code>dmart check
+dmart check school hard</code></pre>
+            </div>
+        </div>
+
+        <div class="step-section">
+            <h3>10. selfcheck</h3>
+            <p>
+                Smoke-tests the running HTTP surface (login + CRUD + query) against
+                a live server.
+            </p>
+            <div class="code-container">
+                <pre><code>dmart selfcheck --url http://localhost:8282 --admin dmart --password-stdin</code></pre>
+            </div>
+        </div>
+
+        <div class="step-section">
+            <h3>11. fix-folder-rendering</h3>
+            <p>
+                Repairs legacy folder payload bodies to match the canonical
+                <code>folder_rendering</code> schema (strips unknown fields, adds
+                required-but-missing ones, widens policy arrays). Content is never
+                touched. Dry-run by default; pass <code>--apply</code> to write.
+            </p>
+            <div class="code-container">
+                <pre><code>dmart fix-folder-rendering school
+dmart fix-folder-rendering school --apply</code></pre>
+            </div>
+        </div>
+
+        <div class="step-section">
+            <h3>12. update_query_policies</h3>
+            <p>
+                Recomputes <code>query_policies</code> for every entry and updates
+                rows whose stored value drifted (e.g. owner / is_active changed
+                outside the write path).
+            </p>
+            <div class="code-container">
+                <pre><code>dmart update_query_policies
+dmart update_query_policies --batch-size 500</code></pre>
+            </div>
+        </div>
+
+        <div class="step-section">
+            <h3>13. fix_query_policies</h3>
+            <p>
+                Backfills <code>entries.query_policies</code> for rows written
+                before write-time population landed. Idempotent.
+            </p>
+            <div class="code-container">
+                <pre><code>dmart fix_query_policies
+dmart fix_query_policies school --dry-run</code></pre>
+            </div>
+        </div>
+
+        <div class="step-section">
+            <h3>14. create-users-folders</h3>
+            <p>
+                Backfills each user's personal folders
+                (<code>notifications</code>, <code>private</code>,
+                <code>protected</code>, <code>public</code>, <code>inbox</code>).
+                Idempotent &mdash; existing folders are left untouched.
+            </p>
+            <div class="code-container">
+                <pre><code>dmart create-users-folders</code></pre>
+            </div>
+        </div>
+
+        <div class="step-section">
+            <h3>15. init</h3>
+            <p>
+                Initializes <code>~/.dmart</code> with config files, generating a
+                fresh random <code>JWT_SECRET</code>.
             </p>
             <div class="code-container">
                 <pre><code>dmart init</code></pre>
@@ -153,43 +256,32 @@ dmart export --space_name school --output school.zip</code></pre>
         </div>
 
         <div class="step-section">
-            <h3>12. update_query_policies</h3>
-            <p>Updates query policies in the SQL database.</p>
-            <div class="code-container">
-                <pre><code>dmart update_query_policies</code></pre>
-            </div>
-        </div>
-
-        <div class="step-section">
-            <h3>13. apply_plugin_config</h3>
+            <h3>16. cli</h3>
             <p>
-                Reads <code>~/.dmart/plugins_config.json</code> and patches plugin
-                configurations.
+                Interactive CLI client for talking to a running DMART server.
+                Supports a REPL, a single command, or a script.
             </p>
             <div class="code-container">
-                <pre><code>dmart apply_plugin_config</code></pre>
+                <pre><code>dmart cli
+dmart cli c myspace get /myspace/folder
+dmart cli s ./script.txt</code></pre>
             </div>
         </div>
 
         <div class="step-section">
-            <h3>14. info</h3>
-            <p>Prints detailed version information as formatted JSON.</p>
-            <div class="code-container">
-                <pre><code>dmart info</code></pre>
-            </div>
-        </div>
-
-        <div class="step-section">
-            <h3>15. version</h3>
-            <p>Prints the current Git tag of the application.</p>
+            <h3>17. version</h3>
+            <p>
+                Prints version and build info as JSON (version, branch, build date,
+                and .NET runtime).
+            </p>
             <div class="code-container">
                 <pre><code>dmart version</code></pre>
             </div>
         </div>
 
         <div class="step-section">
-            <h3>16. help</h3>
-            <p>Prints the list of available commands.</p>
+            <h3>18. help</h3>
+            <p>Prints the list of available subcommands.</p>
             <div class="code-container">
                 <pre><code>dmart help</code></pre>
             </div>

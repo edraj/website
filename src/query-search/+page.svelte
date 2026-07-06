@@ -6,9 +6,13 @@
     <p class="intro">
         The <code>search</code> field on the <code>Query</code> body
         (<code>POST /managed/query</code>, <code>POST /public/query</code>)
-        accepts a small RediSearch-flavoured expression language. This page
-        covers <strong>every operator</strong> and <strong>every value form</strong>,
-        with worked examples for each.
+        accepts a small RediSearch-flavoured expression language. The name is
+        historical: this is purely a <strong>syntax</strong> — the parser
+        compiles it straight into PostgreSQL <code>WHERE</code> clauses
+        (pg_trgm wildcards + GIN jsonb containment). There is no Redis or
+        RediSearch engine anywhere in the stack; every query runs against
+        Postgres. This page covers <strong>every operator</strong> and
+        <strong>every value form</strong>, with worked examples for each.
     </p>
 
     <!-- ═══ AT A GLANCE ═══ -->
@@ -841,6 +845,462 @@ foo bar                ⇒ rows where ALL the columns contain "foo" AND ALL cont
                   not tagged "archived",
                   updated since 2025-01-01 UTC`}</code></pre>
         </div>
+    </div>
+
+    <!-- ═══ AGGREGATION ═══ -->
+    <div class="feature-section">
+        <h2>Aggregation <code>type:"aggregation"</code></h2>
+        <p>
+            When <code>type</code> is <code>aggregation</code> (over the
+            <code>entries</code> table) or <code>attachments_aggregation</code>
+            (over the <code>attachments</code> table), the query carries an
+            <code>aggregation_data</code> object instead of returning raw
+            entries. It compiles straight into a single PostgreSQL
+            <code>SELECT … GROUP BY …</code>. The <code>search</code> string, if
+            present, still runs — as the <code>WHERE</code> clause
+            <em>before</em> aggregation.
+        </p>
+
+        <h3>The <code>aggregation_data</code> shape</h3>
+        <div class="code-container">
+            <pre><code>{`{
+  "type": "aggregation",
+  "space_name": "shop",
+  "subpath": "orders",
+  "search": "@is_active:true",
+  "aggregation_data": {
+    "group_by": ["@payload.body.status"],
+    "reducers": [
+      { "reducer_name": "count", "alias": "orders" },
+      { "reducer_name": "avg", "args": ["@payload.body.total"], "alias": "avg_total" }
+    ]
+  }
+}`}</code></pre>
+        </div>
+        <p>
+            <code>group_by</code> is a list of column names or dotted
+            <code>payload.*</code> paths; a leading <code>@</code> is optional
+            and stripped. <code>reducers</code> is a list of aggregate specs.
+            (A third field, <code>load</code>, is accepted for wire-compat with
+            upstream but the SQL builder derives its columns from
+            <code>group_by</code> + <code>reducers</code> only — <code>load</code>
+            is effectively a no-op here.)
+        </p>
+
+        <h3>The <code>reducers[]</code> item shape</h3>
+        <div class="code-container">
+            <pre><code>{`{ "reducer_name": "quantile", "args": ["@payload.body.price", "0.9"], "alias": "p90" }`}</code></pre>
+        </div>
+        <ul>
+            <li>
+                <code>reducer_name</code> — one of the functions in the table
+                below (case-insensitive).
+            </li>
+            <li>
+                <code>args</code> — positional arguments. <code>args[0]</code> is
+                the target field (column or dotted <code>payload.*</code> path; a
+                leading <code>@</code> is stripped). A missing
+                <code>args[0]</code> is only valid for <code>count</code> /
+                <code>count_distinct</code> (which fall back to <code>*</code>);
+                every other reducer with no field is dropped from the SELECT.
+            </li>
+            <li>
+                <code>alias</code> — the output attribute key. When omitted, the
+                <code>reducer_name</code> itself is used. Aliases and group-by
+                keys are sanitised to <code>[a-zA-Z0-9_]</code> (<code>@</code>
+                and <code>.</code> become <code>_</code>), so
+                <code>@payload.body.status</code> surfaces under the key
+                <code>payload_body_status</code>.
+            </li>
+        </ul>
+
+        <h3><code>reducer_name</code> reference</h3>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th><code>reducer_name</code></th>
+                        <th>Args</th>
+                        <th>Compiles to (PostgreSQL)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>count</code></td>
+                        <td>none, or <code>[field]</code></td>
+                        <td><code>COUNT(*)</code> / <code>COUNT(field)</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>count_distinct</code></td>
+                        <td>none, or <code>[field]</code></td>
+                        <td>
+                            <code>COUNT(*)</code> /
+                            <code>COUNT(DISTINCT field)</code>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><code>sum</code></td>
+                        <td><code>[field]</code></td>
+                        <td><code>SUM((field)::numeric)</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>avg</code></td>
+                        <td><code>[field]</code></td>
+                        <td><code>AVG((field)::numeric)</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>min</code></td>
+                        <td><code>[field]</code></td>
+                        <td><code>MIN(field)</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>max</code></td>
+                        <td><code>[field]</code></td>
+                        <td><code>MAX(field)</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>stddev</code></td>
+                        <td><code>[field]</code></td>
+                        <td><code>STDDEV((field)::numeric)</code></td>
+                    </tr>
+                    <tr>
+                        <td>
+                            <code>group_concat</code>
+                            <span class="code-note">(alias <code>tolist</code>)</span>
+                        </td>
+                        <td><code>[field]</code></td>
+                        <td><code>STRING_AGG((field)::text, ',')</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>quantile</code></td>
+                        <td><code>[field, q]</code></td>
+                        <td>
+                            <code
+                                >percentile_cont(q) WITHIN GROUP (ORDER BY
+                                (field)::numeric)</code
+                            > — <code>q</code> is clamped to
+                            <code>[0, 1]</code>; defaults to <code>0.5</code> if
+                            absent/unparseable
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><code>first_value</code></td>
+                        <td><code>[field]</code></td>
+                        <td>
+                            <code
+                                >(ARRAY_AGG(field ORDER BY updated_at
+                                DESC))[1]</code
+                            >
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><code>random_sample</code></td>
+                        <td><code>[field]</code></td>
+                        <td>
+                            <code
+                                >(ARRAY_AGG(field ORDER BY RANDOM()))[1]</code
+                            >
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="code-note">
+            <code>group_concat</code> / <code>tolist</code> are the same
+            reducer; so are <code>count</code> / <code>r_count</code>,
+            <code>count_distinct</code> / <code>count_distinctish</code>, and
+            <code>sum</code> / <code>total</code> (wire-compat aliases). Any
+            unrecognised <code>reducer_name</code> is silently skipped.
+        </p>
+
+        <h3>Response shape</h3>
+        <p>
+            Each result group becomes one <code>Record</code> with
+            <code>resource_type: "content"</code>, <code>shortname:
+            "aggregation"</code>, and the grouped columns + reducer aliases in
+            <code>attributes</code>:
+        </p>
+        <div class="code-container">
+            <pre><code>{`{
+  "status": "success",
+  "records": [
+    {
+      "resource_type": "content",
+      "shortname": "aggregation",
+      "subpath": "/orders",
+      "attributes": { "payload_body_status": "paid", "orders": 128, "avg_total": 57.4 }
+    },
+    {
+      "resource_type": "content",
+      "shortname": "aggregation",
+      "subpath": "/orders",
+      "attributes": { "payload_body_status": "pending", "orders": 34, "avg_total": 41.2 }
+    }
+  ],
+  "attributes": { "total": 2, "returned": 2 }
+}`}</code></pre>
+        </div>
+        <p class="code-note">
+            Integer aggregates come back as JSON integers and numeric
+            aggregates (<code>avg</code>, <code>sum</code>, <code>stddev</code>,
+            <code>quantile</code>) as JSON doubles.
+        </p>
+
+        <h3><code>attachments_aggregation</code></h3>
+        <p>
+            Identical grammar, but the <code>FROM</code> table is
+            <code>attachments</code> instead of <code>entries</code> — use it to
+            aggregate over attachments (media / comments / relationships / …)
+            hanging off a parent subpath. Example: count attachments per
+            content-type across a subpath.
+        </p>
+        <div class="code-container">
+            <pre><code>{`{
+  "type": "attachments_aggregation",
+  "space_name": "shop",
+  "subpath": "orders",
+  "aggregation_data": {
+    "group_by": ["@payload_content_type"],
+    "reducers": [ { "reducer_name": "count", "alias": "n" } ]
+  }
+}`}</code></pre>
+        </div>
+    </div>
+
+    <!-- ═══ JOINS & JQ_FILTER ═══ -->
+    <div class="feature-section">
+        <h2>Joins &amp; <code>jq_filter</code></h2>
+        <p>
+            Two post-processing hooks reshape a query's result set on the
+            server: <code>join</code> attaches related entries under each base
+            record, and <code>jq_filter</code> pipes the whole
+            <code>records[]</code> array through a bounded <code>jq</code>
+            transform. Both live on the <code>Query</code> body alongside
+            <code>search</code>.
+        </p>
+
+        <h3><code>join[]</code> — attach related records</h3>
+        <p>Each item in the <code>join</code> list has this shape:</p>
+        <div class="code-container">
+            <pre><code>{`{
+  "join_on": "payload.body.customer:shortname",
+  "alias": "customer",
+  "type": "left",
+  "query": {
+    "type": "subpath",
+    "space_name": "shop",
+    "subpath": "customers"
+  }
+}`}</code></pre>
+        </div>
+        <ul>
+            <li>
+                <code>join_on</code> — a comma-separated list of
+                <code>left:right</code> field pairs. <code>left</code> is a path
+                on the <strong>base</strong> record, <code>right</code> a path on
+                the joined (sub-query) record. Append <code>[]</code> to a side
+                to match against each element of a JSONB array
+                (e.g. <code>payload.body.tags[]:shortname</code>). Multiple pairs
+                (comma-separated) must all match.
+            </li>
+            <li>
+                <code>alias</code> — the key under which matches are attached.
+                Each base record gains
+                <code>attributes.join.&#123;alias&#125;</code> — a list of the
+                matched sub-query records (empty list when nothing matched).
+            </li>
+            <li>
+                <code>type</code> — a <code>JoinType</code>:
+                <code>left</code> (default), <code>right</code>,
+                <code>inner</code>, or <code>outer</code>. A missing or
+                <code>null</code> type is treated as <code>left</code>.
+            </li>
+            <li>
+                <code>query</code> — a nested <code>Query</code> object (same
+                schema, recursively) describing the right-hand side to pull and
+                match against.
+            </li>
+        </ul>
+        <p>
+            <strong>Pagination semantics.</strong> A <code>left</code> join is
+            cardinality-preserving — the base page is fetched normally, then
+            matches are attached. A cardinality-<em>changing</em> join
+            (<code>inner</code>, <code>right</code>, or <code>outer</code>) can
+            drop or append rows, so the server fetches the base set
+            <strong>unpaginated</strong> (offset&nbsp;0, capped at
+            <code>MaxQueryLimit</code>), performs the join over the whole set,
+            then <strong>re-paginates the joined result</strong> with your
+            original <code>limit</code>/<code>offset</code>. In other words:
+            <code>inner</code>/<code>right</code>/<code>outer</code> give you
+            "join-then-page" semantics, bounded by the max-limit cap.
+        </p>
+        <p class="code-note">
+            <code>right</code>/<code>outer</code> joins are
+            O(right-table-size) by design (they must surface right records the
+            base set never referenced) and are bounded by an internal 1000-row
+            match cap. Pair them with a selective <code>query.search</code> to
+            keep them fast.
+        </p>
+        <p>A worked example — orders with their customer attached:</p>
+        <div class="code-container">
+            <pre><code>{`{
+  "type": "subpath",
+  "space_name": "shop",
+  "subpath": "orders",
+  "limit": 10,
+  "join": [
+    {
+      "join_on": "payload.body.customer:shortname",
+      "alias": "customer",
+      "type": "inner",
+      "query": { "type": "subpath", "space_name": "shop", "subpath": "customers" }
+    }
+  ]
+}`}</code></pre>
+        </div>
+        <p>A matched base record comes back like:</p>
+        <div class="code-container">
+            <pre><code>{`{
+  "resource_type": "content",
+  "shortname": "order_1001",
+  "subpath": "/orders",
+  "attributes": {
+    "payload": { "body": { "customer": "acme", "total": 57.4 } },
+    "join": {
+      "customer": [
+        { "resource_type": "content", "shortname": "acme", "subpath": "/customers",
+          "attributes": { "payload": { "body": { "tier": "gold" } } } }
+      ]
+    }
+  }
+}`}</code></pre>
+        </div>
+
+        <h3><code>jq_filter</code> — server-side jq transform</h3>
+        <p>
+            <code>jq_filter</code> is a top-level string on the
+            <code>Query</code> body. After the query runs, the server pipes the
+            <code>records[]</code> array through the <code>jq</code> binary as
+            <code>map(&lt;your filter&gt;)</code> — so your filter is written
+            against a <strong>single record's shape</strong> and is applied to
+            every record. The transformed array is slotted back into
+            <code>records</code>; <code>status</code>, <code>attributes</code>,
+            and <code>error</code> are preserved.
+        </p>
+        <div class="code-container">
+            <pre><code>{`{
+  "type": "search",
+  "space_name": "shop",
+  "subpath": "orders",
+  "jq_filter": ".attributes.payload.body"
+}`}</code></pre>
+        </div>
+        <p>
+            The filter above projects each record down to just its payload body,
+            so <code>records</code> becomes a flat list of body objects. (The
+            server wraps it as <code>map(.attributes.payload.body)</code> — do
+            not include your own <code>map(…)</code> or a leading
+            <code>.records</code>; the input to your filter is already a single
+            record.)
+        </p>
+        <p><strong>Bounds &amp; safety.</strong></p>
+        <ul>
+            <li>
+                Runs only on a <strong>successful</strong> result set with a
+                non-null <code>records</code>; otherwise it is a no-op.
+            </li>
+            <li>
+                Subprocess timeout is <code>JQ_TIMEOUT</code> seconds (config
+                key, default <code>2</code>). A timeout returns a
+                <code>JQ_TIMEOUT</code> failure envelope; a jq syntax/runtime
+                error returns <code>JQ_ERROR</code>.
+            </li>
+            <li>
+                The filter is capped at <strong>1024 characters</strong> and
+                rejected if it references dangerous builtins
+                (<code>env</code>, <code>$ENV</code>, <code>input</code>,
+                <code>debug</code>, <code>stderr</code>, <code>path(</code>,
+                <code>getpath</code>, <code>halt</code>,
+                <code>halt_error</code>, <code>builtins</code>,
+                <code>modulemeta</code>, <code>$__loc__</code>).
+            </li>
+            <li>
+                <code>jq</code> must be on <code>PATH</code> (the RPM/container
+                declares it as a dependency); if it is missing the filter fails
+                cleanly rather than crashing the request.
+            </li>
+        </ul>
+        <p class="code-note">
+            A <code>jq_filter</code> may also be set on a join's nested
+            <code>query</code>, where it reshapes that join's matched list
+            (wrapped as <code>map([ &lt;filter&gt; ])</code> for per-base
+            alignment) before attachment.
+        </p>
+    </div>
+
+    <!-- ═══ EVENTS & HISTORY ═══ -->
+    <div class="feature-section">
+        <h2><code>history</code> &amp; <code>events</code> queries</h2>
+        <p>
+            These two query types ignore the <code>search</code> DSL entirely
+            (see the table at the top) and instead read audit trails. Both
+            <strong>require authentication</strong> — anonymous callers are
+            rejected.
+        </p>
+
+        <h3><code>history</code></h3>
+        <p>
+            Reads the per-entry change log from the <code>histories</code>
+            table. Narrow it with <code>filter_shortnames</code> to a specific
+            entry (plus the usual <code>subpath</code>):
+        </p>
+        <div class="code-container">
+            <pre><code>{`{
+  "type": "history",
+  "space_name": "shop",
+  "subpath": "orders",
+  "filter_shortnames": ["note1"],
+  "limit": 20,
+  "sort_type": "descending"
+}`}</code></pre>
+        </div>
+        <p>
+            Each record carries the change's <code>timestamp</code>,
+            <code>user_shortname</code>, request type, and a diff of what
+            changed.
+        </p>
+
+        <h3><code>events</code></h3>
+        <p>
+            Reads the append-only space event feed
+            (<code>events.jsonl</code> under the space, when the optional event
+            log is enabled). It is filtered only by <code>from_date</code> /
+            <code>to_date</code> and paged — <code>filter_shortnames</code>,
+            <code>filter_types</code>, and <code>subpath</code> are
+            <strong>ignored</strong> (events live at the space root). Default
+            sort is newest-first.
+        </p>
+        <div class="code-container">
+            <pre><code>{`{
+  "type": "events",
+  "space_name": "shop",
+  "subpath": "/",
+  "limit": 50
+}`}</code></pre>
+        </div>
+        <p class="code-note">
+            If the space has no configured event log, the events feed is
+            simply empty — there is no PostgreSQL fallback (parity with
+            upstream).
+        </p>
+
+        <p class="highlight">
+            Looking for natural-language / vector search instead of the
+            <code>search</code> DSL? That is a separate endpoint —
+            <code>POST /managed/semantic-search</code> (pgvector cosine
+            similarity), documented on its own page. It does not use the
+            <code>search</code> string or any of the query types above.
+        </p>
     </div>
 
     <!-- ═══ QUICK REFERENCE ═══ -->

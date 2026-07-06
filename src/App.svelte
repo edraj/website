@@ -6,6 +6,8 @@
   import Features from "./features/+page.svelte";
   import Why from "./why/+page.svelte";
   import Technical from "./technical/+page.svelte";
+  import DataModel from "./data-model/+page.svelte";
+  import Folders from "./folders/+page.svelte";
   import Drivers from "./drivers/+page.svelte";
   import AccessControl from "./access-control/+page.svelte";
   import EntityLifecycle from "./entity-lifecycle/+page.svelte";
@@ -14,6 +16,7 @@
   import QuerySearch from "./query-search/+page.svelte";
   import Settings from "./settings/+page.svelte";
   import CLI from "./cli/+page.svelte";
+  import Tickets from "./tickets/+page.svelte";
 
   type PageComponent = Component<Record<string, never>>;
 
@@ -21,12 +24,15 @@
     "/features": { component: Features, title: "Features" },
     "/why": { component: Why, title: "Why DMART?" },
     "/technical": { component: Technical, title: "Technical Overview" },
+    "/data-model": { component: DataModel, title: "Data Model" },
+    "/folders": { component: Folders, title: "Folders & Rendering" },
     "/drivers": { component: Drivers, title: "Drivers & SDKs" },
     "/access-control": { component: AccessControl, title: "Access Control" },
     "/entity-lifecycle": {
       component: EntityLifecycle,
       title: "Entity Lifecycle",
     },
+    "/tickets": { component: Tickets, title: "Tickets & Workflows" },
     "/plugins": { component: Plugins, title: "Plugins" },
     "/api-docs": { component: ApiDocs, title: "API Documentation" },
     "/query-search": { component: QuerySearch, title: "Query Search" },
@@ -34,26 +40,51 @@
     "/cli": { component: CLI, title: "CLI Reference" },
   };
 
-  const docsPaths = [
-    "/technical",
-    "/entity-lifecycle",
-    "/settings",
-    "/api-docs",
-    "/query-search",
-    "/access-control",
-    "/plugins",
-    "/cli",
-    "/drivers",
+  // Single source of truth for the docs sidebar; docsPaths is derived so the
+  // two can never drift.
+  const docsNav = [
+    {
+      group: "Concepts",
+      items: [
+        { path: "/technical", label: "Technical Overview" },
+        { path: "/data-model", label: "Data Model" },
+        { path: "/folders", label: "Folders & Rendering" },
+        { path: "/entity-lifecycle", label: "Entity Lifecycle" },
+        { path: "/tickets", label: "Tickets & Workflows" },
+      ],
+    },
+    {
+      group: "Reference",
+      items: [
+        { path: "/api-docs", label: "API Reference" },
+        { path: "/query-search", label: "Query Search" },
+        { path: "/cli", label: "CLI" },
+        { path: "/settings", label: "Settings" },
+      ],
+    },
+    {
+      group: "Security & Extensibility",
+      items: [
+        { path: "/access-control", label: "Access Control" },
+        { path: "/plugins", label: "Plugins" },
+        { path: "/drivers", label: "Drivers & SDKs" },
+      ],
+    },
   ];
+  const docsPaths = docsNav.flatMap((g) => g.items.map((i) => i.path));
 
   let currentPath = $state(window.location.pathname);
   let isDark = $state(false);
-  let docsOpen = $state(false);
+  let sidebarOpen = $state(false);
+  let lastDocPath = $state("/technical");
+  let sidebarEl = $state<HTMLElement | null>(null);
+  let toggleEl = $state<HTMLButtonElement | null>(null);
 
   function navigate(path: string) {
     window.history.pushState({}, "", path);
     currentPath = path;
-    docsOpen = false;
+    sidebarOpen = false;
+    if (docsPaths.includes(path)) lastDocPath = path;
     updateTitle(path);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -65,18 +96,26 @@
       : "DMART - Data-as-a-Service Platform";
   }
 
-  function toggleDocs(e: MouseEvent | KeyboardEvent) {
-    e.stopPropagation();
-    docsOpen = !docsOpen;
+  function goToDocs() {
+    navigate(lastDocPath);
   }
 
-  function handleDocsKeydown(e: KeyboardEvent) {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      toggleDocs(e);
-    } else if (e.key === "Escape") {
-      docsOpen = false;
-    }
+  function onSidebarLink(e: MouseEvent, path: string) {
+    // Preserve modifier / middle clicks so links open in a new tab.
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0)
+      return;
+    e.preventDefault();
+    navigate(path);
+  }
+
+  function openSidebar() {
+    sidebarOpen = true;
+    requestAnimationFrame(() => sidebarEl?.querySelector("a")?.focus());
+  }
+
+  function closeSidebar() {
+    sidebarOpen = false;
+    toggleEl?.focus();
   }
 
   function toggleTheme() {
@@ -98,14 +137,19 @@
   onMount(() => {
     const handlePopState = () => {
       currentPath = window.location.pathname;
+      sidebarOpen = false;
+      if (docsPaths.includes(currentPath)) lastDocPath = currentPath;
       updateTitle(currentPath);
     };
     window.addEventListener("popstate", handlePopState);
 
-    const closeDropdown = () => {
-      docsOpen = false;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeSidebar();
     };
-    window.addEventListener("click", closeDropdown);
+    window.addEventListener("keydown", onKey);
+
+    // Seed the remembered doc path if we deep-linked straight into a doc page.
+    if (docsPaths.includes(currentPath)) lastDocPath = currentPath;
 
     const savedTheme = localStorage.getItem("theme");
     if (
@@ -125,7 +169,7 @@
 
     return () => {
       window.removeEventListener("popstate", handlePopState);
-      window.removeEventListener("click", closeDropdown);
+      window.removeEventListener("keydown", onKey);
     };
   });
 
@@ -137,6 +181,8 @@
     if (docsPaths.includes(currentPath)) return "docs";
     return "home";
   });
+
+  let inDocs = $derived(activeTab === "docs");
 </script>
 
 <AuroraBackground />
@@ -158,38 +204,9 @@
           onclick={() => navigate("/why")}
           class:active={activeTab === "why"}>Why DMART?</button
         >
-        <div
-          class="dropdown"
-          role="menu"
-          tabindex="0"
-          onclick={toggleDocs}
-          onkeydown={handleDocsKeydown}
+        <button onclick={goToDocs} class:active={activeTab === "docs"}
+          >Docs</button
         >
-          <button class:active={activeTab === "docs"}>Docs ▾</button>
-          {#if docsOpen}
-            <div class="dropdown-menu">
-              <button onclick={() => navigate("/technical")}
-                >Technical Overview</button
-              >
-              <button onclick={() => navigate("/entity-lifecycle")}
-                >Entity Lifecycle</button
-              >
-              <button onclick={() => navigate("/settings")}>Settings</button>
-              <button onclick={() => navigate("/api-docs")}
-                >API Reference</button
-              >
-              <button onclick={() => navigate("/query-search")}
-                >Query Search</button
-              >
-              <button onclick={() => navigate("/access-control")}
-              >Access Control</button
-              >
-              <button onclick={() => navigate("/plugins")}>Plugins</button>
-              <button onclick={() => navigate("/cli")}>CLI</button>
-              <button onclick={() => navigate("/drivers")}>Drivers</button>
-            </div>
-          {/if}
-        </div>
         <button
           onclick={toggleTheme}
           class="theme-toggle"
@@ -207,6 +224,51 @@
 
   {#if activeTab === "home"}
     <Home {navigate} />
+  {:else if inDocs}
+    <div class="docs-topbar">
+      <button
+        class="docs-menu-btn"
+        bind:this={toggleEl}
+        onclick={openSidebar}
+        aria-label="Open documentation menu"
+        aria-expanded={sidebarOpen}
+        aria-controls="docs-sidebar"
+      >
+        ☰ Menu
+      </button>
+      <span class="docs-crumb">{routes[currentPath]?.title}</span>
+    </div>
+    {#if sidebarOpen}
+      <button
+        class="docs-scrim"
+        aria-label="Close documentation menu"
+        onclick={closeSidebar}
+      ></button>
+    {/if}
+    <div class="docs-layout">
+      <div class="docs-sidebar" class:open={sidebarOpen} id="docs-sidebar">
+        <nav class="docs-nav" aria-label="Documentation" bind:this={sidebarEl}>
+          {#each docsNav as section}
+            <p class="docs-group-label">{section.group}</p>
+            <ul class="docs-links">
+              {#each section.items as item}
+                <li>
+                  <a
+                    href={item.path}
+                    class:active={currentPath === item.path}
+                    aria-current={currentPath === item.path ? "page" : undefined}
+                    onclick={(e) => onSidebarLink(e, item.path)}>{item.label}</a
+                  >
+                </li>
+              {/each}
+            </ul>
+          {/each}
+        </nav>
+      </div>
+      <div class="docs-content">
+        <CurrentPage />
+      </div>
+    </div>
   {:else if CurrentPage}
     <div class="page-container">
       <CurrentPage />
@@ -320,61 +382,6 @@
     border-image: linear-gradient(90deg, var(--iri-1), var(--iri-3), var(--iri-4)) 1;
   }
 
-  /* ─── DROPDOWN ─── */
-  .dropdown {
-    position: relative;
-    cursor: pointer;
-  }
-
-  .dropdown-menu {
-    position: absolute;
-    top: calc(100% + 0.5rem);
-    left: 0;
-    min-width: 210px;
-    background: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-lg);
-    z-index: 200;
-    display: flex;
-    flex-direction: column;
-    padding: 0.35rem 0;
-    animation: dropdown-in 0.15s ease-out;
-  }
-
-  :global(:root.dark) .dropdown-menu {
-    background: rgba(22, 22, 37, 0.95);
-  }
-
-  @keyframes dropdown-in {
-    from {
-      opacity: 0;
-      transform: translateY(-4px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  .dropdown-menu button {
-    padding: 0.6rem 1rem;
-    text-align: left;
-    font-size: 0.88rem;
-    border-bottom: none;
-    white-space: nowrap;
-    border-radius: 0;
-    transition: background-color 0.15s ease, color 0.15s ease;
-  }
-
-  .dropdown-menu button:hover {
-    background: var(--accent-light);
-    color: var(--primary-color);
-    border-bottom: none;
-  }
-
   .theme-toggle {
     margin-left: 0.75rem;
     font-size: 1.15rem;
@@ -404,8 +411,114 @@
     border-radius: 0 0 var(--radius-lg) var(--radius-lg);
   }
 
+  /* ─── DOCS LAYOUT (sidebar + content) ─── */
+  /* One unified frosted-glass panel, continuing from the nav's bottom hairline
+     exactly like .page-container, split by a vertical iridescent hairline. */
+  .docs-layout {
+    min-width: 0;
+    max-width: 1200px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 250px minmax(0, 1fr);
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-border);
+    border-top: none;
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+    min-height: 80vh;
+  }
+
+  /* Transparent cell; carries only the full-height vertical hairline divider. */
+  .docs-sidebar {
+    border-right: 1px solid transparent;
+    border-image: var(--gradient-hairline-v) 1;
+  }
+
+  .docs-nav {
+    position: sticky;
+    top: var(--nav-h);
+    max-height: calc(100vh - var(--nav-h));
+    overflow-y: auto;
+    padding: 2rem 1rem 2.5rem;
+  }
+
+  .docs-group-label {
+    margin: 1.5rem 0 0.35rem 0.8rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-secondary);
+  }
+
+  .docs-group-label:first-child {
+    margin-top: 0;
+  }
+
+  .docs-links {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .docs-links a {
+    position: relative;
+    display: block;
+    padding: 0.45rem 0.8rem;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    border-radius: var(--radius-sm);
+    text-decoration: none;
+  }
+
+  /* Mirrors .content h1's iridescent left bar, but keeps the rounded fill. */
+  .docs-links a::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 6px;
+    bottom: 6px;
+    width: 3px;
+    border-radius: 2px;
+    background: linear-gradient(180deg, var(--iri-1), var(--iri-3), var(--iri-4));
+    opacity: 0;
+  }
+
+  .docs-links a:hover {
+    background: var(--accent-light);
+    color: var(--primary-color);
+  }
+
+  .docs-links a.active {
+    background: var(--accent-light);
+    color: var(--primary-color);
+    font-weight: 600;
+  }
+
+  .docs-links a.active::before {
+    opacity: 1;
+  }
+
+  .docs-links a:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+  }
+
+  .docs-content {
+    padding: 3rem 2.5rem;
+    min-width: 0;
+  }
+
+  /* Mobile-only chrome, hidden on desktop. */
+  .docs-topbar,
+  .docs-scrim {
+    display: none;
+  }
+
   main {
     min-height: 100vh;
+    min-width: 0;
     display: flex;
     flex-direction: column;
   }
@@ -457,12 +570,83 @@
     .theme-toggle {
       margin-left: 0;
     }
-    .dropdown-menu {
-      left: 50%;
-      transform: translateX(-50%);
-    }
     .page-container {
       padding: 2rem 1.25rem;
+    }
+
+    /* Docs: collapse the grid; sidebar becomes an off-canvas drawer. */
+    .docs-topbar {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.6rem 1.25rem;
+      background: var(--glass-bg);
+      backdrop-filter: blur(var(--glass-blur));
+      -webkit-backdrop-filter: blur(var(--glass-blur));
+      border-bottom: 1px solid transparent;
+      border-image: var(--gradient-hairline) 1;
+    }
+    .docs-menu-btn {
+      padding: 0.4rem 0.7rem;
+      font-size: 0.9rem;
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      background: transparent;
+    }
+    .docs-crumb {
+      font-weight: 600;
+      color: var(--text-main);
+    }
+    .docs-layout {
+      display: block;
+      width: 100%;
+    }
+    .docs-sidebar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 100dvh;
+      width: min(300px, 82vw);
+      z-index: 300;
+      transform: translateX(-100%);
+      background: var(--bg-secondary);
+      border-right: 1px solid var(--glass-border);
+      border-image: none;
+      box-shadow: var(--shadow-lg);
+      overflow-y: auto;
+    }
+    .docs-sidebar.open {
+      transform: translateX(0);
+    }
+    .docs-nav {
+      position: static;
+      max-height: none;
+    }
+    .docs-scrim {
+      display: block;
+      position: fixed;
+      inset: 0;
+      z-index: 250;
+      border: none;
+      padding: 0;
+      background: rgba(0, 0, 0, 0.45);
+    }
+    .docs-content {
+      padding: 2rem 1.25rem;
+      border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+    }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .docs-sidebar {
+      transition: transform 0.25s ease;
+    }
+    .docs-links a {
+      transition: background-color 0.15s ease, color 0.15s ease;
+    }
+    .docs-links a::before {
+      transition: opacity 0.18s ease;
     }
   }
 
@@ -470,9 +654,6 @@
     :global(:root:not(.light)) nav {
       background: rgba(15, 15, 26, 0.85);
       box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
-    }
-    :global(:root:not(.light)) .dropdown-menu {
-      background: rgba(22, 22, 37, 0.95);
     }
   }
 </style>

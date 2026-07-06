@@ -31,22 +31,60 @@
             {/if}
           </button>
         </div>
+        <span class="usage-label">Usage</span>
+        <pre class="usage-code"><code>{`from pydmart import DmartService
+
+dmart = DmartService("http://localhost:8282")
+await dmart.login("dmart", "change-me")
+
+resp = await dmart.query({
+    "type": "subpath",          # QueryType
+    "space_name": "management",
+    "subpath": "/users",
+    "limit": 10,
+})
+for record in resp.records:
+    print(record.shortname)`}</code></pre>
         <a href="https://pypi.org/project/pydmart/" target="_blank" rel="noopener noreferrer">PyPI &rarr;</a>
       </div>
+    </div>
+  </div>
+
+  <div class="feature-section">
+    <h2>C# / .NET</h2>
+    <div class="grid-list">
       <div class="item">
-        <strong>dmart</strong>
-        <span>Core package & CLI.</span>
+        <strong>Dmart.Client</strong>
+        <span>Async C# client for .NET Standard 2.1, .NET 8 & .NET 10 (AOT-friendly).</span>
         <div class="code-container">
-          <div class="code-block">pip install dmart</div>
-          <button class="copy-btn" onclick={() => copyToClipboard('pip install dmart')} aria-label="Copy command">
-            {#if copiedCommand === 'pip install dmart'}
+          <div class="code-block">dotnet add package Dmart.Client</div>
+          <button class="copy-btn" onclick={() => copyToClipboard('dotnet add package Dmart.Client')} aria-label="Copy command">
+            {#if copiedCommand === 'dotnet add package Dmart.Client'}
               ✓
             {:else}
               📋
             {/if}
           </button>
         </div>
-        <a href="https://pypi.org/project/dmart/" target="_blank" rel="noopener noreferrer">PyPI &rarr;</a>
+        <span class="usage-label">Usage</span>
+        <pre class="usage-code"><code>{`using Dmart.Client;
+using Dmart.Models.Api;
+using Dmart.Models.Enums;
+
+using var client = new DmartClient("http://localhost:8282");
+await client.LoginAsync("dmart", "change-me");
+
+var resp = await client.QueryAsync(new Query
+{
+    Type = QueryType.Subpath,
+    SpaceName = "management",
+    Subpath = "/users",
+    Limit = 10,
+});
+
+foreach (var record in resp.Records ?? [])
+    Console.WriteLine(record.Shortname);`}</code></pre>
+        <a href="https://github.com/edraj/csdmart" target="_blank" rel="noopener noreferrer">GitHub &rarr;</a>
       </div>
     </div>
   </div>
@@ -67,6 +105,19 @@
             {/if}
           </button>
         </div>
+        <span class="usage-label">Usage</span>
+        <pre class="usage-code"><code>{`import { Dmart, QueryType } from "@edraj/tsdmart";
+
+Dmart.setBaseURL("http://localhost:8282");
+await Dmart.login("dmart", "change-me");
+
+const resp = await Dmart.query({
+  type: QueryType.subpath,
+  space_name: "management",
+  subpath: "/users",
+  limit: 10,
+});
+console.log(resp?.records?.map((r) => r.shortname));`}</code></pre>
         <a href="https://www.npmjs.com/package/@edraj/tsdmart" target="_blank" rel="noopener noreferrer">NPM &rarr;</a>
       </div>
     </div>
@@ -88,6 +139,21 @@
             {/if}
           </button>
         </div>
+        <span class="usage-label">Usage</span>
+        <pre class="usage-code"><code>{`import 'package:dmart/dmart.dart';
+
+final dmart = Dmart(baseUrl: 'http://localhost:8282');
+await dmart.login('dmart', 'change-me');
+
+final resp = await dmart.query(QueryRequest(
+  type: QueryType.subpath,
+  spaceName: 'management',
+  subpath: '/users',
+  limit: 10,
+));
+for (final record in resp.records) {
+  print(record.shortname);
+}`}</code></pre>
         <a href="https://pub.dev/packages/dmart" target="_blank" rel="noopener noreferrer">pub.dev &rarr;</a>
       </div>
     </div>
@@ -138,6 +204,32 @@
   .copy-btn:hover {
     color: var(--text-main);
     background-color: var(--accent-light);
+  }
+
+  .usage-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 700;
+    color: var(--text-secondary);
+    margin-top: 0.25rem;
+  }
+
+  .usage-code {
+    margin: 0;
+    padding: 0.75rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    line-height: 1.5;
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  .usage-code code {
+    font-family: inherit;
   }
 
   a {

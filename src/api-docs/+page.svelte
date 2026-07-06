@@ -12,11 +12,15 @@
     <div class="feature-section">
         <h2>Base URL &amp; Authentication</h2>
         <p>
-            The base URL for all API requests is typically: <code
-                >http://localhost:8000</code
-            > (or as configured).
+            The API is served by the self-contained DMART binary (.NET 10 Native
+            AOT) on ASP.NET Core / Kestrel. The base URL for all API requests is
+            typically: <code>http://localhost:8282</code> (or as configured via
+            <code>LISTENING_HOST</code> / <code>LISTENING_PORT</code>).
         </p>
-        <p>Most endpoints require authentication using a JWT token:</p>
+        <p>
+            Most endpoints require authentication with a JWT bearer token
+            (HS256), supplied either as a header or a cookie:
+        </p>
         <div class="grid-list">
             <div class="item">
                 <strong>Header</strong>
@@ -29,6 +33,20 @@
                 <span><code>auth_token=&lt;your_token&gt;</code></span>
             </div>
         </div>
+        <p>
+            Tokens are obtained via <code>/user/login</code> (password or OTP) or
+            through OAuth social login (Google, Facebook, Apple). DMART also
+            exposes a full <strong>OAuth 2.1 Authorization Server</strong> —
+            discovery, Dynamic Client Registration, and authorize/token
+            endpoints under <code>/.well-known</code> — used for automatic
+            onboarding of MCP clients.
+        </p>
+        <p>
+            Interactive API documentation is available as <strong
+                >Swagger UI</strong
+            > at <code>/docs</code>, with the raw OpenAPI schema at
+            <code>/docs/openapi.json</code> (both served by ASP.NET Core).
+        </p>
     </div>
 
     <!-- ═══ DATA STRUCTURES ═══ -->
@@ -160,7 +178,7 @@
                 </thead>
                 <tbody>
                     <tr>
-                        <td><strong>ResourceType</strong></td>
+                        <td><strong>ResourceType</strong> (30)</td>
                         <td
                             ><code>user</code>, <code>group</code>,
                             <code>folder</code>, <code>schema</code>,
@@ -177,11 +195,11 @@
                             <code>plugin_wrapper</code>,
                             <code>notification</code>, <code>csv</code>,
                             <code>jsonl</code>, <code>sqlite</code>,
-                            <code>duckdb</code>, <code>parquet</code></td
+                            <code>parquet</code></td
                         >
                     </tr>
                     <tr>
-                        <td><strong>RequestType</strong></td>
+                        <td><strong>RequestType</strong> (7)</td>
                         <td
                             ><code>create</code>, <code>update</code>,
                             <code>patch</code>, <code>update_acl</code>,
@@ -190,21 +208,23 @@
                         >
                     </tr>
                     <tr>
-                        <td><strong>ContentType</strong></td>
+                        <td><strong>ContentType</strong> (21)</td>
                         <td
                             ><code>text</code>, <code>comment</code>,
                             <code>reaction</code>, <code>markdown</code>,
                             <code>html</code>, <code>json</code>,
-                            <code>image</code>, <code>python</code>,
-                            <code>pdf</code>, <code>audio</code>,
-                            <code>video</code>, <code>csv</code>,
-                            <code>parquet</code>, <code>jsonl</code>,
-                            <code>apk</code>, <code>duckdb</code>,
+                            <code>image</code>, <code>image_jpeg</code>,
+                            <code>image_png</code>, <code>image_svg</code>,
+                            <code>image_gif</code>, <code>image_webp</code>,
+                            <code>python</code>, <code>pdf</code>,
+                            <code>audio</code>, <code>video</code>,
+                            <code>csv</code>, <code>parquet</code>,
+                            <code>jsonl</code>, <code>apk</code>,
                             <code>sqlite</code></td
                         >
                     </tr>
                     <tr>
-                        <td><strong>ActionType</strong></td>
+                        <td><strong>ActionType</strong> (11)</td>
                         <td
                             ><code>query</code>, <code>view</code>,
                             <code>update</code>, <code>create</code>,
@@ -215,7 +235,7 @@
                         >
                     </tr>
                     <tr>
-                        <td><strong>QueryType</strong></td>
+                        <td><strong>QueryType</strong> (12)</td>
                         <td
                             ><code>search</code>, <code>subpath</code>,
                             <code>events</code>, <code>history</code>,
@@ -227,35 +247,108 @@
                         >
                     </tr>
                     <tr>
-                        <td><strong>SortType</strong></td>
+                        <td><strong>Language</strong> (5)</td>
+                        <td
+                            ><code>arabic</code>, <code>english</code>,
+                            <code>kurdish</code>, <code>french</code>,
+                            <code>turkish</code>
+                            <span class="code-note"
+                                >These full spellings are the persisted enum wire
+                                values (e.g. <code>space.languages</code>). The
+                                2-letter keys <code>ar</code> / <code>en</code> /
+                                <code>ku</code> / <code>fr</code> /
+                                <code>tr</code> are ONLY keys inside
+                                <code>displayname</code> /
+                                <code>description</code> translation maps — they
+                                are NOT Language enum values.</span
+                            ></td
+                        >
+                    </tr>
+                    <tr>
+                        <td><strong>SortType</strong> (2)</td>
                         <td><code>ascending</code>, <code>descending</code></td>
                     </tr>
                     <tr>
-                        <td><strong>TaskType</strong></td>
-                        <td><code>query</code></td>
-                    </tr>
-                    <tr>
-                        <td><strong>UserType</strong></td>
+                        <td><strong>UserType</strong> (3)</td>
                         <td
                             ><code>web</code>, <code>mobile</code>,
                             <code>bot</code></td
                         >
                     </tr>
                     <tr>
-                        <td><strong>Language</strong></td>
+                        <td><strong>PluginType</strong> (2)</td>
+                        <td><code>hook</code>, <code>api</code></td>
+                    </tr>
+                    <tr>
+                        <td><strong>EventListenTime</strong> (2)</td>
+                        <td><code>before</code>, <code>after</code></td>
+                    </tr>
+                    <tr>
+                        <td><strong>JoinType</strong> (4)</td>
                         <td
-                            ><code>ar</code> (Arabic), <code>en</code>
-                            (English), <code>ku</code> (Kurdish),
-                            <code>fr</code>
-                            (French), <code>tr</code> (Turkish)</td
+                            ><code>left</code>, <code>right</code>,
+                            <code>inner</code>, <code>outer</code></td
                         >
                     </tr>
                     <tr>
-                        <td><strong>ConditionType</strong></td>
-                        <td><code>is_active</code>, <code>own</code></td>
+                        <td><strong>PublicSubmitResourceType</strong> (2)</td>
+                        <td
+                            ><code>content</code>, <code>ticket</code>
+                            <span class="code-note"
+                                >The only two resource types accepted by
+                                <code>/public/submit</code>.</span
+                            ></td
+                        >
                     </tr>
                     <tr>
-                        <td><strong>ReactionType</strong></td>
+                        <td><strong>Status</strong> (2)</td>
+                        <td
+                            ><code>success</code>, <code>failed</code>
+                            <span class="code-note"
+                                >The response-envelope <code>status</code> field
+                                (see below).</span
+                            ></td
+                        >
+                    </tr>
+                    <tr>
+                        <td><strong>TaskType</strong> (1)</td>
+                        <td><code>query</code></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <h3>String conventions (NOT typed enums)</h3>
+        <p>
+            The following values are string <strong>conventions</strong> — they
+            are validated/handled as plain strings and have <em>no</em> backing
+            C# enum. Only the two permission condition constants
+            (<code>own</code>, <code>is_active</code>) are real string constants;
+            reaction kinds, the lock action string, and notification
+            type/priority are inherited Python-era conventions.
+        </p>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Convention</th>
+                        <th>Values</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td
+                            ><strong>Permission conditions</strong>
+                            <span class="code-note">(real string constants)</span
+                            ></td
+                        >
+                        <td><code>own</code>, <code>is_active</code></td>
+                    </tr>
+                    <tr>
+                        <td
+                            ><strong>Reaction kinds</strong>
+                            <span class="code-note">(convention)</span></td
+                        >
                         <td
                             ><code>like</code>, <code>dislike</code>,
                             <code>love</code>, <code>care</code>,
@@ -263,34 +356,69 @@
                         >
                     </tr>
                     <tr>
-                        <td><strong>LockAction</strong></td>
                         <td
-                            ><code>fetch</code>, <code>lock</code>,
-                            <code>extend</code>, <code>unlock</code>,
-                            <code>cancel</code></td
+                            ><strong>Lock action</strong>
+                            <span class="code-note">(convention)</span></td
+                        >
+                        <td
+                            ><code>lock</code>, <code>unlock</code>
+                            <span class="code-note"
+                                >(acquire/release via the
+                                <code>/managed/lock</code> routes)</span
+                            ></td
                         >
                     </tr>
                     <tr>
-                        <td><strong>NotificationType</strong></td>
+                        <td
+                            ><strong>Notification type</strong>
+                            <span class="code-note">(convention)</span></td
+                        >
                         <td><code>admin</code>, <code>system</code></td>
                     </tr>
                     <tr>
-                        <td><strong>NotificationPriority</strong></td>
+                        <td
+                            ><strong>Notification priority</strong>
+                            <span class="code-note">(convention)</span></td
+                        >
                         <td
                             ><code>high</code>, <code>medium</code>,
                             <code>low</code></td
                         >
                     </tr>
-                    <tr>
-                        <td><strong>PluginType</strong></td>
-                        <td><code>hook</code>, <code>api</code></td>
-                    </tr>
-                    <tr>
-                        <td><strong>EventListenTime</strong></td>
-                        <td><code>before</code>, <code>after</code></td>
-                    </tr>
                 </tbody>
             </table>
+        </div>
+
+        <h3>Response envelope</h3>
+        <p>
+            Every <code>/managed</code>, <code>/public</code>, and
+            <code>/user</code> endpoint returns the same envelope. A success
+            carries <code>records</code> and an <code>attributes</code> block
+            (with <code>total</code> / <code>returned</code> counts on queries);
+            a failure carries a single <code>error</code> triple and
+            <code>records: null</code>.
+        </p>
+        <div class="code-container">
+            <pre><code
+                    >{`// success
+{
+  "status": "success",
+  "error": null,
+  "records": [ /* ...Record objects... */ ],
+  "attributes": { "total": 128, "returned": 10 }
+}
+
+// failure
+{
+  "status": "failed",
+  "error": {
+    "type": "jwtauth",
+    "code": 401,
+    "message": "Not authenticated",
+    "info": null
+  }
+}`}</code
+                ></pre>
         </div>
     </div>
 
@@ -497,6 +625,30 @@
 }`}</code
                     ></pre>
             </div>
+            <p class="code-note">
+                <strong>Delete with <code>force</code> / <code>dry_run</code>:</strong>
+                a <code>delete</code> request accepts two top-level flags.
+                <code>force: true</code> cascade-deletes a non-empty folder (and
+                all its contents); a plain delete of a non-empty folder is
+                rejected. <code>dry_run: true</code> projects the full cascade
+                and returns an affected-count report <em>without removing
+                anything</em>.
+            </p>
+            <div class="code-container">
+                <pre><code
+                        >{`{
+  "space_name": "data",
+  "request_type": "delete",
+  "force": true,
+  "dry_run": true,
+  "records": [
+    { "resource_type": "folder", "shortname": "archive", "subpath": "/" }
+  ]
+}
+// -> success envelope; each record's attributes carry a per-category
+//    "report" of what WOULD be deleted, plus "dry_run": true (nothing removed).`}</code
+                    ></pre>
+            </div>
         </div>
 
         <div class="endpoint">
@@ -516,6 +668,78 @@
 }`}</code
                     ></pre>
             </div>
+        </div>
+
+        <div class="endpoint">
+            <div class="endpoint-header">
+                <span class="method post">POST</span>
+                <code>/managed/semantic-search</code>
+            </div>
+            <p>
+                Natural-language (vector) search — embeds the query and returns
+                the top-N most similar entries by cosine distance over
+                <code>entries.embedding</code>. Requires the pgvector extension
+                <em>and</em> a configured embedding provider
+                (<code>EMBEDDING_API_URL</code>); when either is missing it
+                returns a clean <code>400</code> failure envelope. Results are
+                permission-filtered, and <code>limit</code> is clamped to a max
+                of 100.
+            </p>
+            <div class="code-container">
+                <pre><code
+                        >{`// request
+{
+  "query": "how do refunds work",
+  "space_name": "data",        // optional
+  "subpath": "/articles",       // optional prefix
+  "resource_types": ["content"],// optional
+  "limit": 10                    // optional (default 10, max 100)
+}
+
+// success -> each record's attributes carry space_name, similarity (0..1), uri
+{
+  "status": "success",
+  "records": [
+    {
+      "resource_type": "content",
+      "shortname": "refund-policy",
+      "subpath": "/articles",
+      "attributes": { "space_name": "data", "similarity": 0.83,
+                      "uri": "dmart://data/articles/refund-policy" }
+    }
+  ],
+  "attributes": { "returned": 1, "matched": 3 }
+}
+
+// not configured
+{ "status": "failed",
+  "error": { "type": "request", "code": 400,
+             "message": "semantic search not configured — set EMBEDDING_API_URL ..." } }`}</code
+                    ></pre>
+            </div>
+        </div>
+
+        <div class="endpoint">
+            <div class="endpoint-header">
+                <span class="method post">POST</span>
+                <code>/managed/reindex-embeddings</code>
+            </div>
+            <p>
+                Admin tool that (re)embeds entries into the pgvector column —
+                used to backfill or rebuild the semantic-search index. Runs as a
+                background job.
+            </p>
+        </div>
+
+        <div class="endpoint">
+            <div class="endpoint-header">
+                <span class="method get">GET</span>
+                <code>/managed/reindex-embeddings/status</code>
+            </div>
+            <p>
+                Admin-only. Returns the live progress of the current or last
+                re-index run.
+            </p>
         </div>
 
         <div class="endpoint">
@@ -644,7 +868,14 @@
                     >/managed/lock/&#123;resource_type&#125;/&#123;space&#125;/&#123;subpath&#125;/&#123;shortname&#125;</code
                 >
             </div>
-            <p>Locks an entry.</p>
+            <p>
+                <strong>Acquires</strong> an entry lock for the caller. While a
+                lock is held, <code>update</code> and <code>delete</code> from
+                any user other than the lock holder are rejected; the holder may
+                re-lock (extend) their own lock. Query results can surface the
+                current holder via <code>retrieve_lock_status</code> (see the
+                <code>Query</code> shape above).
+            </p>
         </div>
 
         <div class="endpoint">
@@ -654,7 +885,7 @@
                     >/managed/lock/&#123;space&#125;/&#123;subpath&#125;/&#123;shortname&#125;</code
                 >
             </div>
-            <p>Unlocks an entry.</p>
+            <p><strong>Releases</strong> the lock the caller holds on an entry.</p>
         </div>
 
         <div class="endpoint">
@@ -663,7 +894,8 @@
                 <code>/managed/reload-security-data</code>
             </div>
             <p>
-                Reloads permissions and roles (useful for file-based storage).
+                Reloads the in-process permissions and roles cache from
+                PostgreSQL.
             </p>
         </div>
 
@@ -671,10 +903,35 @@
             <div class="endpoint-header">
                 <span class="method post">POST</span>
                 <code
-                    >/managed/excute/&#123;task_type&#125;/&#123;space&#125;</code
+                    >/managed/execute/&#123;task_type&#125;/&#123;space&#125;</code
                 >
             </div>
-            <p>Executes a specific task type (e.g., query) on a space.</p>
+            <p>
+                Runs a <strong>saved query</strong> task. The only defined
+                <code>task_type</code> is <code>query</code>: DMART loads a saved
+                query entry by <code>shortname</code>, parses its
+                <code>payload.body</code> as a <code>Query</code>, and executes
+                it. <code>query_overrides</code> merge into the loaded query, and
+                any <code>$param</code> placeholders inside the query's
+                <code>search</code> string (e.g.
+                <code>@status:$state</code>) are substituted from the overrides;
+                unresolved <code>@field:$param</code> fragments are stripped
+                before execution.
+            </p>
+            <p class="code-note">
+                The misspelled legacy path
+                <code>/managed/excute/&#123;task_type&#125;/&#123;space&#125;</code>
+                is also mapped for client compatibility.
+            </p>
+            <div class="code-container">
+                <pre><code
+                        >{`{
+  "shortname": "open-tickets",
+  "subpath": "/tasks",
+  "query_overrides": { "state": "open", "limit": 20 }
+}`}</code
+                    ></pre>
+            </div>
         </div>
 
         <div class="endpoint">
@@ -690,9 +947,32 @@
         <div class="endpoint">
             <div class="endpoint-header">
                 <span class="method get">GET</span>
+                <code
+                    >/managed/shortening/&#123;space&#125;/&#123;**rest&#125;</code
+                >
+            </div>
+            <p>
+                <strong>Creates</strong> a short link for a DMART resource URL and
+                returns a random token. The resolvable
+                <code>short_url</code> is bounded by <code>APP_URL</code> and the
+                token expires after <code>URL_SHORTER_EXPIRES</code> seconds.
+            </p>
+            <div class="code-container">
+                <pre><code
+                        >{`// -> { "short_url": "https://app.example.com/managed/s/aB3xY9" }`}</code
+                    ></pre>
+            </div>
+        </div>
+
+        <div class="endpoint">
+            <div class="endpoint-header">
+                <span class="method get">GET</span>
                 <code>/managed/s/&#123;token&#125;</code>
             </div>
-            <p>Redirects a short token to its original URL.</p>
+            <p>
+                Resolves a short token and issues a <code>302</code> redirect to
+                its original URL (anonymous-accessible, rate-limited).
+            </p>
         </div>
     </div>
 
@@ -742,11 +1022,19 @@
         <div class="endpoint">
             <div class="endpoint-header">
                 <span class="method post">POST</span>
-                <code
-                    >/public/submit/&#123;space&#125;/&#123;schema&#125;/&#123;subpath&#125;</code
-                >
+                <code>/public/submit/&#123;space&#125;/&#123;**rest&#125;</code>
             </div>
-            <p>Submits data to a public endpoint (e.g., a form).</p>
+            <p>
+                Submits data to a public endpoint (e.g. a form). An optional
+                <strong>leading</strong> path segment selects the resource type:
+                it is parsed against <strong>PublicSubmitResourceType</strong>,
+                so only <code>content</code> or <code>ticket</code> are honored.
+                When the leading segment is <em>not</em> one of those, it is
+                treated as the space name and the resource type defaults to
+                <code>content</code> (it is not rejected). Submitting a
+                <code>ticket</code> additionally requires a workflow shortname in
+                the path.
+            </p>
         </div>
 
         <div class="endpoint">
@@ -787,6 +1075,10 @@
     <!-- ═══ QR CODES ═══ -->
     <div class="feature-section">
         <h2>QR Codes <code>/qr</code></h2>
+        <p class="code-note">
+            Note: the <code>/qr</code> generate/validate endpoints are currently
+            minimal / a stub in this port and are not yet fully featured.
+        </p>
 
         <div class="endpoint">
             <div class="endpoint-header">
@@ -844,6 +1136,193 @@
                 <code>/info/manifest</code>
             </div>
             <p>Returns system version and status.</p>
+        </div>
+    </div>
+
+    <!-- ═══ REALTIME / WEBSOCKETS ═══ -->
+    <div class="feature-section">
+        <h2>Realtime &amp; WebSockets <code>/ws</code></h2>
+        <p>
+            DMART pushes live updates over WebSocket connections. A built-in
+            notifier plugin broadcasts entry changes to subscribed clients.
+        </p>
+
+        <div class="endpoint">
+            <div class="endpoint-header">
+                <span class="method get">GET</span>
+                <code>/ws</code>
+            </div>
+            <p>
+                Opens an authenticated WebSocket connection for realtime
+                notifications. The JWT is passed as a query param
+                (<code>ws://host/ws?token=JWT</code>) or via the
+                <code>auth_token</code> cookie; the socket is closed with
+                <code>401</code> if the token is invalid, the user is inactive,
+                or the session has been revoked.
+            </p>
+            <p>
+                After connecting, the client subscribes by sending a
+                <code>notification_subscription</code> message. DMART builds a
+                channel name of the form
+                <code>space:subpath:schema:action:state</code>, defaulting any
+                omitted segment to the <code>__ALL__</code> wildcard. The
+                realtime notifier plugin then broadcasts every matching CRUD
+                event to subscribed clients.
+            </p>
+            <div class="code-container">
+                <pre><code
+                        >{`// client -> server: subscribe (omit fields to wildcard them)
+{
+  "type": "notification_subscription",
+  "space_name": "data",
+  "subpath": "/tickets",
+  "schema_shortname": "ticket",   // optional -> __ALL__
+  "action_type": "update",         // optional -> __ALL__
+  "ticket_state": "open"           // optional -> __ALL__
+}
+// -> channel "data:/tickets:ticket:update:open"
+
+// server -> client on connect
+{ "type": "connection_response", "message": { "status": "success" } }`}</code
+                    ></pre>
+            </div>
+        </div>
+
+        <div class="endpoint">
+            <div class="endpoint-header">
+                <span class="method post">POST</span>
+                <code>/send-message/&#123;user&#125;</code>
+            </div>
+            <p>Sends a message to a specific connected user.</p>
+        </div>
+
+        <div class="endpoint">
+            <div class="endpoint-header">
+                <span class="method post">POST</span>
+                <code>/broadcast-to-channels</code>
+            </div>
+            <p>Broadcasts a message to subscribers of one or more channels.</p>
+        </div>
+
+        <div class="endpoint">
+            <div class="endpoint-header">
+                <span class="method get">GET</span>
+                <code>/ws-info</code>
+            </div>
+            <p>Returns information about active WebSocket connections.</p>
+        </div>
+    </div>
+
+    <!-- ═══ MCP ═══ -->
+    <div class="feature-section">
+        <h2>Model Context Protocol <code>/mcp</code></h2>
+        <p>
+            DMART ships a built-in <strong>MCP server</strong> (Streamable HTTP
+            transport, spec <code>2025-03-26</code>) so AI agents can query and
+            mutate entries as tools. All requests are authenticated — the
+            caller's JWT flows through to each tool handler. Sessions are tracked
+            via the <code>Mcp-Session-Id</code> header. Pair it with the OAuth 2.1
+            Authorization Server for automatic client onboarding.
+        </p>
+
+        <div class="endpoint">
+            <div class="endpoint-header">
+                <span class="method post">POST</span>
+                <code>/mcp</code>
+            </div>
+            <p>Sends a JSON-RPC MCP request (initialize, list/call tools, etc.).</p>
+        </div>
+
+        <div class="endpoint">
+            <div class="endpoint-header">
+                <span class="method get">GET</span>
+                <code>/mcp</code>
+            </div>
+            <p>Opens the server-sent-events (SSE) stream for the MCP session.</p>
+        </div>
+
+        <div class="endpoint">
+            <div class="endpoint-header">
+                <span class="method delete">DELETE</span>
+                <code>/mcp</code>
+            </div>
+            <p>Terminates the current MCP session.</p>
+        </div>
+
+        <h3>Available tools (11)</h3>
+        <p>
+            The MCP server exposes these tools to agents. Every tool runs under
+            the caller's JWT, so DMART's permission model is enforced
+            identically to the HTTP API — there is no admin escape hatch.
+        </p>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Tool</th>
+                        <th>Purpose</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>dmart_me</code></td>
+                        <td>Return the authenticated caller's profile.</td>
+                    </tr>
+                    <tr>
+                        <td><code>dmart_spaces</code></td>
+                        <td>List the spaces the caller can access.</td>
+                    </tr>
+                    <tr>
+                        <td><code>dmart_query</code></td>
+                        <td
+                            >Search / list entries. Results are hard-capped at
+                            <strong>50</strong> records per call.</td
+                        >
+                    </tr>
+                    <tr>
+                        <td><code>dmart_read</code></td>
+                        <td>Read a single entry (metadata + payload).</td>
+                    </tr>
+                    <tr>
+                        <td><code>dmart_schema</code></td>
+                        <td>Fetch a schema definition for a space/subpath.</td>
+                    </tr>
+                    <tr>
+                        <td><code>dmart_create</code></td>
+                        <td>Create a new entry.</td>
+                    </tr>
+                    <tr>
+                        <td><code>dmart_update</code></td>
+                        <td>Update / patch an existing entry.</td>
+                    </tr>
+                    <tr>
+                        <td><code>dmart_delete</code></td>
+                        <td
+                            >Delete an entry. Requires an interactive
+                            <strong>elicitation</strong> confirmation before it
+                            proceeds; folders take an optional
+                            <code>force</code> flag to cascade-delete non-empty
+                            contents.</td
+                        >
+                    </tr>
+                    <tr>
+                        <td><code>dmart_history</code></td>
+                        <td>Retrieve the change history of an entry.</td>
+                    </tr>
+                    <tr>
+                        <td><code>dmart_download</code></td>
+                        <td>Download the raw payload / attachment of an entry.</td>
+                    </tr>
+                    <tr>
+                        <td><code>dmart_semantic_search</code></td>
+                        <td
+                            >Natural-language vector search (requires pgvector +
+                            an embedding provider, same as
+                            <code>/managed/semantic-search</code>).</td
+                        >
+                    </tr>
+                </tbody>
+            </table>
         </div>
     </div>
 </div>

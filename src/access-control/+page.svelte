@@ -5,7 +5,7 @@
 <div class="content" use:useMermaid>
     <h1>Access Control</h1>
     <p class="intro">
-        A deep technical overview of the D-MART Access Control system. The
+        A deep technical overview of the DMART Access Control system. The
         system implements a hybrid model combining <strong
             >Role-Based Access Control (RBAC)</strong
         >
@@ -17,9 +17,10 @@
     <div class="feature-section">
         <h2>Core Architecture</h2>
         <p>
-            The access control logic is centralized in <code>AccessControl</code
+            The access control logic is centralized in the <code
+                >PermissionService</code
             >
-            class. Data models are defined in <code>models/core.py</code>.
+            class. Data models are defined in <code>Dmart.Models.Core</code>.
         </p>
 
         <h3>Key Components</h3>
@@ -62,7 +63,7 @@
     <div class="feature-section">
         <h2>The Authorization Algorithm</h2>
         <p>
-            The <code>check_access</code> method is the gatekeeper. It evaluates
+            The <code>CanAsync</code> method is the gatekeeper. It evaluates
             requests based on the following precedence order:
         </p>
 
@@ -105,8 +106,8 @@ graph TD
             </p>
             <ul>
                 <li>
-                    <strong>Method:</strong>
-                    <code>check_access_control_list</code>
+                    <strong>Check:</strong> Per-entry
+                    <code>acl</code> list match
                 </li>
                 <li>
                     <strong>Logic:</strong> If <code>entry.acl</code> exists and
@@ -257,7 +258,7 @@ graph TD
                 <tbody>
                     <tr>
                         <td><code>subpaths</code></td>
-                        <td><code>dict[str, list[str]]</code></td>
+                        <td><code>Dictionary&lt;string, List&lt;string&gt;&gt;</code></td>
                         <td
                             ><strong>Target Scope.</strong> Maps Space names to
                             subpaths. Use <code>__all_subpaths__</code> for
@@ -267,37 +268,38 @@ graph TD
                     </tr>
                     <tr>
                         <td><code>resource_types</code></td>
-                        <td><code>list[str]</code></td>
+                        <td><code>List&lt;string&gt;</code></td>
                         <td
                             ><strong>Target Resources.</strong> The types of
-                            objects this permission applies to (e.g.,
-                            <code>content</code>, <code>ticket</code>,
-                            <code>user</code>).</td
+                            objects this permission applies to — one or more
+                            resource types (see <a href="#allowed-values"
+                                >Allowed Values</a
+                            > below). An empty list applies to <em>all</em> types.</td
                         >
                     </tr>
                     <tr>
                         <td><code>actions</code></td>
-                        <td><code>list[str]</code></td>
+                        <td><code>List&lt;string&gt;</code></td>
                         <td
                             ><strong>Allowed Operations.</strong> What the user
-                            can do (e.g., <code>create</code>,
-                            <code>view</code>, <code>update</code>,
-                            <code>delete</code>, <code>query</code>).</td
+                            can do — one or more of the 11 action types (see
+                            <a href="#allowed-values">Allowed Values</a> below).
+                            An empty list grants nothing.</td
                         >
                     </tr>
                     <tr>
                         <td><code>conditions</code></td>
-                        <td><code>list[str]</code></td>
+                        <td><code>List&lt;string&gt;</code></td>
                         <td
                             ><strong>Contextual Requirements.</strong>
-                            <code>own</code>: User must be the owner.
-                            <code>is_active</code>: Resource must be active.
-                            Empty list = no conditions.</td
+                            <code>own</code> and/or <code>is_active</code> (see
+                            <a href="#allowed-values">Allowed Values</a> below).
+                            An empty list = no conditions.</td
                         >
                     </tr>
                     <tr>
                         <td><code>restricted_fields</code></td>
-                        <td><code>list[str]</code></td>
+                        <td><code>List&lt;string&gt;</code></td>
                         <td
                             ><strong>Field Protection.</strong> Fields that
                             <em>cannot</em>
@@ -307,7 +309,7 @@ graph TD
                     </tr>
                     <tr>
                         <td><code>allowed_fields_values</code></td>
-                        <td><code>dict[str, list]</code></td>
+                        <td><code>Dictionary&lt;string, object&gt;</code></td>
                         <td
                             ><strong>Value Constraints.</strong> Enforces that specific
                             fields can only take specific values.</td
@@ -315,6 +317,82 @@ graph TD
                     </tr>
                 </tbody>
             </table>
+        </div>
+
+        <h3 id="allowed-values">Allowed Values</h3>
+        <p>
+            The <code>actions</code>, <code>conditions</code>, and
+            <code>resource_types</code> arrays only accept the fixed sets below —
+            any other string is rejected.
+        </p>
+
+        <h4>Actions — the 11 operation types</h4>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Action</th>
+                        <th>Authorizes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td><code>view</code></td><td>Read a single entry's metadata and payload.</td></tr>
+                    <tr><td><code>query</code></td><td>Search / list entries via the <code>/query</code> endpoint.</td></tr>
+                    <tr><td><code>create</code></td><td>Create a new entry.</td></tr>
+                    <tr><td><code>update</code></td><td>Modify an existing entry's metadata or payload.</td></tr>
+                    <tr><td><code>delete</code></td><td>Remove an entry.</td></tr>
+                    <tr><td><code>attach</code></td><td>Add attachments (comments, media, reactions, relationships) to an entry.</td></tr>
+                    <tr><td><code>assign</code></td><td>Change an entry's ownership (owner or owning group).</td></tr>
+                    <tr><td><code>move</code></td><td>Move or rename an entry to a different subpath / shortname.</td></tr>
+                    <tr><td><code>progress_ticket</code></td><td>Advance a ticket through its workflow states.</td></tr>
+                    <tr><td><code>lock</code></td><td>Place a lock on an entry to block concurrent edits.</td></tr>
+                    <tr><td><code>unlock</code></td><td>Release a lock on an entry.</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <h4>Conditions — the 2 contextual gates</h4>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Condition</th>
+                        <th>Requirement</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>own</code></td>
+                        <td>The requesting user must own the entry — its <code>owner_shortname</code> equals the user, or the entry's owning group is one of the user's groups.</td>
+                    </tr>
+                    <tr>
+                        <td><code>is_active</code></td>
+                        <td>The entry's <code>is_active</code> flag must be <code>true</code>.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="code-note">
+            Conditions gate access to <em>existing</em> entries, so the
+            <code>create</code> and <code>query</code> actions are exempt from
+            condition checks.
+        </p>
+
+        <h4>Resource types — what the permission targets</h4>
+        <p>
+            Any of the platform's <a href="/data-model">resource types</a> may be
+            listed. An empty <code>resource_types</code> array applies to
+            <strong>all</strong> types. The full set, grouped:
+        </p>
+        <div class="grid-list types">
+            <div class="item"><strong>Identity</strong><span><code>user</code>, <code>group</code></span></div>
+            <div class="item"><strong>Structure</strong><span><code>folder</code>, <code>space</code></span></div>
+            <div class="item"><strong>Content</strong><span><code>content</code>, <code>schema</code>, <code>data_asset</code>, <code>csv</code>, <code>jsonl</code>, <code>sqlite</code>, <code>parquet</code></span></div>
+            <div class="item"><strong>Workflow</strong><span><code>ticket</code></span></div>
+            <div class="item"><strong>Social</strong><span><code>comment</code>, <code>reply</code>, <code>post</code>, <code>reaction</code>, <code>notification</code>, <code>share</code></span></div>
+            <div class="item"><strong>Attachments</strong><span><code>media</code>, <code>log</code>, <code>relationship</code>, <code>alteration</code>, <code>history</code>, <code>lock</code></span></div>
+            <div class="item"><strong>Management</strong><span><code>role</code>, <code>permission</code>, <code>acl</code></span></div>
+            <div class="item"><strong>Extensions</strong><span><code>locator</code>, <code>json</code>, <code>plugin_wrapper</code></span></div>
         </div>
     </div>
 
@@ -408,5 +486,13 @@ graph TD
 
   .code-note {
     margin-bottom: 2rem;
+  }
+
+  .grid-list.types {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+
+  .grid-list.types .item span code {
+    font-size: 0.8em;
   }
 </style>

@@ -5,7 +5,7 @@
 <div class="content" use:useMermaid>
   <h1>Feature Overview</h1>
   <p class="intro">
-    D-MART is a versatile Data-as-a-Service (DaaS) platform designed to simplify
+    DMART is a versatile Data-as-a-Service (DaaS) platform designed to simplify
     data management for modern applications. It acts as a central repository for
     structured data, documents, and media, providing a unified interface for
     storage, retrieval, and collaboration.
@@ -14,7 +14,7 @@
   <div class="feature-section">
     <h2>1. Unified Data Management</h2>
     <p>
-      D-MART treats data as a first-class citizen, moving beyond traditional
+      DMART treats data as a first-class citizen, moving beyond traditional
       database constraints.
     </p>
     <div class="grid-list">
@@ -64,7 +64,7 @@ graph TD
 
   <div class="feature-section">
     <h2>2. Powerful Search &amp; Discovery</h2>
-    <p>Finding information is effortless with D-MART's robust search engine.</p>
+    <p>Finding information is effortless with DMART's robust search engine.</p>
     <ul>
       <li>
         <strong>Full-Text Search:</strong> Instantly search across all data, including
@@ -143,7 +143,7 @@ stateDiagram-v2
       <pre class="mermaid">
 sequenceDiagram
     participant App as External App
-    participant API as D-MART API
+    participant API as DMART API
     participant Plugin as Plugin System
     participant Store as Data Store
 
@@ -167,8 +167,20 @@ sequenceDiagram
         for logic, validation, or external integrations.
       </li>
       <li>
-        <strong>Webhooks &amp; Notifications:</strong> Trigger actions or send notifications
-        (Email, SMS) based on data changes or workflow events.
+        <strong>Realtime Notifications:</strong> The live notification path today is
+        realtime WebSocket broadcast. The <code>realtime_updates_notifier</code> plugin
+        runs on data changes and workflow events and pushes update messages to
+        connected WebSocket clients subscribed to the relevant space/subpath channels —
+        no polling required.
+      </li>
+      <li>
+        <strong>Email/SMS Delivery (in progress):</strong> Configurable SMS and SMTP
+        gateway settings exist (<code>SEND_SMS_API</code>, <code>SEND_SMS_OTP_API</code>,
+        <code>MAIL_HOST</code>), but the outbound delivery plugins
+        (<code>system_notification_sender</code>, <code>admin_notification_sender</code>,
+        <code>local_notification</code>) are currently registered <em>no-op stubs</em>
+        pending a push/SMS/SMTP gateway pipeline. Activating one in a Space is a no-op
+        until that integration lands.
       </li>
     </ul>
   </div>
@@ -178,17 +190,25 @@ sequenceDiagram
     <p>Built for flexibility and reliability in various environments.</p>
     <ul>
       <li>
-        <strong>Container-Ready:</strong> Easily deployable via Docker/Podman for
-        consistent environments.
+        <strong>Container-Ready:</strong> Ships as a single self-contained,
+        Native-AOT binary (no runtime to install), packaged into a tiny
+        Docker/Podman image for consistent environments.
       </li>
       <li>
-        <strong>Offline Capability:</strong> Supports air-gapped deployments, allowing
-        data synchronization when connectivity is restored.
+        <strong>Air-Gapped Friendly:</strong> The self-contained binary bundles the
+        server, CLI, and admin UIs with no external service dependencies beyond
+        PostgreSQL — ideal for on-premises and isolated networks.
       </li>
       <li>
-        <strong>Flexible Storage:</strong> Choose between a human-readable file
-        structure (<code>'file'</code> mode) for longevity and ease of backup,
-        or a standard SQL database (<code>'sql'</code> mode) for enterprise integration.
+        <strong>PostgreSQL-Backed:</strong> A single PostgreSQL database is the
+        source of truth for all entries, users, and attachments — providing
+        transactional integrity and enterprise-grade reliability.
+      </li>
+      <li>
+        <strong>Portable Import/Export:</strong> Round-trip any Space to and from
+        a human-readable <code>spaces/</code> + <code>.dm</code> file layout
+        (packaged as a zip) for seeding, migration, and backup — ideal for
+        longevity and moving data between deployments.
       </li>
     </ul>
   </div>
