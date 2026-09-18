@@ -293,8 +293,9 @@
 
   nav {
     background: rgba(255, 255, 255, 0.72);
-    backdrop-filter: blur(14px) saturate(140%);
-    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    /* The sticky nav previously blurred whatever scrolled under it. That is a
+       permanently-composited layer on every page for an effect the new opaque
+       palette does not need, and it cost text contrast over the hero. */
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
     border-bottom: 1px solid transparent;
     border-image: var(--gradient-hairline) 1;
@@ -319,15 +320,12 @@
   }
 
   .logo {
-    font-size: 1.6rem;
-    font-weight: 900;
-    background: var(--gradient-iri);
-    background-size: 200% 200%;
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--iri-2);
     cursor: pointer;
-    letter-spacing: 2px;
+    letter-spacing: 0.02em;
     text-transform: uppercase;
     transition: filter 0.3s ease;
   }
@@ -336,16 +334,6 @@
     filter: brightness(1.12) saturate(1.1);
   }
 
-  @media (prefers-reduced-motion: no-preference) {
-    .logo {
-      animation: logo-shimmer 10s ease-in-out infinite;
-    }
-  }
-
-  @keyframes logo-shimmer {
-    0%, 100% { background-position: 0% 50%; }
-    50%      { background-position: 100% 50%; }
-  }
 
   .links {
     display: flex;

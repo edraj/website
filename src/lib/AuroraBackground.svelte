@@ -24,9 +24,8 @@
   .blob {
     position: absolute;
     border-radius: 50%;
-    filter: blur(90px);
-    opacity: 0.35;
-    will-change: transform;
+    filter: blur(80px);
+    opacity: 0.22;
   }
 
   .blob-1 {
@@ -43,7 +42,7 @@
     width: 60vw;
     height: 60vw;
     background: radial-gradient(circle, var(--iri-3) 0%, transparent 70%);
-    opacity: 0.28;
+    opacity: 0.16;
   }
 
   .blob-3 {
@@ -76,24 +75,9 @@
     :global(:root:not(.light)) .grain { opacity: 0.06; }
   }
 
-  @media (prefers-reduced-motion: no-preference) {
-    .blob-1 { animation: drift-a 32s ease-in-out infinite alternate; }
-    .blob-2 { animation: drift-b 40s ease-in-out infinite alternate; }
-    .blob-3 { animation: drift-c 48s ease-in-out infinite alternate; }
-  }
-
-  @keyframes drift-a {
-    0%   { transform: translate3d(0, 0, 0) scale(1); }
-    100% { transform: translate3d(6vw, 4vw, 0) scale(1.08); }
-  }
-
-  @keyframes drift-b {
-    0%   { transform: translate3d(0, 0, 0) scale(1); }
-    100% { transform: translate3d(-5vw, 6vw, 0) scale(1.06); }
-  }
-
-  @keyframes drift-c {
-    0%   { transform: translate3d(0, 0, 0) scale(1); }
-    100% { transform: translate3d(4vw, -5vw, 0) scale(1.1); }
-  }
+  /* The three blobs used to drift on 32/40/48-second infinite animations.
+     That is perpetual compositor work for a decoration nobody notices, it
+     keeps a low-power device busy, and a page whose animations never end never
+     reaches a settled frame -- which is what broke automated screenshots of
+     this site. The wash is now static. */
 </style>

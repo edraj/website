@@ -7,7 +7,7 @@
 
   let { navigate }: Props = $props();
 
-  let visible = $state(false);
+  let visible = $state(true);
   let revealRoot: HTMLElement | undefined = $state();
 
   function handleCardKeydown(e: KeyboardEvent, path: string) {
@@ -18,38 +18,14 @@
   }
 
   onMount(() => {
-    requestAnimationFrame(() => {
-      visible = true;
-    });
 
-    if (!revealRoot || typeof IntersectionObserver === "undefined") return;
-
-    // Opt IN to the hidden-then-reveal state, rather than defaulting to it.
-    // Previously `.reveal` was opacity:0 in plain CSS and only ever un-hidden
-    // by this observer, so anything that stopped the observer running -- JS
-    // disabled, an old browser, this early return -- left every section below
-    // the hero permanently invisible. Adding the class here means the page is
-    // readable by default and animates only when we know we can finish the job.
-    const reduced = typeof matchMedia === "function"
-      && matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduced) return;
-    revealRoot.classList.add("js-anim");
-
-    const targets = revealRoot.querySelectorAll<HTMLElement>(".reveal");
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            entry.target.classList.add("in-view");
-            observer.unobserve(entry.target);
-          }
-        }
-      },
-      { rootMargin: "0px 0px -10% 0px", threshold: 0.08 },
-    );
-    targets.forEach((el) => observer.observe(el));
-
-    return () => observer.disconnect();
+    // The scroll-reveal animation is gone on purpose. It cost this page two
+    // separate visibility bugs -- content stuck at opacity:0 when JS or
+    // IntersectionObserver was unavailable, and again whenever the tab was
+    // throttled or unfocused, because neither rAF nor IntersectionObserver is
+    // guaranteed to fire there. Everything a visitor came to read is now
+    // painted on first frame: better for crawlers, link previews, low-power
+    // devices, and anyone who scrolls faster than a 0.7s transition.
   });
 </script>
 
@@ -57,14 +33,18 @@
 <!-- ═══ HERO ═══ -->
 <section class="hero" class:visible>
   <div class="hero-inner">
-    <div class="hero-badge">OPEN SOURCE</div>
+    <!-- The badge said "OPEN SOURCE" and the subtitle said "Simplify
+         everything" -- true of most things and specific to none. Both now say
+         something only dmart can claim. -->
+    <div class="hero-badge">AGPL-3.0 &middot; SELF-HOSTED</div>
     <h1 class="hero-title">
       <span class="hero-title-line">DATA</span>
-      <span class="hero-title-line accent shimmer">MART</span>
+      <span class="hero-title-line accent">MART</span>
     </h1>
     <p class="hero-subtitle">
-      A unified Data-as-a-Service platform.<br />
-      Own your data. Simplify everything.
+      A structured information platform you run yourself &mdash; schema, access
+      control, workflows and an admin UI in <strong>one binary</strong>, with
+      your entries stored as <strong>files you own</strong>.
     </p>
     <div class="cta-group">
       <button class="primary" onclick={() => navigate("/features")}
@@ -81,18 +61,74 @@
       >
     </div>
   </div>
-  <div class="hero-ascii">
-    <pre>{`
-    ┌────────────────────────┐
-    │  APP  │  WEB  │ MOBILE │
-    └───┬───┴───┬───┴───┬────┘
-        │       │       │
-    ┌───▼───────▼───────▼────┐
-    │     DMART  ENGINE      │
-    ├────────────────────────┤
-    │        Database        │
-    └────────────────────────┘
-    `}</pre>
+  <!-- Replaces an ASCII block that showed clients -> engine -> "Database".
+       That diagram was missing the one relationship worth drawing: the files
+       are the source of truth and the SQL store is a rebuildable index over
+       them. Inline SVG so it scales, themes with currentColor, and needs no
+       monospace metrics to line up. -->
+  <div class="hero-figure">
+    <svg viewBox="0 0 320 260" role="img"
+         aria-label="Four client SDKs call one dmart binary, which serves the API, access control, schema validation and admin UI; entries are stored as files, with a rebuildable SQL index beside them.">
+      <g class="hf-clients">
+        <rect x="8"   y="8" width="70" height="30" rx="4"/>
+        <rect x="86"  y="8" width="70" height="30" rx="4"/>
+        <rect x="164" y="8" width="70" height="30" rx="4"/>
+        <rect x="242" y="8" width="70" height="30" rx="4"/>
+        <text x="43"  y="27">Flutter</text>
+        <text x="121" y="27">TS</text>
+        <text x="199" y="27">Python</text>
+        <text x="277" y="27">.NET</text>
+      </g>
+
+      <g class="hf-wire">
+        <path d="M43 38v16h234V38"/>
+        <path d="M121 38v16"/><path d="M199 38v16"/>
+        <path d="M160 54v14"/>
+      </g>
+      <text class="hf-edge" x="166" y="50">HTTPS · JSON</text>
+
+      <g class="hf-engine">
+        <rect x="8" y="68" width="304" height="86" rx="6"/>
+        <text class="hf-title" x="20" y="88">dmart &mdash; one binary, 46 MB</text>
+        <g class="hf-chip">
+          <rect x="20"  y="98" width="66" height="20" rx="3"/>
+          <rect x="94"  y="98" width="66" height="20" rx="3"/>
+          <rect x="168" y="98" width="66" height="20" rx="3"/>
+          <rect x="242" y="98" width="62" height="20" rx="3"/>
+          <text x="53"  y="112">REST API</text>
+          <text x="127" y="112">ACL</text>
+          <text x="201" y="112">Schema</text>
+          <text x="273" y="112">MCP</text>
+        </g>
+        <g class="hf-chip">
+          <rect x="20"  y="124" width="104" height="20" rx="3"/>
+          <rect x="132" y="124" width="104" height="20" rx="3"/>
+          <rect x="244" y="124" width="60"  height="20" rx="3"/>
+          <text x="72"  y="138">Admin UI</text>
+          <text x="184" y="138">Workflows</text>
+          <text x="274" y="138">WS</text>
+        </g>
+      </g>
+
+      <g class="hf-wire">
+        <path d="M86 154v20"/><path d="M234 154v20"/>
+      </g>
+
+      <g class="hf-store">
+        <rect x="8" y="174" width="148" height="56" rx="6"/>
+        <text class="hf-title" x="20" y="194">Files on disk</text>
+        <text x="20" y="212">source of truth</text>
+      </g>
+      <g class="hf-index">
+        <rect x="164" y="174" width="148" height="56" rx="6"/>
+        <text class="hf-title" x="176" y="194">PostgreSQL / SQLite</text>
+        <text x="176" y="212">rebuildable index</text>
+      </g>
+      <g class="hf-wire hf-rebuild">
+        <path d="M156 202h8"/>
+      </g>
+      <text class="hf-edge" x="160" y="248">dmart import rebuilds the index from disk</text>
+    </svg>
   </div>
 </section>
 
@@ -126,7 +162,7 @@
   <h2 class="section-title">Core Pillars</h2>
   <div class="pillars-grid">
     <div class="pillar" role="link" tabindex="0" onclick={() => navigate("/features")} onkeydown={(e) => handleCardKeydown(e, "/features")}>
-      <div class="pillar-icon">⚡</div>
+      <div class="pillar-icon" aria-hidden="true"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5.5c0-1.4 2.7-2.5 6-2.5s6 1.1 6 2.5S12.3 8 9 8 3 6.9 3 5.5Z"/><path d="M3 5.5v7c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5v-7"/><path d="M3 9c0 1.4 2.7 2.5 6 2.5S15 10.4 15 9"/></svg></div>
       <h3>Unified Data</h3>
       <p>
         Entries, attachments, metadata — all in one model. Structured and
@@ -135,7 +171,7 @@
       <span class="pillar-arrow">→</span>
     </div>
     <div class="pillar" role="link" tabindex="0" onclick={() => navigate("/features")} onkeydown={(e) => handleCardKeydown(e, "/features")}>
-      <div class="pillar-icon">🔍</div>
+      <div class="pillar-icon" aria-hidden="true"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 3.5h13l-5 5.5v5l-3 1.5V9L2.5 3.5Z"/></svg></div>
       <h3>Powerful Search</h3>
       <p>
         Full-text search, filtering, aggregation. Powered by SQL full-text
@@ -144,7 +180,7 @@
       <span class="pillar-arrow">→</span>
     </div>
     <div class="pillar" role="link" tabindex="0" onclick={() => navigate("/features")} onkeydown={(e) => handleCardKeydown(e, "/features")}>
-      <div class="pillar-icon">🔒</div>
+      <div class="pillar-icon" aria-hidden="true"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="9" r="3"/><path d="M9 9h6.5"/><path d="M13 9v2.5"/><path d="M15.5 9v3"/></svg></div>
       <h3>Access Control</h3>
       <p>
         Role-based access, granular permissions down to folder and entry level.
@@ -153,7 +189,7 @@
       <span class="pillar-arrow">→</span>
     </div>
     <div class="pillar" role="link" tabindex="0" onclick={() => navigate("/technical")} onkeydown={(e) => handleCardKeydown(e, "/technical")}>
-      <div class="pillar-icon">🔧</div>
+      <div class="pillar-icon" aria-hidden="true"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2.5v4"/><path d="M11 2.5v4"/><path d="M5 6.5h8v3a4 4 0 0 1-8 0v-3Z"/><path d="M9 13.5v3"/></svg></div>
       <h3>Extensible</h3>
       <p>
         Plugin architecture, webhooks, custom workflows. Adapt DMART to any use
@@ -348,8 +384,12 @@
     gap: 4rem;
     max-width: 1200px;
     margin: 0 auto;
-    opacity: 0;
-    transform: translateY(10px);
+    /* Readable at rest. This used to be opacity:0 until a requestAnimationFrame
+       callback set `visible` -- and rAF does not fire in a throttled or
+       unfocused tab, so the hero could sit invisible indefinitely. Same class
+       of bug as the scroll reveal: never gate content on a runtime callback. */
+    opacity: 1;
+    transform: none;
     transition:
       opacity 0.6s ease,
       transform 0.6s ease;
@@ -402,11 +442,6 @@
     color: transparent;
   }
 
-  @media (prefers-reduced-motion: no-preference) {
-    .shimmer {
-      animation: shimmer 9s ease-in-out infinite;
-    }
-  }
 
   @keyframes shimmer {
     0%, 100% { background-position: 0% 50%; }
@@ -421,38 +456,67 @@
     max-width: 420px;
   }
 
-  .hero-ascii {
+  .hero-figure {
     flex-shrink: 0;
-    padding: 2px;
-    background: var(--gradient-iri);
-    background-size: 200% 200%;
-    border-radius: 14px;
-    box-shadow: var(--glow-iri);
+    width: 380px;
+    max-width: 100%;
   }
-
-  @media (prefers-reduced-motion: no-preference) {
-    .hero-ascii {
-      animation: shimmer 14s ease-in-out infinite;
-    }
+  .hero-figure svg {
+    width: 100%;
+    height: auto;
+    display: block;
   }
-
-  .hero-ascii pre {
+  /* One stroke weight, one type size, three roles distinguished by fill alone:
+     clients and store are outlines, the engine is the filled object, the index
+     sits between them. Everything themes through the tokens. */
+  .hero-figure rect {
+    fill: var(--bg-color);
+    stroke: var(--border-color);
+    stroke-width: 1;
+  }
+  .hero-figure .hf-engine > rect {
+    fill: var(--accent-light);
+    stroke: var(--iri-2);
+  }
+  .hero-figure .hf-chip rect {
+    fill: var(--bg-color);
+    stroke: var(--border-color);
+  }
+  .hero-figure .hf-index rect {
+    fill: var(--bg-secondary);
+  }
+  .hero-figure text {
     font-family: var(--font-mono);
-    font-size: 0.8rem;
-    line-height: 1.4;
-    color: var(--text-secondary);
-    border: none;
-    padding: 1.5rem;
-    background: var(--bg-color);
-    margin: 0;
-    white-space: pre;
-    overflow-x: auto;
-    border-radius: 12px;
+    font-size: 8.5px;
+    fill: var(--text-secondary);
+    text-anchor: middle;
+  }
+  .hero-figure .hf-clients text,
+  .hero-figure .hf-chip text {
+    fill: var(--text-main);
+  }
+  .hero-figure .hf-title {
+    text-anchor: start;
+    font-family: var(--font-display);
+    font-size: 10px;
+    font-weight: 600;
+    fill: var(--text-main);
+  }
+  .hero-figure .hf-store text:not(.hf-title),
+  .hero-figure .hf-index text:not(.hf-title) {
+    text-anchor: start;
+  }
+  .hero-figure .hf-wire path {
+    fill: none;
+    stroke: var(--border-color);
+    stroke-width: 1;
+  }
+  .hero-figure .hf-edge {
+    font-size: 7.5px;
+    fill: var(--text-secondary);
   }
 
-  :global(:root.dark) .hero-ascii pre {
-    color: var(--iri-2);
-  }
+
 
   .cta-group {
     display: flex;
@@ -619,10 +683,13 @@
     border-bottom: 1px solid var(--border-color);
   }
   .ra-figures dt {
+    /* Signal colour, used here and nowhere else on the page: these three came
+       off an instrument. A reader who learns that once can tell a measurement
+       from a marketing number at a glance. */
     font-family: var(--font-mono);
     font-size: 1.35rem;
     font-weight: 600;
-    color: var(--text-main);
+    color: var(--signal);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
@@ -735,35 +802,32 @@
     opacity: 1;
   }
 
-  @media (prefers-reduced-motion: no-preference) {
-    .pillar:hover::before {
-      animation: spin 6s linear infinite;
-    }
-  }
 
   @keyframes spin {
     to { --angle: 360deg; }
   }
 
   .pillar-icon {
-    font-size: 1.5rem;
-    margin-bottom: 1rem;
-    width: 44px;
-    height: 44px;
+    /* A quiet square mark, not a coloured bubble: the icon should identify the
+       card, not compete with its heading. Stroke inherits the brand hue. */
+    width: 34px;
+    height: 34px;
+    margin-bottom: 1.1rem;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--gradient-iri);
-    background-size: 200% 200%;
-    border-radius: 50%;
-    box-shadow: 0 4px 12px -4px rgba(139, 92, 246, 0.45);
-    filter: saturate(1.05);
+    color: var(--iri-2);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--bg-color);
+  }
+  .pillar-icon svg {
+    width: 18px;
+    height: 18px;
   }
 
-  @media (prefers-reduced-motion: no-preference) {
-    .pillar:hover .pillar-icon {
-      animation: shimmer 5s ease-in-out infinite;
-    }
+  .pillar:hover .pillar-icon {
+    border-color: var(--iri-2);
   }
 
   .pillar h3 {
@@ -982,20 +1046,8 @@
 
   /* ─── SCROLL REVEAL ─── */
   @media (prefers-reduced-motion: no-preference) {
-    /* Visible at rest. The animation is applied only when the script has
-       confirmed it can run it -- see the onMount comment. */
+    /* Retained as a structural hook only -- see the onMount comment. */
     .reveal {
-      opacity: 1;
-      transform: none;
-    }
-    :global(.js-anim) .reveal {
-      opacity: 0;
-      transform: translateY(14px);
-      transition:
-        opacity 0.7s ease,
-        transform 0.7s ease;
-    }
-    :global(.js-anim) .reveal:global(.in-view) {
       opacity: 1;
       transform: none;
     }
@@ -1023,10 +1075,6 @@
       font-size: 3.5rem;
     }
 
-    .hero-ascii pre {
-      font-size: 0.65rem;
-    }
-
     .pillars-grid {
       grid-template-columns: repeat(2, 1fr);
       gap: 1rem;
@@ -1042,8 +1090,8 @@
       font-size: 2.5rem;
     }
 
-    .hero-ascii {
-      display: none;
+    .hero-figure {
+      width: 100%;
     }
 
     .pillars-grid {
