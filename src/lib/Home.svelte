@@ -10,11 +10,12 @@
   let visible = $state(true);
   let revealRoot: HTMLElement | undefined = $state();
 
-  function handleCardKeydown(e: KeyboardEvent, path: string) {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      navigate(path);
-    }
+  // Let the browser handle modifier and middle clicks so the anchors behave
+  // like links; intercept only the plain left click for SPA navigation.
+  function cardClick(e: MouseEvent, path: string) {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    e.preventDefault();
+    navigate(path);
   }
 
   onMount(() => {
@@ -161,7 +162,7 @@
 <section class="pillars reveal">
   <h2 class="section-title">Core Pillars</h2>
   <div class="pillars-grid">
-    <div class="pillar" role="link" tabindex="0" onclick={() => navigate("/features")} onkeydown={(e) => handleCardKeydown(e, "/features")}>
+    <a class="pillar" href="/features" onclick={(e) => cardClick(e, "/features")}>
       <div class="pillar-icon" aria-hidden="true"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5.5c0-1.4 2.7-2.5 6-2.5s6 1.1 6 2.5S12.3 8 9 8 3 6.9 3 5.5Z"/><path d="M3 5.5v7c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5v-7"/><path d="M3 9c0 1.4 2.7 2.5 6 2.5S15 10.4 15 9"/></svg></div>
       <h3>Unified Data</h3>
       <p>
@@ -169,8 +170,8 @@
         unstructured data, seamlessly.
       </p>
       <span class="pillar-arrow">→</span>
-    </div>
-    <div class="pillar" role="link" tabindex="0" onclick={() => navigate("/features")} onkeydown={(e) => handleCardKeydown(e, "/features")}>
+    </a>
+    <a class="pillar" href="/features" onclick={(e) => cardClick(e, "/features")}>
       <div class="pillar-icon" aria-hidden="true"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 3.5h13l-5 5.5v5l-3 1.5V9L2.5 3.5Z"/></svg></div>
       <h3>Powerful Search</h3>
       <p>
@@ -178,8 +179,8 @@
         blazing performance.
       </p>
       <span class="pillar-arrow">→</span>
-    </div>
-    <div class="pillar" role="link" tabindex="0" onclick={() => navigate("/features")} onkeydown={(e) => handleCardKeydown(e, "/features")}>
+    </a>
+    <a class="pillar" href="/features" onclick={(e) => cardClick(e, "/features")}>
       <div class="pillar-icon" aria-hidden="true"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="9" r="3"/><path d="M9 9h6.5"/><path d="M13 9v2.5"/><path d="M15.5 9v3"/></svg></div>
       <h3>Access Control</h3>
       <p>
@@ -187,8 +188,8 @@
         Secure by default.
       </p>
       <span class="pillar-arrow">→</span>
-    </div>
-    <div class="pillar" role="link" tabindex="0" onclick={() => navigate("/technical")} onkeydown={(e) => handleCardKeydown(e, "/technical")}>
+    </a>
+    <a class="pillar" href="/technical" onclick={(e) => cardClick(e, "/technical")}>
       <div class="pillar-icon" aria-hidden="true"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2.5v4"/><path d="M11 2.5v4"/><path d="M5 6.5h8v3a4 4 0 0 1-8 0v-3Z"/><path d="M9 13.5v3"/></svg></div>
       <h3>Extensible</h3>
       <p>
@@ -196,7 +197,7 @@
         case.
       </p>
       <span class="pillar-arrow">→</span>
-    </div>
+    </a>
   </div>
 </section>
 
@@ -308,7 +309,7 @@
 <section class="explore reveal">
   <h2 class="section-title">Explore</h2>
   <div class="explore-grid">
-    <div class="explore-card" role="link" tabindex="0" onclick={() => navigate("/features")} onkeydown={(e) => handleCardKeydown(e, "/features")}>
+    <a class="explore-card" href="/features" onclick={(e) => cardClick(e, "/features")}>
       <div class="explore-card-header">
         <span class="explore-tag">OVERVIEW</span>
         <span class="explore-arrow">→</span>
@@ -318,8 +319,8 @@
         Unified data management, collaboration tools, and advanced search
         capabilities.
       </p>
-    </div>
-    <div class="explore-card" role="link" tabindex="0" onclick={() => navigate("/why")} onkeydown={(e) => handleCardKeydown(e, "/why")}>
+    </a>
+    <a class="explore-card" href="/why" onclick={(e) => cardClick(e, "/why")}>
       <div class="explore-card-header">
         <span class="explore-tag">PHILOSOPHY</span>
         <span class="explore-arrow">→</span>
@@ -329,8 +330,8 @@
         Transform data from a liability into an asset. Own your data, no vendor
         lock-in.
       </p>
-    </div>
-    <div class="explore-card" role="link" tabindex="0" onclick={() => navigate("/technical")} onkeydown={(e) => handleCardKeydown(e, "/technical")}>
+    </a>
+    <a class="explore-card" href="/technical" onclick={(e) => cardClick(e, "/technical")}>
       <div class="explore-card-header">
         <span class="explore-tag">ARCHITECTURE</span>
         <span class="explore-arrow">→</span>
@@ -340,8 +341,8 @@
         ASP.NET Core on .NET, PostgreSQL-backed. A single Native-AOT
         binary — built for simplicity and speed.
       </p>
-    </div>
-    <div class="explore-card" role="link" tabindex="0" onclick={() => navigate("/drivers")} onkeydown={(e) => handleCardKeydown(e, "/drivers")}>
+    </a>
+    <a class="explore-card" href="/drivers" onclick={(e) => cardClick(e, "/drivers")}>
       <div class="explore-card-header">
         <span class="explore-tag">SDKS</span>
         <span class="explore-arrow">→</span>
@@ -351,7 +352,7 @@
         Official client libraries for Python, TypeScript/JavaScript,
         Dart/Flutter, and C#/.NET.
       </p>
-    </div>
+    </a>
   </div>
 </section>
 
@@ -641,6 +642,20 @@
     color: var(--text-main);
   }
 
+
+  /* These are real anchors now, so they inherit the global link styling.
+     Reset it: the card is the affordance, not underlined text. */
+  a.pillar,
+  a.explore-card {
+    text-decoration: none;
+    color: inherit;
+    display: block;
+  }
+  a.pillar:focus-visible,
+  a.explore-card:focus-visible {
+    outline: 2px solid var(--iri-2);
+    outline-offset: 3px;
+  }
   /* ─── RUNS ANYWHERE ─── */
   /* Deliberately not another row of cards. The figures are the argument, so
      they get a measured, tabular treatment rather than an icon tile. */

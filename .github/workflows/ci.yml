@@ -1,0 +1,49 @@
+# Type-check and build every pull request.
+#
+# This repository had no CI. A broken stylesheet or a type error could reach
+# main and only be discovered at deploy time — which very nearly happened while
+# these changes were being written.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: check + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: yarn
+
+      # --frozen-lockfile so a PR that edits package.json without regenerating
+      # yarn.lock fails here rather than resolving to different versions than
+      # anyone else gets.
+      - run: yarn install --frozen-lockfile
+
+      - name: Type-check (svelte-check + tsc)
+        run: yarn run check
+
+      - name: Build
+        run: yarn build
+
+      # The entry chunk is what every visitor downloads before seeing anything.
+      # Printing it makes a regression visible in the PR rather than six months
+      # later: it was 449 kB until routes and mermaid were made lazy.
+      - name: Report entry bundle size
+        run: |
+          echo "### Entry chunk" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          ls -lh dist/assets/index-*.js dist/assets/index-*.css \
+            | awk '{printf "%-12s %s\n", $5, $9}' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
