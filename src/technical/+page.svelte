@@ -383,7 +383,7 @@ sequenceDiagram
       </li>
       <li>
         <strong>Containerized:</strong> Docker/Podman images available (<code
-          >ghcr.io/edraj/dmart</code
+          >ghcr.io/edraj/csdmart</code
         >).
       </li>
       <li>

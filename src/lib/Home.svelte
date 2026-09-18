@@ -24,6 +24,17 @@
 
     if (!revealRoot || typeof IntersectionObserver === "undefined") return;
 
+    // Opt IN to the hidden-then-reveal state, rather than defaulting to it.
+    // Previously `.reveal` was opacity:0 in plain CSS and only ever un-hidden
+    // by this observer, so anything that stopped the observer running -- JS
+    // disabled, an old browser, this early return -- left every section below
+    // the hero permanently invisible. Adding the class here means the page is
+    // readable by default and animates only when we know we can finish the job.
+    const reduced = typeof matchMedia === "function"
+      && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduced) return;
+    revealRoot.classList.add("js-anim");
+
     const targets = revealRoot.querySelectorAll<HTMLElement>(".reveal");
     const observer = new IntersectionObserver(
       (entries) => {
@@ -63,7 +74,7 @@
         >Read Docs</button
       >
       <a
-        href="https://github.com/edraj/dmart"
+        href="https://github.com/edraj/csdmart"
         target="_blank"
         rel="noopener noreferrer"
         class="cta-link">GitHub →</a
@@ -99,13 +110,13 @@
     </div>
     <div class="stat-divider"></div>
     <div class="stat">
-      <span class="stat-value">100%</span>
-      <span class="stat-label">Open Source</span>
+      <span class="stat-value">46&thinsp;MB</span>
+      <span class="stat-label">Single Binary, No Runtime</span>
     </div>
     <div class="stat-divider"></div>
     <div class="stat">
-      <span class="stat-value">0</span>
-      <span class="stat-label">Vendor Lock-in</span>
+      <span class="stat-value">106&thinsp;MB</span>
+      <span class="stat-label">Full Stack, Idle</span>
     </div>
   </div>
 </section>
@@ -154,6 +165,63 @@
 </section>
 
 <!-- ═══ HOW IT WORKS ═══ -->
+<!-- The two differentiators that were missing entirely: where it runs, and who
+     owns the data. Both are load-bearing against Firebase/Supabase/Sanity, and
+     the footprint figures are measured rather than asserted. -->
+<section class="runs-anywhere reveal">
+  <h2 class="section-title">Runs Where a Backend Normally Can&rsquo;t</h2>
+  <div class="ra-grid">
+    <div class="ra-main">
+      <p class="ra-lede">
+        One self-contained binary, compiled ahead of time. No runtime to
+        install, no container required, no separate frontend to deploy &mdash;
+        the admin UI ships inside it.
+      </p>
+      <p class="ra-body">
+        Measured on a <strong>Raspberry&nbsp;Pi Zero&nbsp;2&nbsp;W</strong> with
+        416&nbsp;MB of usable RAM, serving with PostgreSQL alongside it on the
+        same board: <strong>106&nbsp;MB</strong> resident for the whole stack,
+        ~14&nbsp;ms warm reads, and four concurrent logins served with a bounded
+        peak that is fully reclaimed. The same binary runs on a server.
+      </p>
+    </div>
+    <dl class="ra-figures">
+      <div><dt>106&thinsp;MB</dt><dd>dmart + PostgreSQL, idle, of 416&thinsp;MB</dd></div>
+      <div><dt>~14&thinsp;ms</dt><dd>warm read, 5,000-entry fixture</dd></div>
+      <div><dt>0&thinsp;KB/s</dt><dd>written to storage while idle</dd></div>
+    </dl>
+  </div>
+</section>
+
+<section class="own-it reveal">
+  <h2 class="section-title">Your Data Stays Yours</h2>
+  <div class="oi-grid">
+    <div class="oi-card">
+      <span class="oi-k">Files are the source of truth</span>
+      <p>
+        Entries live as plain files on disk. The SQL store is a
+        <strong>rebuildable index</strong> over them &mdash; copy the folder,
+        rebuild the index anywhere, and you have your system back.
+      </p>
+    </div>
+    <div class="oi-card">
+      <span class="oi-k">Standard formats, not a vendor schema</span>
+      <p>
+        Payloads are JSON, constrained by <strong>JSON&nbsp;Schema Draft&nbsp;7</strong>
+        and evaluated by a standard library. There is no dmart-specific type
+        system to migrate out of.
+      </p>
+    </div>
+    <div class="oi-card">
+      <span class="oi-k">Self-hosted, AGPL-3.0</span>
+      <p>
+        Run it on your hardware, in your network, air-gapped if you need to.
+        No per-seat pricing and no hosted service you depend on.
+      </p>
+    </div>
+  </div>
+</section>
+
 <section class="how-it-works reveal">
   <h2 class="section-title">How It Works</h2>
   <div class="steps">
@@ -260,7 +328,7 @@
         >Get Started</button
       >
       <a
-        href="https://github.com/edraj/dmart"
+        href="https://github.com/edraj/csdmart"
         target="_blank"
         rel="noopener noreferrer"
         class="cta-link">View on GitHub →</a
@@ -507,6 +575,99 @@
     text-transform: uppercase;
     font-weight: 700;
     color: var(--text-main);
+  }
+
+  /* ─── RUNS ANYWHERE ─── */
+  /* Deliberately not another row of cards. The figures are the argument, so
+     they get a measured, tabular treatment rather than an icon tile. */
+  .runs-anywhere,
+  .own-it {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 4.5rem 1.5rem 0;
+  }
+  .ra-grid {
+    display: grid;
+    grid-template-columns: 1.35fr 1fr;
+    gap: 3rem;
+    align-items: start;
+  }
+  .ra-lede {
+    font-size: 1.15rem;
+    line-height: 1.55;
+    color: var(--text-main);
+    margin: 0 0 1rem;
+  }
+  .ra-body {
+    color: var(--text-secondary);
+    margin: 0;
+    max-width: 58ch;
+  }
+  .ra-figures {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin: 0;
+    border-top: 1px solid var(--border-color);
+  }
+  .ra-figures > div {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.85rem 0;
+    border-bottom: 1px solid var(--border-color);
+  }
+  .ra-figures dt {
+    font-family: var(--font-mono);
+    font-size: 1.35rem;
+    font-weight: 600;
+    color: var(--text-main);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .ra-figures dd {
+    margin: 0;
+    text-align: right;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    max-width: 22ch;
+  }
+
+  /* ─── OWN IT ─── */
+  .oi-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--border-color);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+  .oi-card {
+    background: var(--bg-color);
+    padding: 1.6rem 1.5rem;
+  }
+  .oi-k {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--iri-2);
+    margin-bottom: 0.6rem;
+  }
+  .oi-card p {
+    margin: 0;
+    font-size: 0.93rem;
+    line-height: 1.6;
+    color: var(--text-secondary);
+  }
+
+  @media (max-width: 860px) {
+    .ra-grid { grid-template-columns: 1fr; gap: 2rem; }
+    .oi-grid { grid-template-columns: 1fr; }
+    .ra-figures dd { max-width: none; }
   }
 
   /* ─── PILLARS ─── */
@@ -821,14 +982,20 @@
 
   /* ─── SCROLL REVEAL ─── */
   @media (prefers-reduced-motion: no-preference) {
+    /* Visible at rest. The animation is applied only when the script has
+       confirmed it can run it -- see the onMount comment. */
     .reveal {
+      opacity: 1;
+      transform: none;
+    }
+    :global(.js-anim) .reveal {
       opacity: 0;
       transform: translateY(14px);
       transition:
         opacity 0.7s ease,
         transform 0.7s ease;
     }
-    .reveal:global(.in-view) {
+    :global(.js-anim) .reveal:global(.in-view) {
       opacity: 1;
       transform: none;
     }

@@ -278,9 +278,9 @@
   <footer>
     <p>&copy; {new Date().getFullYear()} DMART. Open Source Data Platform.</p>
     <p class="footer-links">
-      <a href="https://github.com/edraj/dmart" target="_blank" rel="noopener noreferrer">GitHub</a>
+      <a href="https://github.com/edraj/csdmart" target="_blank" rel="noopener noreferrer">GitHub</a>
       <span class="footer-sep">|</span>
-      <a href="https://github.com/edraj/dmart/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">License</a>
+      <a href="https://github.com/edraj/csdmart/blob/master/LICENSE" target="_blank" rel="noopener noreferrer">AGPL-3.0</a>
     </p>
   </footer>
 </main>
