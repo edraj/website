@@ -84,7 +84,7 @@ var resp = await client.QueryAsync(new Query
 
 foreach (var record in resp.Records ?? [])
     Console.WriteLine(record.Shortname);`}</code></pre>
-        <a href="https://github.com/edraj/csdmart" target="_blank" rel="noopener noreferrer">GitHub &rarr;</a>
+        <a href="https://www.nuget.org/packages/Dmart.Client" target="_blank" rel="noopener noreferrer">NuGet &rarr;</a>
       </div>
     </div>
   </div>
