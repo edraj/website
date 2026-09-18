@@ -3,42 +3,33 @@
   import type { Component } from "svelte";
   import AuroraBackground from "./lib/AuroraBackground.svelte";
   import Home from "./lib/Home.svelte";
-  import Features from "./features/+page.svelte";
-  import Why from "./why/+page.svelte";
-  import Technical from "./technical/+page.svelte";
-  import DataModel from "./data-model/+page.svelte";
-  import Folders from "./folders/+page.svelte";
-  import Drivers from "./drivers/+page.svelte";
-  import AccessControl from "./access-control/+page.svelte";
-  import EntityLifecycle from "./entity-lifecycle/+page.svelte";
-  import Plugins from "./plugins/+page.svelte";
-  import ApiDocs from "./api-docs/+page.svelte";
-  import QuerySearch from "./query-search/+page.svelte";
-  import Settings from "./settings/+page.svelte";
-  import CLI from "./cli/+page.svelte";
-  import Tickets from "./tickets/+page.svelte";
 
   type PageComponent = Component<Record<string, never>>;
+  type PageLoader = () => Promise<{ default: PageComponent }>;
 
-  const routes: Record<string, { component: PageComponent; title: string }> = {
-    "/features": { component: Features, title: "Features" },
-    "/why": { component: Why, title: "Why DMART?" },
-    "/technical": { component: Technical, title: "Technical Overview" },
-    "/data-model": { component: DataModel, title: "Data Model" },
-    "/folders": { component: Folders, title: "Folders & Rendering" },
-    "/drivers": { component: Drivers, title: "Drivers & SDKs" },
-    "/access-control": { component: AccessControl, title: "Access Control" },
-    "/entity-lifecycle": {
-      component: EntityLifecycle,
-      title: "Entity Lifecycle",
-    },
-    "/tickets": { component: Tickets, title: "Tickets & Workflows" },
-    "/plugins": { component: Plugins, title: "Plugins" },
-    "/api-docs": { component: ApiDocs, title: "API Documentation" },
-    "/query-search": { component: QuerySearch, title: "Query Search" },
-    "/settings": { component: Settings, title: "Configuration Settings" },
-    "/cli": { component: CLI, title: "CLI Reference" },
+  // Loaders, not components. Every page used to be imported statically, so a
+  // visitor who only ever saw the homepage still downloaded all fifteen -- and
+  // seven of them pull in the mermaid helper, which dragged mermaid core into
+  // the entry chunk. These dynamic imports let Vite split each page out.
+  // Home is deliberately NOT lazy: it is the landing page and should paint
+  // without a second round trip.
+  const routes: Record<string, { load: PageLoader; title: string }> = {
+    "/features": { load: () => import("./features/+page.svelte"), title: "Features" },
+    "/why": { load: () => import("./why/+page.svelte"), title: "Why DMART?" },
+    "/technical": { load: () => import("./technical/+page.svelte"), title: "Technical Overview" },
+    "/data-model": { load: () => import("./data-model/+page.svelte"), title: "Data Model" },
+    "/folders": { load: () => import("./folders/+page.svelte"), title: "Folders & Rendering" },
+    "/drivers": { load: () => import("./drivers/+page.svelte"), title: "Drivers & SDKs" },
+    "/access-control": { load: () => import("./access-control/+page.svelte"), title: "Access Control" },
+    "/entity-lifecycle": { load: () => import("./entity-lifecycle/+page.svelte"), title: "Entity Lifecycle" },
+    "/tickets": { load: () => import("./tickets/+page.svelte"), title: "Tickets & Workflows" },
+    "/plugins": { load: () => import("./plugins/+page.svelte"), title: "Plugins" },
+    "/api-docs": { load: () => import("./api-docs/+page.svelte"), title: "API Documentation" },
+    "/query-search": { load: () => import("./query-search/+page.svelte"), title: "Query Search" },
+    "/settings": { load: () => import("./settings/+page.svelte"), title: "Configuration Settings" },
+    "/cli": { load: () => import("./cli/+page.svelte"), title: "CLI Reference" },
   };
+
 
   // Single source of truth for the docs sidebar; docsPaths is derived so the
   // two can never drift.
@@ -173,7 +164,27 @@
     };
   });
 
-  let CurrentPage = $derived(routes[currentPath]?.component);
+  // Resolved asynchronously. The previous page stays mounted while the next
+  // one loads, so navigation never flashes an empty container; `pending`
+  // guards against a slow load landing after the user has moved on again.
+  let CurrentPage = $state<PageComponent | null>(null);
+  let pending = "";
+
+  async function resolveRoute(path: string) {
+    const route = routes[path];
+    if (!route) {
+      pending = path;
+      CurrentPage = null;
+      return;
+    }
+    pending = path;
+    const mod = await route.load();
+    if (pending === path) CurrentPage = mod.default;
+  }
+
+  $effect(() => {
+    resolveRoute(currentPath);
+  });
 
   let activeTab = $derived.by(() => {
     if (currentPath === "/features") return "features";
@@ -190,7 +201,7 @@
 <main>
   <nav>
     <div class="nav-container">
-      <div class="logo" role="link" tabindex="0" onclick={() => navigate("/")} onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate("/"); } }}>DMART</div>
+      <a class="logo" href="/" onclick={(e) => onSidebarLink(e, "/")}>DMART</a>
       <div class="links">
         <button
           onclick={() => navigate("/")}
@@ -320,6 +331,7 @@
   }
 
   .logo {
+    text-decoration: none;
     font-family: var(--font-display);
     font-size: 1.5rem;
     font-weight: 800;

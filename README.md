@@ -1,6 +1,44 @@
-# Svelte + TS + Vite
+# dmart.cc
 
-This template should help get you started developing with Svelte and TypeScript in Vite.
+The marketing and documentation site for [DMART](https://github.com/edraj/csdmart) —
+a self-hosted structured information platform.
+
+Svelte 5 + TypeScript + Vite, built to a static bundle. Fifteen routes, no
+backend.
+
+```bash
+yarn install
+yarn dev      # http://localhost:5173
+yarn run check   # svelte-check + tsc
+yarn build       # -> dist/
+```
+
+**Keep the entry chunk small.** Route components and `mermaid` are loaded
+dynamically on purpose: every page used to be imported statically, which put
+mermaid core — and behind it ELK, cytoscape and KaTeX — into the bundle every
+visitor downloads. That was 449 kB; it is now ~62 kB. CI prints the entry chunk
+size on each pull request so a regression is visible immediately.
+
+## Deployment
+
+The router uses the History API (`pushState` + `location.pathname`), so **the
+host must serve `index.html` for any unmatched path**. Without that fallback,
+every deep link and every refresh on a sub-page returns 404 — only in-app
+navigation works.
+
+dmart.cc runs on Caddy, where that is:
+
+```caddyfile
+dmart.cc {
+	root * /srv/dmart-site
+	try_files {path} /index.html
+	file_server
+}
+```
+
+That config lives on the server rather than in this repo, so it is recorded
+here: moving to a host without an equivalent rule silently breaks every shared
+link.
 
 ## Recommended IDE Setup
 
