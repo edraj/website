@@ -21,24 +21,52 @@ size on each pull request so a regression is visible immediately.
 
 ## Deployment
 
+`./deploy.sh` on the web host builds `main` and publishes it. It fast-forwards
+to `origin/main`, installs with a frozen lockfile, type-checks, builds, and
+**verifies `dist/` contains a real app shell before publishing** — the previous
+version had no error handling, so a failed build still reached
+`rsync --delete` and could empty the live site. The outgoing release is copied
+to `$BACKUP_DIR` (last five kept) so a bad deploy can be rolled back without a
+rebuild, and the script asserts afterwards that the live HTML references the
+bundle hash it just built.
+
+```bash
+./deploy.sh --dry-run   # build and verify, stop before publishing
+./deploy.sh             # build, publish, verify live
+```
+
+Paths come from environment variables with defaults for the dmart.cc host:
+`REPO_DIR`, `WEB_ROOT`, `BACKUP_DIR`, `SITE_URL`.
+
+### Host requirements
+
 The router uses the History API (`pushState` + `location.pathname`), so **the
-host must serve `index.html` for any unmatched path**. Without that fallback,
-every deep link and every refresh on a sub-page returns 404 — only in-app
+host must serve `index.html` for any unmatched path**. Without that fallback
+every deep link and every refresh on a sub-page returns 404, and only in-app
 navigation works.
 
-dmart.cc runs on Caddy, where that is:
+dmart.cc runs on Caddy. The relevant part of
+`/etc/caddy/Caddyfile.d/dmart.conf`:
 
 ```caddyfile
-dmart.cc {
-	root * /srv/dmart-site
-	try_files {path} /index.html
-	file_server
+https://dmart.cc {
+  handle * {
+    root * /var/www/html/www/
+    encode gzip
+    try_files {path} /index.html
+    file_server
+  }
+
+  # Unrelated to this site: the same vhost proxies Matrix/Synapse endpoints.
+  handle /health              { reverse_proxy localhost:8008 }
+  handle /_synapse/client/*   { reverse_proxy localhost:8008 }
 }
 ```
 
-That config lives on the server rather than in this repo, so it is recorded
-here: moving to a host without an equivalent rule silently breaks every shared
-link.
+That config lives on the server, not in this repo, which is why it is recorded
+here: moving to a host without an equivalent `try_files` rule silently breaks
+every shared link. Note also that `dmart.cc/health` is **not** this site — it is
+proxied to Synapse, so it is not a usable health check for the web front end.
 
 ## Recommended IDE Setup
 
