@@ -90,7 +90,7 @@
 
       <g class="hf-engine">
         <rect x="8" y="68" width="304" height="86" rx="6"/>
-        <text class="hf-title" x="20" y="88">dmart &mdash; one binary, 46 MB</text>
+        <text class="hf-title" x="20" y="88">dmart &mdash; one binary, ~50 MB</text>
         <g class="hf-chip">
           <rect x="20"  y="98" width="66" height="20" rx="3"/>
           <rect x="94"  y="98" width="66" height="20" rx="3"/>
