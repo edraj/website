@@ -147,7 +147,7 @@
     </div>
     <div class="stat-divider"></div>
     <div class="stat">
-      <span class="stat-value">46&thinsp;MB</span>
+      <span class="stat-value">~50&thinsp;MB</span>
       <span class="stat-label">Single Binary, No Runtime</span>
     </div>
     <div class="stat-divider"></div>
@@ -219,13 +219,15 @@
         416&nbsp;MB of usable RAM, serving with PostgreSQL alongside it on the
         same board: <strong>106&nbsp;MB</strong> resident for the whole stack,
         ~14&nbsp;ms warm reads, and four concurrent logins served with a bounded
-        peak that is fully reclaimed. The same binary runs on a server.
+        peak that is fully reclaimed. A 10-hour continuous write soak held memory
+          flat &mdash; a plateau, not a slope &mdash; with no OOM and no thermal
+          throttling. The same binary runs on a server.
       </p>
     </div>
     <dl class="ra-figures">
       <div><dt>106&thinsp;MB</dt><dd>dmart + PostgreSQL, idle, of 416&thinsp;MB</dd></div>
       <div><dt>~14&thinsp;ms</dt><dd>warm read, 5,000-entry fixture</dd></div>
-      <div><dt>0&thinsp;KB/s</dt><dd>written to storage while idle</dd></div>
+      <div><dt>0.6&thinsp;GB/day</dt><dd>written under sustained load &mdash; ~460&thinsp;yr on a 100&thinsp;TBW card</dd></div>
     </dl>
   </div>
 </section>

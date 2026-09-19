@@ -49,7 +49,8 @@ graph TD
       <li>
         <strong>Language &amp; Runtime:</strong> C# on .NET 10, compiled ahead of
         time with <strong>Native AOT</strong> into a single self-contained
-        binary (~40&nbsp;MB) — no runtime install required. JSON is
+        binary (~50&nbsp;MB; 46&nbsp;MB arm64, 53&nbsp;MB x64) — no runtime install
+          required. JSON is
         source-generated (System.Text.Json), and the same binary bundles both
         the server and the CLI client.
       </li>
@@ -375,7 +376,7 @@ sequenceDiagram
     <ul>
       <li>
         <strong>Single Binary:</strong> Native-AOT publish produces one
-        self-contained <code>dmart</code> executable (~40&nbsp;MB) with no
+        self-contained <code>dmart</code> executable (~50&nbsp;MB) with no
         runtime dependency — copy and run. The embedded admin UIs and sample
         seed data ship inside it, and the same binary doubles as the CLI
         (<code>seed</code>, <code>import</code>, <code>export</code>,
