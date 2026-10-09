@@ -1,8 +1,7 @@
-# Type-check and build every pull request.
-#
-# This repository had no CI. A broken stylesheet or a type error could reach
-# main and only be discovered at deploy time — which very nearly happened while
-# these changes were being written.
+# Proves the whole loop on every pull request: the `website` pack installs
+# into a fresh dmart, an anonymous visitor can read it through the public API,
+# and the site builds from what that API returns — every page real HTML with
+# its content in the markup, nothing that needs 'unsafe-inline'.
 name: CI
 
 on:
@@ -13,40 +12,79 @@ on:
 permissions:
   contents: read
 
+env:
+  # The dmart the site is built against in CI: a release binary, pinned by
+  # version AND checksum (the static musl build runs on any x86_64 runner).
+  DMART_VERSION: "1.5.22"
+  DMART_SHA256: "5e0643029a185424145db4b5ef44e941877bc4f2a31e62157c9b9432da20d935"
+  DMART_URL: "http://127.0.0.1:8282"
+  # Throwaway admin of a dmart that lives for one job on localhost — not a
+  # secret, and it guards nothing.
+  DMART_ADMIN_PASSWORD: "Ci-throwaway-admin-1"
+
 jobs:
-  check:
-    name: check + build
+  site:
+    name: pack → dmart → site
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       # Pinned by commit SHA rather than tag, matching the convention in
-      # edraj/csdmart: a mutable tag like @v7 can be repointed at new code by
-      # anyone who controls the action's repository, and CI runs with a token.
+      # edraj/csdmart: a mutable tag can be repointed at new code by anyone
+      # who controls the action's repository, and CI runs with a token.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
           cache: yarn
+          cache-dependency-path: app/yarn.lock
 
-      # --frozen-lockfile so a PR that edits package.json without regenerating
-      # yarn.lock fails here rather than resolving to different versions than
-      # anyone else gets.
-      - run: yarn install --frozen-lockfile
+      - name: Fetch dmart ${{ env.DMART_VERSION }}
+        run: |
+          set -euo pipefail
+          name="dmart-${DMART_VERSION}-linux-musl-x64"
+          curl -fsSL -o dmart.tgz "https://github.com/edraj/csdmart/releases/download/v${DMART_VERSION}/${name}.tar.gz"
+          echo "${DMART_SHA256}  dmart.tgz" | sha256sum -c -
+          tar -xzf dmart.tgz
+          echo "DMART_BIN=$PWD/${name}/dmart" >> "$GITHUB_ENV"
 
-      - name: Type-check (svelte-check + tsc)
-        run: yarn run check
+      - name: Start a throwaway dmart (SQLite)
+        run: |
+          set -euo pipefail
+          d="$RUNNER_TEMP/dmart"; mkdir -p "$d"
+          printf '%s\n' \
+            'LISTENING_HOST="127.0.0.1"' 'LISTENING_PORT=8282' 'DATABASE_DRIVER="sqlite"' \
+            "SQLITE_PATH=\"$d/dmart.db\"" "JWT_SECRET=\"$(openssl rand -hex 32)\"" \
+            > "$d/config.env"
+          chmod 600 "$d/config.env"
+          # dmart never reads ./config.env from the working directory.
+          echo "BACKEND_ENV=$d/config.env" >> "$GITHUB_ENV"
+          cd "$d"
+          BACKEND_ENV="$d/config.env" Dmart__AdminPassword="$DMART_ADMIN_PASSWORD" nohup "$DMART_BIN" serve > server.log 2>&1 &
+          for i in $(seq 1 60); do curl -fs -o /dev/null "$DMART_URL/" && exit 0; sleep 1; done
+          echo "dmart did not come up"; cat server.log; exit 1
 
-      - name: Build
+      - name: Install the website pack (public)
+        run: pack/install.sh --public
+
+      - name: Install site dependencies
+        working-directory: app
+        # --frozen-lockfile: a PR that edits package.json without regenerating
+        # yarn.lock fails here instead of resolving to different versions.
+        run: yarn install --frozen-lockfile
+
+      - name: Build the site from dmart's public API
+        working-directory: app
         run: yarn build
 
-      # The entry chunk is what every visitor downloads before seeing anything.
-      # Printing it makes a regression visible in the PR rather than six months
-      # later: it was 449 kB until routes and mermaid were made lazy.
-      - name: Report entry bundle size
-        run: |
-          echo "### Entry chunk" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          ls -lh dist/assets/index-*.js dist/assets/index-*.css \
-            | awk '{printf "%-12s %s\n", $5, $9}' >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - name: Type-check
+        working-directory: app
+        run: yarn run typecheck
+
+      - name: Verify the built pages
+        working-directory: app
+        run: yarn verify
+
+      - name: dmart log
+        if: failure()
+        run: tail -n 100 "$RUNNER_TEMP/dmart/server.log" || true

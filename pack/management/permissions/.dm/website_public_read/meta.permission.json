@@ -1,0 +1,25 @@
+{
+  "uuid": "49f0b399-71dd-5b24-83af-f31cd808d6ba",
+  "shortname": "website_public_read",
+  "is_active": true,
+  "tags": [],
+  "created_at": "2026-10-09T00:00:00",
+  "updated_at": "2026-10-09T00:00:00",
+  "owner_shortname": "dmart",
+  "subpaths": {
+    "website": [
+      "__all_subpaths__"
+    ]
+  },
+  "resource_types": [
+    "content",
+    "folder"
+  ],
+  "actions": [
+    "query",
+    "view"
+  ],
+  "conditions": [
+    "is_active"
+  ]
+}

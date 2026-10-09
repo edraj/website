@@ -1,113 +1,77 @@
 # dmart.cc
 
-The marketing and documentation site for [DMART](https://github.com/edraj/csdmart) —
-a self-hosted structured information platform.
+The website of [dmart](https://github.com/edraj/csdmart), and a working example
+of the thing it advertises: **a public site built on top of dmart data**.
 
-Svelte 5 + TypeScript + Vite, built to a static bundle. Fifteen routes, no
-backend.
+Nothing the site shows is in this app's source. The pages, the navigation and
+the landing page live in a dmart space, and the site reads them the way any
+anonymous visitor could — through dmart's public API, with the official
+TypeScript SDK — then renders each page to static HTML.
+
+```
+pack/   the `website` dmart pack: the content, its schemas, and the role that
+        makes it publicly readable
+app/    the site: Svelte 5 + Routify 3, prerendered at build time
+```
+
+## How it works
+
+1. **Content is a dmart pack.** `pack/space/` is the `website` space in dmart's
+   on-disk layout: `pages/` (one markdown entry per page, `slug` = its URL),
+   `site/config` (brand, header links, docs sidebar, footer, base URL) and
+   `site/home` (the landing page), validated by the schemas in `schema/`.
+   `pack/management/` adds a `website_public` role that may *query* and *view*
+   active entries of that space — nothing else. Installing the pack opens
+   nothing; `--public` grants that role to dmart's anonymous user.
+2. **The build asks dmart.** `app/scripts/export-content.mjs` runs
+   `Dmart.query({type: "subpath", space_name: "website", …}, DmartScope.public)`
+   for `/pages` and `/site`, renders the markdown (raw HTML escaped, unsafe link
+   schemes dropped), and writes one static route per page. What the public
+   permissions don't expose, the site cannot publish — drafts
+   (`is_active: false`) included.
+3. **Every page is real HTML.** Routify prerenders each route through its own
+   server renderer. Pages ship without an app bundle: the content is in the
+   markup, and the interactive parts (theme, docs drawer, copy buttons,
+   diagrams, the animated explainer) are one small script, `app/public/site.js`.
+   Nothing needs `'unsafe-inline'`, so the site runs under dmart's strict site
+   CSP.
+4. **dmart serves it.** The build is copied into the dmart instance's
+   `WEBSITE_DIR` and served under `/website`; Caddy maps dmart.cc's root onto
+   that path.
+
+## Working on it
 
 ```bash
+cd app
 yarn install
-yarn dev      # http://localhost:5173
-yarn run check   # svelte-check + tsc
-yarn build       # -> dist/
+yarn build          # reads the LIVE dmart.cc public API by default
+yarn verify         # every page has its content in the HTML; no inline script
 ```
 
-**Keep the entry chunk small.** Route components and `mermaid` are loaded
-dynamically on purpose: every page used to be imported statically, which put
-mermaid core — and behind it ELK, cytoscape and KaTeX — into the bundle every
-visitor downloads. That was 449 kB; it is now ~62 kB. CI prints the entry chunk
-size on each pull request so a regression is visible immediately.
-
-## Deployment
-
-`./deploy.sh` on the web host builds `main` and publishes it. It fast-forwards
-to `origin/main`, installs with a frozen lockfile, type-checks, builds, and
-**verifies `dist/` contains a real app shell before publishing** — the previous
-version had no error handling, so a failed build still reached
-`rsync --delete` and could empty the live site. The outgoing release is copied
-to `$BACKUP_DIR` (last five kept) so a bad deploy can be rolled back without a
-rebuild, and the script asserts afterwards that the live HTML references the
-bundle hash it just built.
+`DMART_URL` points the build at another dmart, such as a local one with the
+pack installed:
 
 ```bash
-./deploy.sh --dry-run   # build and verify, stop before publishing
-./deploy.sh             # build, publish, verify live
+export BACKEND_ENV=/path/to/config.env          # the CLI never reads ./config.env
+pack/install.sh                                 # import the space, role and permission
+DMART_URL=http://127.0.0.1:8282 DMART_ADMIN_PASSWORD=… pack/install.sh --public
+DMART_URL=http://127.0.0.1:8282 yarn --cwd app build
 ```
 
-Paths come from environment variables with defaults for the dmart.cc host:
-`REPO_DIR`, `WEB_ROOT`, `BACKUP_DIR`, `SITE_URL`.
+To change content, edit `pack/space/` and re-import it with
+`pack/install.sh --replace`, or edit it in dmart's admin UI. Either way, the
+site changes on the next build.
 
-### Host requirements
+CI runs the whole loop on every pull request: a release build of dmart,
+the pack installed into it, the site built from its public API, and the result
+verified.
 
-The router uses the History API (`pushState` + `location.pathname`), so **the
-host must serve `index.html` for any unmatched path**. Without that fallback
-every deep link and every refresh on a sub-page returns 404, and only in-app
-navigation works.
+## Publishing
 
-dmart.cc runs on Caddy. The relevant part of
-`/etc/caddy/Caddyfile.d/dmart.conf`:
-
-```caddyfile
-https://dmart.cc {
-  handle * {
-    root * /var/www/html/www/
-    encode gzip
-    try_files {path} /index.html
-    file_server
-  }
-
-  # Unrelated to this site: the same vhost proxies Matrix/Synapse endpoints.
-  handle /health              { reverse_proxy localhost:8008 }
-  handle /_synapse/client/*   { reverse_proxy localhost:8008 }
-}
+```bash
+./deploy.sh            # build from https://dmart.cc/dmart, verify, upload to i1, switch
+./deploy.sh --dry-run  # build and verify only
 ```
 
-That config lives on the server, not in this repo, which is why it is recorded
-here: moving to a host without an equivalent `try_files` rule silently breaks
-every shared link. Note also that `dmart.cc/health` is **not** this site — it is
-proxied to Synapse, so it is not a usable health check for the web front end.
-
-## Recommended IDE Setup
-
-[VS Code](https://code.visualstudio.com/) + [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode).
-
-## Need an official Svelte framework?
-
-Check out [SvelteKit](https://github.com/sveltejs/kit#readme), which is also powered by Vite. Deploy anywhere with its serverless-first approach and adapt to various platforms, with out of the box support for TypeScript, SCSS, and Less, and easily-added support for mdsvex, GraphQL, PostCSS, Tailwind CSS, and more.
-
-## Technical considerations
-
-**Why use this over SvelteKit?**
-
-- It brings its own routing solution which might not be preferable for some users.
-- It is first and foremost a framework that just happens to use Vite under the hood, not a Vite app.
-
-This template contains as little as possible to get started with Vite + TypeScript + Svelte, while taking into account the developer experience with regards to HMR and intellisense. It demonstrates capabilities on par with the other `create-vite` templates and is a good starting point for beginners dipping their toes into a Vite + Svelte project.
-
-Should you later need the extended capabilities and extensibility provided by SvelteKit, the template has been structured similarly to SvelteKit so that it is easy to migrate.
-
-**Why `global.d.ts` instead of `compilerOptions.types` inside `jsconfig.json` or `tsconfig.json`?**
-
-Setting `compilerOptions.types` shuts out all other types not explicitly listed in the configuration. Using triple-slash references keeps the default TypeScript setting of accepting type information from the entire workspace, while also adding `svelte` and `vite/client` type information.
-
-**Why include `.vscode/extensions.json`?**
-
-Other templates indirectly recommend extensions via the README, but this file allows VS Code to prompt the user to install the recommended extension upon opening the project.
-
-**Why enable `allowJs` in the TS template?**
-
-While `allowJs: false` would indeed prevent the use of `.js` files in the project, it does not prevent the use of JavaScript syntax in `.svelte` files. In addition, it would force `checkJs: false`, bringing the worst of both worlds: not being able to guarantee the entire codebase is TypeScript, and also having worse typechecking for the existing JavaScript. In addition, there are valid use cases in which a mixed codebase may be relevant.
-
-**Why is HMR not preserving my local component state?**
-
-HMR state preservation comes with a number of gotchas! It has been disabled by default in both `svelte-hmr` and `@sveltejs/vite-plugin-svelte` due to its often surprising behavior. You can read the details [here](https://github.com/rixo/svelte-hmr#svelte-hmr).
-
-If you have state that's important to retain within a component, consider creating an external store which would not be replaced by HMR.
-
-```ts
-// store.ts
-// An extremely simple external store
-import { writable } from 'svelte/store'
-export default writable(0)
-```
+The three newest builds are kept on the server. To roll back, write an older
+build's name into `WEBSITE_DIR/current`.

@@ -1,26 +1,7 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
-node_modules
-dist
-dist-ssr
-*.local
-
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-misc
-.vscode
+node_modules/
+app/dist/
+app/.routify/
+# Written by app/scripts/export-content.mjs on every build:
+app/src/content/
+# …and so are the per-page routes (folders); hand-written routes are files.
+app/src/routes/*/

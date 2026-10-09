@@ -1,0 +1,12 @@
+/* What the generated pages need beyond site.css (shared with dmart's
+   built-in `website build` template): the page-type class sits on a wrapper
+   instead of <body>, so the wrapper takes over body's column layout. */
+.site {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.site > .layout {
+  flex: 1;
+}

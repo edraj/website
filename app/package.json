@@ -1,0 +1,28 @@
+{
+  "name": "dmart-cc",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "dmart.cc: a public site built from dmart data through dmart's public API",
+  "scripts": {
+    "export": "node scripts/export-content.mjs",
+    "build": "node scripts/export-content.mjs && vite build && node scripts/finish-build.mjs",
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json",
+    "verify": "node scripts/verify-build.mjs"
+  },
+  "devDependencies": {
+    "@edraj/tsdmart": "^5.7.0",
+    "@roxi/routify": "^3.6.4",
+    "@sveltejs/vite-plugin-svelte": "^7.0.0",
+    "@tsconfig/svelte": "^5.0.8",
+    "axios": "^1.19.0",
+    "markdown-it": "^14.1.0",
+    "markdown-it-anchor": "^9.2.0",
+    "markdown-it-task-lists": "^2.1.1",
+    "spank": "^2.2.4",
+    "svelte": "^5.56.8",
+    "svelte-check": "^4.4.6",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.10"
+  }
+}
