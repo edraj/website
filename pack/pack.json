@@ -1,0 +1,33 @@
+{
+  "name": "website",
+  "format": 1,
+  "version": "1.0.0",
+  "title": "dmart.cc website",
+  "summary": "The pages, navigation and landing page of dmart.cc, read by the site in ../app through dmart's public API.",
+  "space": "website",
+  "depends": [],
+  "links": [],
+  "optional": false,
+  "folders": [
+    "pages",
+    "site",
+    "schema"
+  ],
+  "provides": {
+    "roles": [
+      "website_public"
+    ],
+    "permissions": [
+      "website_public_read"
+    ],
+    "groups": [],
+    "public_roles": [
+      "website_public"
+    ],
+    "service_accounts": [],
+    "plugins": []
+  },
+  "scales": [
+    "small"
+  ]
+}
