@@ -9,6 +9,10 @@
 //   - tables are wrapped so they scroll sideways on a phone.
 // Heading ids follow GitHub's scheme, so `#query-paths`-style links in the
 // content keep working.
+//
+// Linkify turns written-out URLs (`https://…`, `www.…`) into links, but not
+// bare words that only look like a domain: "ASP.NET" is a product, not
+// http://ASP.NET.
 
 import MarkdownIt from "markdown-it";
 import anchor from "markdown-it-anchor";
@@ -24,6 +28,7 @@ const slugify = (s) =>
 const md = new MarkdownIt({ html: false, linkify: true, typographer: false })
     .use(anchor, { slugify, tabIndex: false })
     .use(taskLists, { enabled: false });
+md.linkify.set({ fuzzyLink: false });
 
 const fence = md.renderer.rules.fence;
 md.renderer.rules.fence = (tokens, idx, options, env, self) => {
@@ -35,7 +40,18 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
 md.renderer.rules.table_open = () => '<div class="table-wrap"><table>\n';
 md.renderer.rules.table_close = () => "</table></div>\n";
 
+// With `env.noLinks`, a link renders as its text alone.
+for (const rule of ["link_open", "link_close"]) {
+    const render = md.renderer.rules[rule] ?? ((tokens, idx, options, env, self) => self.renderToken(tokens, idx, options));
+    md.renderer.rules[rule] = (tokens, idx, options, env, self) => (env.noLinks ? "" : render(tokens, idx, options, env, self));
+}
+
 export const renderMarkdown = (src) => (src && src.trim() ? md.render(src).trimEnd() : "");
+
+// For text that sits inside a link already, such as a linked card's body: a
+// link nested in a link is invalid HTML, and the browser splits the outer one
+// apart to repair it.
+export const renderMarkdownNoLinks = (src) => (src && src.trim() ? md.render(src, { noLinks: true }).trimEnd() : "");
 
 // One line without the paragraph around it, for subtitles and captions.
 export const renderInline = (src) => (src && src.trim() ? md.renderInline(src.trim()) : "");
