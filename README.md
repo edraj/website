@@ -33,11 +33,11 @@ app/    the site: Svelte 5 + Routify 3, prerendered at build time
    server renderer. Pages ship without an app bundle: the content is in the
    markup, and the interactive parts (theme, docs drawer, copy buttons,
    diagrams, the animated explainer) are one small script, `app/public/site.js`.
-   Nothing needs `'unsafe-inline'`, so the site runs under dmart's strict site
-   CSP.
-4. **dmart serves it.** The build is copied into the dmart instance's
-   `WEBSITE_DIR` and served under `/website`; Caddy maps dmart.cc's root onto
-   that path.
+   Nothing needs `'unsafe-inline'`, so the site runs under a strict CSP.
+4. **Caddy serves it as files.** The build is copied to `/var/www/dmart.cc` on
+   i1 and Caddy serves it from disk, with the CSP and caching headers set there
+   (infra-ansible, role dmart, `landing_static`). dmart is needed only to build
+   the site, not to serve it.
 
 ## Working on it
 
@@ -73,5 +73,6 @@ verified.
 ./deploy.sh --dry-run  # build and verify only
 ```
 
-The three newest builds are kept on the server. To roll back, write an older
-build's name into `WEBSITE_DIR/current`.
+The three newest builds are kept on the server, under
+`/var/www/dmart.cc/builds/`. `current` is a symlink to the live one; to roll
+back, point it at an older build (`deploy.sh`'s header has the command).
