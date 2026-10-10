@@ -23,6 +23,11 @@ for (const p of pages) {
   check(!/<script(?![^>]*\bsrc=)[^>]*>\s*\S/i.test(html), `${p.path}: inline <script>`);
   check(!/\son[a-z]+\s*=\s*["']/i.test(html.replace(/<svg[\s\S]*?<\/svg>/g, "")), `${p.path}: inline event handler`);
   check(/<link rel="stylesheet"[^>]*\/assets\/[^"]+\.css"/.test(html), `${p.path}: no stylesheet link`);
+  // A link inside a link is invalid: the browser splits the outer one apart,
+  // which is how a linked card ends up as several empty boxes.
+  let depth = 0, deepest = 0;
+  for (const [tag] of html.matchAll(/<\/?a\b[^>]*>/gi)) deepest = Math.max(deepest, (depth += tag[1] === "/" ? -1 : 1));
+  check(deepest <= 1, `${p.path}: a link nested inside a link`);
 }
 check(existsSync(join(DIST, "sitemap.xml")), "missing sitemap.xml");
 

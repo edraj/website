@@ -23,7 +23,7 @@ import { Dmart, DmartScope, QueryType, ResourceType } from "@edraj/tsdmart";
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { renderMarkdown, renderInline, hasLeadingHeading, plainText } from "./markdown.mjs";
+import { renderMarkdown, renderMarkdownNoLinks, renderInline, hasLeadingHeading, plainText } from "./markdown.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const CONTENT = join(ROOT, "src/content");
@@ -123,7 +123,8 @@ const home = homeRecord && {
         figure: s.figure ?? null,
         items: (s.items ?? []).map((i) => ({
             title: i.title ?? "",
-            bodyHtml: s.kind === "figures" ? renderInline(i.body ?? "") : renderMarkdown(i.body ?? ""),
+            // A card with an href is a link itself, so its body can't hold one.
+            bodyHtml: s.kind === "figures" ? renderInline(i.body ?? "") : i.href ? renderMarkdownNoLinks(i.body ?? "") : renderMarkdown(i.body ?? ""),
             href: i.href ?? null,
             icon: i.icon ?? null,
         })),
