@@ -6,7 +6,7 @@
     "en": "DMART — Self-Hosted Structured Data Platform"
   },
   "description": {
-    "en": "DMART is a self-hosted, structured information platform. One binary, JSON Schema payloads, files you own — running in 106 MB alongside PostgreSQL on a 416 MB board."
+    "en": "DMART is a self-hosted, structured information platform. One binary, JSON Schema payloads, PostgreSQL or SQLite, every space exportable as plain files — running in 106 MB alongside PostgreSQL on a 416 MB board."
   },
   "tags": [
     "site"

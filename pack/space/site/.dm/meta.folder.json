@@ -7,7 +7,7 @@
     "en": "Site"
   },
   "description": {
-    "en": "The home page and the site configuration (navigation, footer) for dmart website build."
+    "en": "The home page and the site configuration (navigation, footer) that edraj/website's app builds the site from."
   },
   "created_at": "2026-10-08T00:00:00",
   "updated_at": "2026-10-08T00:00:00",

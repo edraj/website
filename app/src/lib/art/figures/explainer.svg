@@ -67,7 +67,7 @@
     </g>
   </g>
 
-  <!-- 2. Store anything: JSON, files and tickets go in; each lands as a file on disk and an indexed row. -->
+  <!-- 2. Store anything: JSON, files and tickets go in; each lands as an indexed row in PostgreSQL or SQLite, and any space exports to plain files. -->
   <g class="sc">
     <path class="xp-wire a-draw" style="--t:.7s" pathLength="1" d="M240 104 L330 200"/>
     <path class="xp-wire a-draw" style="--t:.85s" pathLength="1" d="M240 225 L330 225"/>
@@ -110,16 +110,16 @@
     <g class="a-right h-violet" style="--t:2s">
       <rect class="xp-card" x="560" y="72" width="200" height="138" rx="14"/>
       <path class="xp-folder" d="M578 92h12l5 5h17v19h-34z"/>
-      <text class="xp-label xp-strong" x="622" y="109">files on disk</text>
+      <text class="xp-label xp-strong" x="622" y="109">dmart export</text>
       <text class="xp-mono xp-small" x="578" y="146">product.json</text>
       <text class="xp-mono xp-small" x="578" y="166">photo.jpg</text>
-      <text class="xp-mono xp-small xp-dim" x="578" y="186">the source of truth</text>
+      <text class="xp-mono xp-small xp-dim" x="578" y="186">plain files, any time</text>
     </g>
     <g class="a-right h-teal" style="--t:2.25s">
       <path class="xp-db" d="M575 268 v84 a85 18 0 0 0 170 0 v-84"/>
       <ellipse class="xp-db-top" cx="660" cy="268" rx="85" ry="18"/>
       <text class="xp-label xp-strong" x="660" y="320" text-anchor="middle">PostgreSQL</text>
-      <text class="xp-small xp-dim" x="660" y="342" text-anchor="middle">or SQLite · indexed</text>
+      <text class="xp-small xp-dim" x="660" y="342" text-anchor="middle">or SQLite · the store</text>
     </g>
 
     <circle class="xp-dot h-violet" cx="470" cy="205" r="5" style="--t:2.7s;--dx:90px;--dy:-70px"/>

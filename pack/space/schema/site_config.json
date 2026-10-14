@@ -1,7 +1,7 @@
 {
   "type": "object",
   "title": "Site configuration",
-  "description": "Brand, header links, docs sidebar and footer of a website built with dmart website build.",
+  "description": "Brand, header links, docs sidebar and footer of a website built from this space by edraj/website's app.",
   "required": [
     "brand"
   ],

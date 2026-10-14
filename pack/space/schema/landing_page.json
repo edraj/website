@@ -1,7 +1,7 @@
 {
   "type": "object",
   "title": "Landing page",
-  "description": "The text of a website's home page. Its layout, icons and figures come from the site template (dmart website build). Markdown fields are rendered with raw HTML disabled.",
+  "description": "The text of a website's home page. Its layout, icons and figures come from the site template (edraj/website's app). Markdown fields are rendered with raw HTML disabled.",
   "required": [
     "hero"
   ],
@@ -103,6 +103,7 @@
               "cards",
               "steps",
               "figures",
+              "explainer",
               "prose",
               "banner"
             ]
@@ -117,6 +118,10 @@
           "body": {
             "type": "string",
             "description": "Markdown"
+          },
+          "figure": {
+            "type": "string",
+            "description": "explainer only: name of a figure shipped with the site template, one scene per item"
           },
           "items": {
             "type": "array",
