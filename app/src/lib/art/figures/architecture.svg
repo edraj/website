@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" class="hf" viewBox="0 0 320 260" role="img" aria-label="Four client SDKs call one dmart binary, which serves the API, access control, schema validation and admin UI; entries are stored as files, with a rebuildable SQL index beside them.">
+<svg xmlns="http://www.w3.org/2000/svg" class="hf" viewBox="0 0 320 260" role="img" aria-label="Four client SDKs call one dmart binary, which serves the API, access control, schema validation and admin UI; entries are stored in PostgreSQL or SQLite, and any space exports to plain JSON files.">
   <g class="hf-clients">
     <rect x="8" y="8" width="70" height="30" rx="4"/>
     <rect x="86" y="8" width="70" height="30" rx="4"/>
@@ -19,7 +19,7 @@
 
   <g class="hf-engine">
     <rect x="8" y="68" width="304" height="86" rx="6"/>
-    <text class="hf-title" x="20" y="88">dmart — one binary, ~50 MB</text>
+    <text class="hf-title" x="20" y="88">dmart — one binary, ~70 MB</text>
     <g class="hf-chip">
       <rect x="20" y="98" width="66" height="20" rx="3"/>
       <rect x="94" y="98" width="66" height="20" rx="3"/>
@@ -46,16 +46,16 @@
 
   <g class="hf-store">
     <rect x="8" y="174" width="148" height="56" rx="6"/>
-    <text class="hf-title" x="20" y="194">Files on disk</text>
-    <text x="20" y="212">source of truth</text>
+    <text class="hf-title" x="20" y="194">PostgreSQL / SQLite</text>
+    <text x="20" y="212">the store</text>
   </g>
   <g class="hf-index">
     <rect x="164" y="174" width="148" height="56" rx="6"/>
-    <text class="hf-title" x="176" y="194">PostgreSQL / SQLite</text>
-    <text x="176" y="212">rebuildable index</text>
+    <text class="hf-title" x="176" y="194">Plain JSON files</text>
+    <text x="176" y="212">export / import</text>
   </g>
   <g class="hf-wire hf-rebuild">
     <path d="M156 202h8"/>
   </g>
-  <text class="hf-edge" x="160" y="248">dmart import rebuilds the index from disk</text>
+  <text class="hf-edge" x="160" y="248">dmart export writes any space out as files</text>
 </svg>

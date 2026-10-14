@@ -7,7 +7,7 @@
     "ar": "الموقع"
   },
   "description": {
-    "en": "Public website content, published by `dmart website build`."
+    "en": "Public website content for dmart.cc, built into a static site by edraj/website's app."
   },
   "tags": [],
   "created_at": "2026-10-01T00:00:00",
