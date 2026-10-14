@@ -91,7 +91,7 @@ sequenceDiagram
 
 - **Realtime Notifications:** The live notification path today is realtime WebSocket broadcast. The `realtime_updates_notifier` plugin runs on data changes and workflow events and pushes update messages to connected WebSocket clients subscribed to the relevant space/subpath channels — no polling required.
 
-- **Email/SMS Delivery (in progress):** Configurable SMS and SMTP gateway settings exist (`SEND_SMS_API`, `SEND_SMS_OTP_API`, `MAIL_HOST`), but the outbound delivery plugins (`system_notification_sender`, `admin_notification_sender`, `local_notification`) are currently registered _no-op stubs_ pending a push/SMS/SMTP gateway pipeline. Activating one in a Space is a no-op until that integration lands.
+- **Email/SMS Delivery:** One-time codes are sent over SMTP (`MAIL_HOST`) and an SMS gateway (`SEND_SMS_OTP_API`). General notification delivery is not built yet: the notification plugins (`system_notification_sender`, `admin_notification_sender`, `local_notification`) are registered _no-op stubs_ pending a push/SMS/SMTP gateway pipeline.
 
 ## 6. Deployment & Operations
 
@@ -99,8 +99,8 @@ Built for flexibility and reliability in various environments.
 
 - **Container-Ready:** Ships as a single self-contained, Native-AOT binary (no runtime to install), packaged into a tiny Docker/Podman image for consistent environments.
 
-- **Air-Gapped Friendly:** The self-contained binary bundles the server, CLI, and admin UIs with no external service dependencies beyond PostgreSQL — ideal for on-premises and isolated networks.
+- **Air-Gapped Friendly:** The self-contained binary bundles the server, CLI, and admin UIs with no external service dependencies — on SQLite, not even a database server — ideal for on-premises and isolated networks.
 
-- **PostgreSQL-Backed:** A single PostgreSQL database is the source of truth for all entries, users, and attachments — providing transactional integrity and enterprise-grade reliability.
+- **SQL-Backed:** A single PostgreSQL or SQLite database is the source of truth for all entries, users, and attachments — providing transactional integrity and reliability.
 
 - **Portable Import/Export:** Round-trip any Space to and from a human-readable `spaces/` + `.dm` file layout (packaged as a zip) for seeding, migration, and backup — ideal for longevity and moving data between deployments.

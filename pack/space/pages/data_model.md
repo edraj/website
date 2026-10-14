@@ -20,7 +20,7 @@ Locator = ( resource_type , space_name , subpath , shortname )
 | `subpath` | Folder path | Hierarchical, slash-separated (e.g. `/users/employees`). Stored with a leading slash internally; the leading slash is stripped on the wire. |
 | `shortname` | Filename | Unique within `(space, subpath)`. Allowed characters: `a–z A–Z 0–9 _` plus Arabic letters and Arabic-Indic digits, 1–64 chars. |
 
-The Locator is a first-class object, not just a convention. Two entries can share a shortname as long as any other part of the tuple differs.
+The Locator is a first-class object, not just a convention. Two entries can share a shortname only in different folders or spaces: the resource type is not part of the uniqueness, so a `content` and a `folder` named `x` cannot sit in the same folder. Users, groups, roles and permissions are unique across the whole instance.
 
 ## 2. Spaces & Subpaths
 
@@ -39,7 +39,7 @@ graph TD
 
 ### Space — the tenant boundary
 
-A **Space** is the top-level organizational unit and the unit of isolation. It is itself an entry (`resource_type=space`) and carries configuration: which languages it supports, which plugins are active, whether indexing is enabled, whether it is hidden, its display ordinal, and which subfolders to hide.
+A **Space** is the top-level organizational unit and the unit of isolation. It is itself an entry (`resource_type=space`) and carries configuration: which languages it supports, whether indexing is enabled, whether it is hidden, its display ordinal, and which subfolders to hide. Which plugins run on a space is set by each plugin's own `filters`, not on the space.
 
 **management** Always present. Holds users, groups, roles, permissions and the meta-schemas. Bootstrapped on first run.
 
@@ -63,17 +63,17 @@ Every entry is composed of up to four layers. Only **Meta** is mandatory; the re
 graph LR
     Entry["Entry"] --> Meta["① Meta<br/>identity, ownership,<br/>timestamps, tags"]
     Entry --> Payload["② Payload<br/>JSON body (schema-validated)<br/>or file reference"]
-    Entry --> Att["③ Attachments<br/>comments, media, reactions,<br/>relationships, locks, shares"]
-    Entry --> Hist["④ History<br/>immutable diff<br/>of every change"]
+    Entry --> Att["③ Attachments<br/>comments, media, reactions,<br/>relationships, shares"]
+    Entry --> Hist["④ History<br/>diff of each<br/>create and update"]
 ```
 
 **① Meta** System-level identity: uuid, shortname, ownership, ACLs, tags, display names, timestamps. Always present.
 
 **② Payload** The actual content — a JSON object validated against a schema, or a pointer to an attached file. Optional.
 
-**③ Attachments** Secondary entries bound to this one: comments, media, reactions, relationships, locks. Optional, unbounded.
+**③ Attachments** Secondary entries bound to this one: comments, media, reactions, relationships. Optional, unbounded.
 
-**④ History** Append-only diff log. Every create/update/delete writes a row; the entry points at the latest one.
+**④ History** Diff log. Every create, update and move writes a row; a delete writes none.
 
 ## 4. Meta — the fields every entry shares
 
@@ -93,9 +93,8 @@ Regardless of resource type, every entry inherits this common set of fields (the
 | `created_at` | timestamp | Set on insert. |
 | `updated_at` | timestamp | Refreshed on every write. |
 | `payload` | Payload | Content type, schema reference, and body (see §5). |
-| `acl` | Acl[] | Per-entry access-control overrides: `{user_shortname, allowed_actions}`. |
+| `acl` | Acl[] | Per-entry access-control overrides: `{user_shortname, allowed_actions, denied}`. |
 | `relationships` | Relationship[] | Typed links to other entries. |
-| `last_checksum_history` | string | Pointer to the latest row in the history log. |
 | `query_policies` | string[] | Precomputed ACL policy strings for fast read-time filtering. |
 
 ## 5. Payload & type-specific fields
@@ -127,7 +126,7 @@ Selected resource types add their own fields on top of Meta:
 | `role` | `permissions` — list of permission shortnames. |
 | `permission` | `subpaths`, `resource_types`, `actions`, `conditions`, `restricted_fields`, `allowed_fields_values`. |
 | `ticket` | `state`, `is_open`, `workflow_shortname`, `reporter`, `collaborators`, `resolution_reason`. |
-| `space` | `languages`, `active_plugins`, `indexing_enabled`, `hide_folders`, `hide_space`, `ordinal`, `icon`, `mirrors`. |
+| `space` | `languages`, `indexing_enabled`, `hide_folders`, `hide_space`, `ordinal`, `icon`, `mirrors`. |
 | `folder` | A payload validated against the `folder_rendering` schema — how its contents are displayed. See [Folders & Rendering](/folders). |
 
 ## 6. Resource-type catalog
@@ -162,25 +161,24 @@ Attachments are themselves entries, stored in a dedicated table, that point back
 | `comment` / `reply` | Threaded discussion on the entry. |
 | `reaction` | An emoji / like reaction. |
 | `relationship` | A typed link to another entry (see also the Meta `relationships` field). |
-| `lock` | An advisory/enforced lock preventing concurrent edits (see Entity Lifecycle). |
 | `share` | A share grant exposing the entry to another party. |
 | `alteration` | A proposed/tracked change record. |
 
 Every attachment carries an `author_locator` (who created it), optional `media` bytes, a text `body`, and a `state`.
 
+Locks are not attachments: they live in a table of their own (see [Tickets & Workflows](/tickets) for what a lock blocks).
+
 ## 8. History & alterations
 
-DMART never silently overwrites. Every create, update, and delete writes a diff to the history log alongside the request headers that caused it. The entry's `last_checksum_history` field chains to the most recent entry, forming an auditable, tamper-evident trail.
+Every create, update and move writes a diff to the history log, recording which fields changed, from what to what. It is a change log, not a tamper-evident chain: rows are not linked by checksums, a delete writes no history row, and a cascading delete removes the history of what it deletes.
 
 - Query an entry's history via the `history` query type.
 
 - The diff captures exactly which fields changed, from what to what.
 
-- Because history is append-only, you get a complete audit log for free.
-
 ## 9. On-disk layout (the `.dm` convention)
 
-DMART's live data lives in PostgreSQL, but it can be exported to — and seeded from — a human-readable folder tree, and the sample/fixture data ships as that tree. This `.dm` layout is the export, seed and backup representation of the model, not a runtime store. Understanding it demystifies the whole model, because the directory structure _is_ the data model made visible.
+DMART's live data lives in the database (PostgreSQL or SQLite), but it can be exported to — and seeded from — a human-readable folder tree, and the sample/fixture data ships as that tree. This `.dm` layout is the export, seed and backup representation of the model, not a runtime store. Understanding it demystifies the whole model, because the directory structure _is_ the data model made visible.
 
 ```
 spaces/
@@ -217,8 +215,8 @@ Key idea: a folder's **meta** lives at `<subpath>/.dm/meta.folder.json`, while i
 
 DMART keeps a single, authoritative store — and guarantees you can always get your data back out as plain files. Those are two different things, not two competing storage modes.
 
-**PostgreSQL — the sole source of truth** Every live read and write goes to PostgreSQL (via Npgsql). Narrow per-type tables (`users`, `roles`, `permissions`, `spaces`) plus a generic `entries` table, with `attachments` and `histories` alongside. ACID, relational integrity, and trigram (`pg_trgm` + GIN jsonb) full-text search — plus optional pgvector semantic search. There is no filesystem runtime store and no Redis; in-process caches only.
+**The database — the sole source of truth** Every live read and write goes to one SQL database: PostgreSQL (via Npgsql) or SQLite. Narrow per-type tables (`users`, `roles`, `permissions`, `spaces`) plus a generic `entries` table, with `attachments` and `histories` alongside. ACID and relational integrity on both. On PostgreSQL, trigram (`pg_trgm` + GIN jsonb) and full-text search, plus optional pgvector semantic search; on SQLite, an FTS5 full-text index. There is no filesystem runtime store and no Redis; in-process caches only.
 
 **The `.dm` tree — the export & backup format** The human-readable folder tree shown above is how a space is _exported, seeded and backed up_, not how it is served. `dmart export` writes a space to a zip in this on-disk layout; `import` and `seed` read it back. Human-readable, diff-friendly, and trivially archived with `git` or `tar`.
 
-The wire format is the same in both directions: clients always send and receive the same `Record` envelope, whether it is being persisted to PostgreSQL or round-tripped through a `.dm` archive. This is what lets DMART promise **data longevity with zero vendor lock-in**: your data is standard PostgreSQL _and_ can be exported to plain JSON files on disk at any time.
+The wire format is the same in both directions: clients always send and receive the same `Record` envelope, whether it is being persisted to the database or round-tripped through a `.dm` archive. This is what lets DMART promise **data longevity with zero vendor lock-in**: your data sits in a standard PostgreSQL or SQLite database _and_ can be exported to plain JSON files on disk at any time.

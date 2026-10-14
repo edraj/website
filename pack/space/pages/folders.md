@@ -20,7 +20,7 @@ The folder does not store its children. It stores _the rules and the view_ for i
 
 ## 2. Anatomy: where the config actually lives
 
-At runtime a folder is a single row in PostgreSQL like any entry, but when a space is exported to disk (DMART's import / export & seed format) the split between a folder's _meta_ and its _body_ becomes physically visible. The meta sits inside the subpath's `.dm` directory; the body is a sibling JSON file named after the folder, one level up.
+At runtime a folder is a single row in the database like any entry, but when a space is exported to disk (DMART's import / export & seed format) the split between a folder's _meta_ and its _body_ becomes physically visible. The meta sits inside the subpath's `.dm` directory; the body is a sibling JSON file named after the folder, one level up.
 
 ```
 spaces/management/

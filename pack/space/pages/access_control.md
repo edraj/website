@@ -10,11 +10,11 @@ The access control logic is centralized in the `PermissionService` class. Data m
 
 **Role** A named collection of Permission shortnames.
 
-**Group** A named collection of Roles. Users are assigned to Groups.
+**Group** A named set of users. Groups carry no roles: they matter for shared ownership (an entry's `owner_group_shortname` satisfies the `own` condition for its members), for query policies, and for a role's `grantable_by`.
 
-**User** The actor. Can have direct Roles and inherit Roles from Groups.
+**User** The actor. Holds Roles directly; every signed-in user also gets the implicit `logged_in` role.
 
-**ACL** Optional list embedded in a Resource that grants specific users specific actions, bypassing standard RBAC.
+**ACL** Optional list embedded in a Resource that grants specific users specific actions, or denies them, before standard RBAC is consulted.
 
 ## The Authorization Algorithm
 
@@ -22,24 +22,20 @@ The `CanAsync` method is the gatekeeper. It evaluates requests based on the foll
 
 ```mermaid
 graph TD
-    A["Request: User, Action, Resource"] --> B{Is Resource Space?}
-    B -- Yes --> C[Check Space Access]
-    B -- No --> D{Has Item ACL?}
-    D -- Yes --> E[Check ACL]
-    E -- Allowed --> F[Access Granted]
-    E -- Denied --> G[Continue to RBAC]
-    D -- No --> G
-    G --> H[Load User Permissions]
-    H --> I["Determine Context Conditions (is_active, own)"]
-    I --> J[Traverse Path Hierarchy]
-    J --> K{Match Found?}
-    K -- Yes --> L["Check Constraints (Actions, Conditions, Fields)"]
-    L -- Pass --> F
-    L -- Fail --> M[Continue Traversal]
+    A["Request: User, Action, Resource"] --> D{"Item ACL names<br/>the user?"}
+    D -- "action denied" --> O[Access Denied]
+    D -- "action allowed" --> F[Access Granted]
+    D -- "no ACL or no match" --> H["Load the user's permissions<br/>(roles + logged_in)"]
+    H --> I["Determine context conditions<br/>(is_active, own)"]
+    I --> J[Traverse path hierarchy]
+    J --> K{"Permission matches<br/>action, type and path?"}
+    K -- Yes --> L{"Conditions and<br/>field rules pass?"}
+    L -- Yes --> F
+    L -- No --> M[Continue traversal]
     K -- No --> M
-    M --> N{Root Reached?}
+    M --> N{Root reached?}
     N -- No --> J
-    N -- Yes --> O[Access Denied]
+    N -- Yes --> O
 ```
 
 ## Detailed Evaluation Steps
@@ -50,15 +46,15 @@ Before evaluating roles, the system checks if the specific resource instance has
 
 - **Check:** Per-entry `acl` list match
 
-- **Logic:** If `entry.acl` exists and contains an entry for `user_shortname` with the requested `action_type`, access is **immediately granted**.
+- **Logic:** If `entry.acl` has an entry for the user that lists the requested action in `denied`, access is **refused at once**, whatever the user's roles allow. If it lists the action in `allowed_actions`, access is **granted at once**.
 
-- **Note:** ACLs are strictly _additive_. They cannot explicitly deny access if a Role allows it, but they are checked _before_ Roles, allowing for performance optimization on specific items.
+- **Note:** ACLs are checked _before_ Roles, so a `denied` entry overrides any role.
 
 ### 2. Permission Aggregation
 
 If no ACL grants access, the system compiles the user's effective permissions.
 
-- **Source:** User's direct Roles + Roles from User's Groups.
+- **Source:** the user's Roles, plus the implicit `logged_in` role for every signed-in user. Inactive roles and permissions are skipped. The anonymous user also gets the `world` permission, once it holds at least one role.
 
 - **Storage:** Permissions are stored in the SQL database for fast lookup.
 
@@ -68,7 +64,7 @@ The system determines the "state" of the request to match against Permission con
 
 - **`is_active`:** Set if the resource's `is_active` flag is True.
 
-- **`own`:** Set if `resource.owner_shortname == user.shortname` OR `resource.owner_group` is in `user.groups`.
+- **`own`:** Set if `resource.owner_shortname == user.shortname` OR `resource.owner_group` is in `user.groups`. From the next release, an account never owns its own user record, whatever its `owner_shortname` says.
 
 ### 4. Hierarchy Traversal & Global Wildcards
 
@@ -125,7 +121,7 @@ Permissions are defined as JSON objects. Understanding these keys is critical fo
 
 ### Allowed Values
 
-The `actions`, `conditions`, and `resource_types` arrays only accept the fixed sets below — any other string is rejected.
+These are the values DMART checks for. Other strings in `actions`, `conditions` or `resource_types` are stored as given, but never match anything.
 
 #### Actions — the 11 operation types
 
@@ -136,9 +132,9 @@ The `actions`, `conditions`, and `resource_types` arrays only accept the fixed s
 | `create` | Create a new entry. |
 | `update` | Modify an existing entry's metadata or payload. |
 | `delete` | Remove an entry. |
-| `attach` | Add attachments (comments, media, reactions, relationships) to an entry. |
+| `attach` | Not checked by the server. Adding an attachment (comment, media, reaction, relationship) needs `create` on the attachment's own resource type at the entry's path. |
 | `assign` | Change an entry's ownership (owner or owning group). |
-| `move` | Move or rename an entry to a different subpath / shortname. |
+| `move` | Not checked by the server. A move needs `update` on the source and `create` at the destination. |
 | `progress_ticket` | Advance a ticket through its workflow states. |
 | `lock` | Place a lock on an entry to block concurrent edits. |
 | `unlock` | Release a lock on an entry. |
@@ -186,7 +182,8 @@ Any of the platform's [resource types](/data-model) may be listed. An empty `res
     "schema", "space", "content", "user", "..."
   ],
   "actions": [
-    "delete", "update", "query", "create", "view", "attach"
+    "delete", "update", "query", "create", "view", "attach",
+    "assign", "progress_ticket", "lock", "unlock"
   ],
   "conditions": [],
   "restricted_fields": []
@@ -218,6 +215,9 @@ Read-only access to the `users` subpath within the `management` space only.
 ```json
 {
   "shortname": "edit_own_profile",
+  "subpaths": {
+    "management": ["users"]
+  },
   "resource_types": ["user"],
   "actions": ["update"],
   "conditions": ["own"],
@@ -226,4 +226,4 @@ Read-only access to the `users` subpath within the `management` space only.
 }
 ```
 
-Can only edit **their own** user record. Cannot modify `roles` or `is_active` fields — prevents self-promotion or account manipulation.
+Can only edit user records it owns. Cannot modify `roles` or `is_active` fields — prevents self-promotion or account manipulation. A permission needs `subpaths`: without them it never matches. From the next release an account never owns its own user record, so users edit themselves through `POST /user/profile` instead.

@@ -1,4 +1,4 @@
-The `search` field on the `Query` body (`POST /managed/query`, `POST /public/query`) accepts a small RediSearch-flavoured expression language. The name is historical: this is purely a **syntax** — the parser compiles it straight into PostgreSQL `WHERE` clauses (pg_trgm wildcards + GIN jsonb containment). There is no Redis or RediSearch engine anywhere in the stack; every query runs against Postgres. This page covers **every operator** and **every value form**, with worked examples for each.
+The `search` field on the `Query` body (`POST /managed/query`, `POST /public/query`) accepts a small RediSearch-flavoured expression language. The name is historical: this is purely a **syntax** — the parser compiles it straight into SQL `WHERE` clauses, on PostgreSQL (pg_trgm wildcards + GIN jsonb containment) or SQLite. There is no Redis or RediSearch engine anywhere in the stack; every query runs against the database. This page covers **every operator** and **every value form**, with worked examples for each.
 
 ## At a glance
 
@@ -28,46 +28,52 @@ The `search` field is consulted when `type` is one of:
 | `random` | Filters the row pool before `ORDER BY RANDOM()`. |
 | `counters` | Filters the rows whose count is returned. |
 
-The `search` field is **ignored** for `type` = `spaces`, `history`, or `events`.
+The `search` field is **ignored** for `type` = `spaces` and `history`. For `events` it is a plain, case-sensitive substring matched against each raw event line.
 
-## Three kinds of token
+## Kinds of token
 
-The parser recognises exactly three kinds of token, separated by whitespace:
+The parser recognises these tokens, separated by whitespace:
 
-1. **Plain word** — anything that isn't `@…:…`, `(`, `)`, or the literal `and`. Treated as free-text.
+1. **Plain word** — anything that isn't `@…:…`, `(`, `)`, or the keywords `and` / `or`. Treated as free-text.
 
 2. **Field selector** — `@field:value` or `-@field:value`.
 
 3. **Group delimiters** — `(` and `)` for paren grouping.
 
-The literal word `and` is skipped (no-op). Inserting it for readability does not change behaviour.
+4. **The keyword `or`.**
+
+Whitespace means AND; `or` means OR, and AND binds tighter than OR. The literal word `and` is a no-op synonym for whitespace: inserting it for readability does not change behaviour.
 
 ```
-"foo bar"           → two plain words
-"foo @x:1"          → one plain word + one field selector
+"foo bar"           → two plain words, both required
+"foo @x:1"          → one plain word AND one field selector
 "foo and @x:1"      → identical to the line above
+"foo or @x:1"       → the plain word OR the field selector
 ```
 
 ## Plain-text search
 
-A bare word matches across the **five** common columns:
+A plain word searches an entry's **values**: its shortname, display names and descriptions in every language, tags, and every string and number in `payload.body` at any depth. JSON key names are not searched.
 
-- `shortname`
+Each word is matched:
 
-- `displayname` (jsonb, cast to text)
+- **as a word**, in any of its forms: `fryers` finds "fryer", `library` finds "libraries". Case, accents and Arabic diacritics are ignored;
 
-- `description` (jsonb, cast to text)
+- **as part of a word**: `phil` finds "Philips", `book` finds "notebook";
 
-- `tags` (jsonb, cast to text)
+- **with its spelling corrected** against the words the space's entries use: `philps` finds "Philips";
 
-- `payload` (jsonb, cast to text)
+- **as Arabic typed on an English keyboard layout**: `sghl` finds "سلام";
 
-Match is case-insensitive substring (`ILIKE '%word%'`).
+- **typed joined or apart**: `airfrayer` finds "Air Fryer".
+
+Every typed word must match. Results come back best match first — whole words, then parts of words, then corrections — unless the query sets `sort_by`.
+
+A word with a digit (`x200`), a single letter, or a fragment of more than 200 of the space's words is matched as a plain substring of the entry's values, without corrections. A word that starts with `-` is matched literally. With `ENABLE_SMART_SEARCH=false`, every plain word is a case-insensitive substring match.
 
 ```
-hello                  ⇒ rows where any of the five columns contains "hello"
-foo bar                ⇒ rows where ALL the columns contain "foo" AND ALL contain "bar"
-                          (multiple plain words AND together)
+hello                  ⇒ entries whose values contain "hello" as a word, part of a word, or a near spelling
+foo bar                ⇒ entries matching "foo" AND "bar"
 ```
 
 Plain words and field selectors can be freely mixed:
@@ -80,13 +86,14 @@ web01 @payload.body.dc:us-east
 
 ## Field selectors `@field:value`
 
-`field` is the column name (e.g. `shortname`, `is_active`) or a dotted jsonb path (e.g. `payload.body.email`). `field` must match `^[a-z][a-z0-9_]{0,63}$` — anything else is rejected silently.
+`field` is the column name (e.g. `shortname`, `is_active`) or a dotted jsonb path (e.g. `payload.body.email`). A field that is not a column — `@title:x`, `@BadName:x` — is a `400` (`INVALID_DATA`) naming the problem; it is never silently dropped. Custom data lives under `@payload.body.<field>`.
 
 The behaviour depends on which **category** `field` falls into:
 
 | Category | Examples | Behaviour |
 |---|---|---|
-| Plain text column | `shortname`, `subpath`, `slug`, `space_name`, `schema_shortname`, `owner_shortname`, `state` | Exact `=` match; `*` in value falls back to `ILIKE` glob. |
+| Plain text column | `shortname`, `subpath`, `slug`, `space_name`, `owner_shortname`, `state` | Exact `=` match; `*` in value falls back to `ILIKE` glob. |
+| Owner contact | `email`, `msisdn` | Matched through the entry owner's user record; whole values only. |
 | Boolean column | `is_active`, `is_open` | Cast to boolean before compare. |
 | JSONB array column | `tags`, `roles`, `groups` | `@>` containment (does the array contain this value?). |
 | TEXT array column | `query_policies` | `unnest()` + LIKE for pattern matching. |
@@ -94,6 +101,8 @@ The behaviour depends on which **category** `field` falls into:
 | `payload.…` jsonb path | `payload.body.x`, `payload.body.config.db.host` | `payload @> '{…}'::jsonb` containment, type-aware. |
 | `payload.…*` wildcard | `payload.body.*`, `payload.*` | `ILIKE` over the cast-to-text subtree. |
 | `payload.…[]` array iteration | `payload.body.tags[]`, `payload.body.items[].sku` | `EXISTS (… jsonb_array_elements …)` over each element. |
+
+To filter by schema, use the query's `filter_schema_names` field.
 
 ## Array iteration in payload paths
 
@@ -216,14 +225,14 @@ For plain text columns, an embedded `*` becomes `%` in `ILIKE`:
 @shortname:*api*             ⇒ shortname ILIKE '%api%'
 ```
 
-Wildcard glob does not apply to jsonb-path values — those use containment, not LIKE.
+A `*` inside a payload value works the same way: `@payload.body.name:jo*` matches names starting with "jo" (`ILIKE`, with a trigram index prefilter on PostgreSQL).
 
 ### 7. OR-list `v1|v2|v3`
 
 A pipe-separated list. The values OR together for the same field.
 
 ```
-@status:active|pending             ⇒ status='active' OR status='pending'
+@state:active|pending              ⇒ state='active' OR state='pending'
 @payload.body.env:staging|prod     ⇒ payload's env is 'staging' OR 'prod'
 ```
 
@@ -249,12 +258,22 @@ If both bounds are numeric, the range is treated as numeric; otherwise both are 
 
 ### 9. Comparison `>`, `>=`, `<`, `<=`
 
-Prefix the value with the operator. **Numeric values only** (the parser falls back to plain string match for non-numeric comparison values).
+Prefix the value with the operator. The value is a **number** or an **ISO 8601 date**; anything else after `>` or `<` is taken literally, as a plain string match.
 
 ```
 @payload.body.price:>100           ⇒ price > 100
 @payload.body.memory:>=16          ⇒ memory >= 16
-@payload.body.latency:1776902400000         ⇒ created_at > to_timestamp(1776902400000/1000.0)
+@created_at:>1776902400000         ⇒ created_at > to_timestamp(1776902400000/1000.0)
+@updated_at:>2026-01-01            ⇒ updated after the start of 2026-01-01
+@payload.body.due:<2026-06-01      ⇒ compared as text, which orders ISO dates correctly
+```
+
+A number compares numerically, and values that are not numbers are skipped. On `created_at`, `updated_at` and `timestamp` every value must be a date or epoch milliseconds; `@updated_at:>yesterday` is a request error.
+
+### 10. Not equal `!`
+
+```
+@payload.body.status:!archived     ⇒ status != 'archived'
 ```
 
 ## Negation `-@field:value`
@@ -272,48 +291,43 @@ Prefix the selector with `-`. Negation works on every value form:
 Examples:
 
 ```
--@status:deleted                   ⇒ status != 'deleted'
+-@state:deleted                    ⇒ state != 'deleted'
 -@payload.body.status:deleted      ⇒ NOT (payload @> '{"body":{"status":"deleted"}}')
 -@payload.body.env:staging|dev     ⇒ env != 'staging' AND env != 'dev'
 -@payload.body.score:[0 50]        ⇒ score NOT BETWEEN 0 AND 50
 -@roles:admin                      ⇒ roles array does NOT contain 'admin'
 ```
 
-There is **no separate "not" operator**; only the `-@` prefix.
+Besides the `-@` prefix, a value can start with `!` for not-equal (`@field:!v`, see above).
 
-## Grouping `( … )`
+## Grouping `( … )` and `or`
 
-Parens express OR-of-AND:
-
-- **Within** a paren group, terms AND together.
-
-- **Between** paren groups, the result is OR'd.
+Whitespace means AND, between paren groups too. OR comes only from the `or` keyword, or from `|` inside a value. AND binds tighter than OR, and parens group terms:
 
 ```
 (@is_active:true)                          ⇒ is_active = true
-(@is_active:true) (@payload.body.k:v)      ⇒ is_active = true OR payload.body.k = v
-(@is_active:true @roles:admin) and (@payload.body.k:v)
+(@is_active:true) (@payload.body.k:v)      ⇒ is_active = true AND payload.body.k = v
+(@is_active:true) or (@payload.body.k:v)   ⇒ is_active = true OR payload.body.k = v
+@is_active:true @roles:admin or @payload.body.k:v
                                            ⇒ (is_active = true AND roles ⊇ admin)
                                               OR
                                               (payload.body.k = v)
 ```
 
-The literal `and` between groups is dropped — paren-to-paren is always OR. To express AND between groups, drop the parens or merge their terms.
+Up to mid-2026, whitespace between paren groups meant OR. It now means AND; write `or` where you meant OR.
 
-## Same-field accumulation
+## Repeated selectors
 
-Repeating a field with the same sign accumulates values:
-
-```
-@payload.body.tags:alpha and @payload.body.tags:beta
-                ⇒ payload contains alpha  AND  payload contains beta
-                  (i.e. both tags must be present)
-```
-
-If the signs differ across repetitions, the **last** wins:
+Each `@field:value` is its own condition, ANDed with the rest. Repeating a field does not merge or replace anything:
 
 ```
-@x:1 -@x:1      ⇒ -@x:1   (value(s) re-set, last sign wins)
+@payload.body.tags:alpha @payload.body.tags:beta
+                ⇒ both tags must be present
+@payload.body.dept:sales @payload.body.dept:ops
+                ⇒ dept = sales AND dept = ops: on a single-valued field, nothing
+                  (use @payload.body.dept:sales|ops for either)
+@shortname:x -@shortname:y
+                ⇒ shortname = x AND shortname != y
 ```
 
 ## Cookbook
@@ -324,12 +338,12 @@ Each recipe is an exact string you can drop into the `search` field.
 
 ```
 hello
-                ⇒ any column contains "hello"
+                ⇒ entries whose values contain "hello" (as a word, part of a word, or a near spelling)
 ```
 
 ```
 web01 nginx
-                ⇒ any column contains "web01" AND any column contains "nginx"
+                ⇒ entries matching "web01" AND "nginx"
 ```
 
 ### Single field, exact
@@ -463,8 +477,8 @@ web01 nginx
 ### OR-list
 
 ```
-@status:active|pending
-                ⇒ status = 'active' OR status = 'pending'
+@state:active|pending
+                ⇒ state = 'active' OR state = 'pending'
 ```
 
 ```
@@ -559,15 +573,15 @@ web01 @payload.body.dc:us-east
                 ⇒ free-text "web01" AND payload.body.dc = "us-east"
 ```
 
-### OR via parentheses
+### OR with `or`
 
 ```
-(@is_active:true) (@payload.body.k:v)
+@is_active:true or @payload.body.k:v
                 ⇒ is_active = true OR payload.body.k = v
 ```
 
 ```
-(@is_active:true @roles:admin) (@payload.body.k:v)
+(@is_active:true @roles:admin) or (@payload.body.k:v)
                 ⇒ (active admins) OR (rows with payload.body.k = v)
 ```
 
@@ -649,7 +663,7 @@ web01 @payload.body.dc:us-east
 
 ## Aggregation `type:"aggregation"`
 
-When `type` is `aggregation` (over the `entries` table) or `attachments_aggregation` (over the `attachments` table), the query carries an `aggregation_data` object instead of returning raw entries. It compiles straight into a single PostgreSQL `SELECT … GROUP BY …`. The `search` string, if present, still runs — as the `WHERE` clause _before_ aggregation.
+When `type` is `aggregation` (over the `entries` table) or `attachments_aggregation` (over the `attachments` table), the query carries an `aggregation_data` object instead of returning raw entries. It compiles straight into a single SQL `SELECT … GROUP BY …`. The `search` string, if present, still runs — as the `WHERE` clause _before_ aggregation.
 
 ### The `aggregation_data` shape
 
@@ -698,6 +712,8 @@ When `type` is `aggregation` (over the `entries` table) or `attachments_aggregat
 | `quantile` | `[field, q]` | `percentile_cont(q) WITHIN GROUP (ORDER BY (field)::numeric)` — `q` is clamped to `[0, 1]`; defaults to `0.5` if absent/unparseable |
 | `first_value` | `[field]` | `(ARRAY_AGG(field ORDER BY updated_at DESC))[1]` |
 | `random_sample` | `[field]` | `(ARRAY_AGG(field ORDER BY RANDOM()))[1]` |
+
+On SQLite, `stddev`, `quantile`, `first_value` and `random_sample` are not available and answer `400`; the others work on both engines.
 
 `group_concat` / `tolist` are the same reducer; so are `count` / `r_count`, `count_distinct` / `count_distinctish`, and `sum` / `total` (wire-compat aliases). Any unrecognised `reducer_name` is silently skipped.
 
@@ -775,7 +791,9 @@ Each item in the `join` list has this shape:
 
 **Pagination semantics.** A `left` join is cardinality-preserving — the base page is fetched normally, then matches are attached. A cardinality-_changing_ join (`inner`, `right`, or `outer`) can drop or append rows, so the server fetches the base set **unpaginated** (offset 0, capped at `MaxQueryLimit`), performs the join over the whole set, then **re-paginates the joined result** with your original `limit`/`offset`. In other words: `inner`/`right`/`outer` give you "join-then-page" semantics, bounded by the max-limit cap.
 
-`right`/`outer` joins are O(right-table-size) by design (they must surface right records the base set never referenced) and are bounded by an internal 1000-row match cap. Pair them with a selective `query.search` to keep them fast.
+`right`/`outer` joins are O(right-table-size) by design (they must surface right records the base set never referenced). The pull of right-hand records is capped at `MAX_QUERY_LIMIT` rows; matches past the cap are missing, and the server logs a warning. Pair them with a selective `query.search` to keep them fast.
+
+With `ENABLE_INNER_JOIN_PUSHDOWN` on (the default), an eligible `inner` join is pushed into SQL as an `EXISTS` semi-join instead, so the base query pages and counts in the database.
 
 A worked example — orders with their customer attached:
 
@@ -844,7 +862,7 @@ A `jq_filter` may also be set on a join's nested `query`, where it reshapes that
 
 ## `history` & `events` queries
 
-These two query types ignore the `search` DSL entirely (see the table at the top) and instead read audit trails. Both **require authentication** — anonymous callers are rejected.
+These two query types do not use the `search` DSL (see the table at the top) and instead read audit trails. Only a request with no caller at all is refused. On `/public/query` the anonymous user is checked against its permissions like anyone else: `history` against the parent entry, `events` at the space level.
 
 ### `history`
 
@@ -865,7 +883,7 @@ Each record carries the change's `timestamp`, `user_shortname`, request type, an
 
 ### `events`
 
-Reads the append-only space event feed (`events.jsonl` under the space, when the optional event log is enabled). It is filtered only by `from_date` / `to_date` and paged — `filter_shortnames`, `filter_types`, and `subpath` are **ignored** (events live at the space root). Default sort is newest-first.
+Reads the append-only space event feed (`events.jsonl` under the space, when the optional event log is enabled). It is filtered by `from_date` / `to_date`, and by `search` as a plain, case-sensitive substring of each raw line, and paged — `filter_shortnames`, `filter_types`, and `subpath` are **ignored** (events live at the space root). Default sort is newest-first.
 
 ```json
 {
@@ -876,7 +894,7 @@ Reads the append-only space event feed (`events.jsonl` under the space, when the
 }
 ```
 
-If the space has no configured event log, the events feed is simply empty — there is no PostgreSQL fallback (parity with upstream).
+If the space has no configured event log, the events feed is simply empty — there is no database fallback (parity with upstream).
 
 Looking for natural-language / vector search instead of the `search` DSL? That is a separate endpoint — `POST /managed/semantic-search` (pgvector cosine similarity), documented on its own page. It does not use the `search` string or any of the query types above.
 
@@ -884,7 +902,7 @@ Looking for natural-language / vector search instead of the `search` DSL? That i
 
 | Token | Meaning |
 |---|---|
-| `word` | substring match across shortname, displayname, description, tags, payload |
+| `word` | plain word: whole or partial words in entry values, spelling-corrected, best match first |
 | `@field:value` | exact match (column or jsonb path) |
 | `@field:"v with spaces"` | quoted value |
 | `@field:true` / `:false` | boolean compare |
@@ -897,9 +915,11 @@ Looking for natural-language / vector search instead of the `search` DSL? That i
 | `@payload.body.arr[].x:v` | EXISTS — object-array element's `x` equals `v` |
 | `@field:v1\|v2` | OR-list |
 | `@field:[a b]` | range (space or comma separator) |
-| `@field:>n` `@field:>=n` `@field:<n` `@field:<=n` | comparisons (numeric values) |
+| `@field:>n` `@field:>=n` `@field:<n` `@field:<=n` | comparisons (numbers or ISO dates) |
+| `@field:!v` | not equal |
 | `-@field:value` | negation (works on every form above) |
-| `(A B) (C)` | AND inside, OR between groups |
+| `A B` / `(A B) (C)` | AND (whitespace, between groups too) |
+| `A or B` | OR; AND binds tighter |
 | `and` | no-op keyword, ignored |
 | `@tags:x` `@roles:x` `@groups:x` | jsonb array containment |
 | `@query_policies:pat:*` | TEXT[] LIKE pattern (unnest) |
@@ -912,11 +932,7 @@ The search language deliberately does **not** support:
 
 - Regular expressions.
 
-- Fuzzy matching, typo tolerance, or stemming.
-
 - Phrase / proximity operators.
-
-- Logical NOT outside of the `-@` prefix.
 
 - **Indexed** access into JSON arrays (`@payload.body.items[0].name`). Use `@payload.body.items[].name:value` to match _any_ element instead.
 

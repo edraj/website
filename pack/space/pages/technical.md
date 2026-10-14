@@ -12,7 +12,7 @@ graph TD
     LB -->|HTTP| API["ASP.NET Core (Kestrel)"]
 
     subgraph "Backend (AOT binary)"
-        API -->|RW| SQL["PostgreSQL (Npgsql)"]
+        API -->|RW| SQL["PostgreSQL or SQLite"]
         API -->|"MCP /mcp"| MCP["MCP Server"]
     end
 
@@ -26,13 +26,13 @@ graph TD
 
 ### Backend Stack
 
-- **Language & Runtime:** C# on .NET 10, compiled ahead of time with **Native AOT** into a single self-contained binary (~50 MB; 46 MB arm64, 53 MB x64) — no runtime install required. JSON is source-generated (System.Text.Json), and the same binary bundles both the server and the CLI client.
+- **Language & Runtime:** C# on .NET 10, compiled ahead of time with **Native AOT** into a single self-contained binary (~70 MB) — no runtime install required. JSON is source-generated (System.Text.Json), and the same binary bundles both the server and the CLI client.
 
 - **Web Framework:** ASP.NET Core Minimal APIs on the **Kestrel** HTTP server, built with the slim/AOT host (`WebApplication.CreateSlimBuilder`). Endpoints are route groups (`MapGroup`), not MVC controllers. Swagger/OpenAPI is served at `/docs`.
 
-- **Data Persistence:** **PostgreSQL** (via Npgsql) is the single source of truth for all runtime data — ACID compliant with relational integrity. There is no Redis and no filesystem runtime store; caches are in-process only.
+- **Data Persistence:** one SQL database is the single source of truth for all runtime data: **PostgreSQL** (via Npgsql) for the full tier, or **SQLite** for a single node, the edge and development — ACID compliant with relational integrity. There is no Redis and no filesystem runtime store; caches are in-process only.
 
-- **Authentication:** JWT Bearer (HS256, Argon2-hashed passwords), plus a full OAuth 2.1 Authorization Server with Google, Facebook, and Apple sign-in.
+- **Authentication:** JWT Bearer (HS256, Argon2id-hashed passwords), sign-in with a one-time code by email or SMS, and Google, Facebook and Apple sign-in. DMART can also be an OAuth 2.1 authorization server for MCP clients (`ENABLE_MCP=true`), an OpenID Connect provider (`OIDC_ISSUER`), and a read-only LDAP directory with replicas.
 
 - **Interoperability:** Built-in MCP server at `/mcp` (Streamable HTTP; off by default, enable with `ENABLE_MCP=true`) and WebSocket endpoints for realtime updates.
 
@@ -48,11 +48,11 @@ DMART ships two **Svelte 5 + Vite** admin SPAs that are **embedded directly into
 
 ## 3. Data Model
 
-DMART uses an **Entry-oriented** data model rather than a document-oriented one. All entities inherit from a base `Meta` class.
+DMART uses an **Entry-oriented** data model rather than a document-oriented one. Every entity shares a common set of Meta fields and is told apart by its `resource_type`.
 
 ### Resource Hierarchy
 
-- **Space:** Top-level container defining configuration like languages, plugins, and visibility.
+- **Space:** Top-level container defining configuration like languages, indexing, and visibility.
 
 - **Subpath:** Logical folder structure within a space (e.g., `/content/posts`).
 
@@ -60,75 +60,39 @@ DMART uses an **Entry-oriented** data model rather than a document-oriented one.
 
 ### Key Data Structures
 
-- **Meta:** Base class (uuid, shortname, slug, acl, etc.).
+The C# models are sealed records (`Entry`, `Attachment`, `User`, `Space`, `Role`, `Permission`, `Group`, …), not a class hierarchy.
+
+- **Meta:** the fields every entry shares (uuid, shortname, slug, acl, owner, timestamps, …).
 
 - **Record:** Flat representation for API I/O.
 
 - **Payload:** Content type, schema reference, and body.
 
-- **Attachment:** Extends Meta for attached resources. Subtypes: Media, Comment, Reaction, Relationship.
+- **Attachment:** a resource bound to a parent entry, stored in its own table: media, comment, reaction, relationship, and more.
 
-- **DataAsset:** Specialized attachments for tabular/binary data files — supported content types are **CSV**, **JSONL**, **SQLite**, and **Parquet**. Here `sqlite` is only a data-asset content type, never the database backend (the backend is always PostgreSQL).
+- **DataAsset:** an attachment holding a tabular or binary data file — supported content types are **CSV**, **JSONL**, **SQLite**, and **Parquet**. Here `sqlite` is a content type, not to be confused with the SQLite database backend.
 
-- **Ticket:** Extends Meta for workflow states, reporters, and collaborators.
-
-```mermaid
-classDiagram
-    class Resource {
-        <<abstract>>
-    }
-    class Payload {
-        +ContentType ContentType
-        +string Body
-    }
-    class Meta {
-        +Guid Uuid
-        +string Shortname
-        +Translation Displayname
-        +Payload Payload
-    }
-
-    Resource <|-- Payload
-    Resource <|-- Meta
-
-    Meta <|-- Space
-    Meta <|-- Actor
-    Meta <|-- Group
-    Meta <|-- Content
-    Meta <|-- Schema
-    Meta <|-- Attachment
-    Meta <|-- Ticket
-
-    Actor <|-- User
-
-    Attachment <|-- DataAsset
-    Attachment <|-- Comment
-
-    DataAsset <|-- Csv
-    DataAsset <|-- Jsonl
-    DataAsset <|-- Sqlite
-    DataAsset <|-- Parquet
-```
+- **Ticket:** an entry with workflow state, a reporter, and collaborators.
 
 ## 4. Key Features
 
 ### 4.1 Storage & Data Longevity
 
-Data is stored in normalized PostgreSQL tables, ensuring ACID compliance and standard relational integrity. PostgreSQL is the sole runtime store; the on-disk `spaces/` + `.dm/` layout is used only as a portable import/export, seed, and migration format (zip round-trips), never as a live data store.
+Data is stored in normalized SQL tables, on PostgreSQL or SQLite, ensuring ACID compliance and standard relational integrity. The database is the sole runtime store; the on-disk `spaces/` + `.dm/` layout is used only as a portable import/export, seed, and migration format (zip round-trips), never as a live data store.
 
 ### 4.2 Advanced Search & Querying
 
-The `/query` endpoint supports a rich query language that is compiled to SQL. Search runs on PostgreSQL with trigram indexes (`pg_trgm` + GIN on jsonb), with optional **pgvector** semantic search for cosine-similarity matching:
+The `/query` endpoint supports a rich query language that is compiled to SQL. On PostgreSQL, search uses trigram indexes (`pg_trgm` + GIN on jsonb) and full-text indexes, with optional **pgvector** semantic search for cosine-similarity matching; on SQLite, FTS5 indexes:
 
 - **Filtering:** By space, subpath, resource type, schema, and specific shortnames.
 
-- **Full-text Search:** Fuzzy matching on text fields.
+- **Full-text Search:** plain words match whole and partial words in entry values, with spelling correction, best match first.
 
 - **Aggregation:** Grouping and reducing data (counts, sums).
 
 - **Sorting & Pagination:** `limit`, `offset`, `sort_by`.
 
-- **Specialized Queries:** `history`, `events`, `tags`, `reports`.
+- **Specialized Queries:** `history`, `events`, `tags`, `counters`, `random`.
 
 ### 4.3 Access Control (RBAC + ACL)
 
@@ -152,7 +116,7 @@ Ticketing system with state management and a `/progress-ticket` API for workflow
 
 ### 4.6 Plugin System
 
-Event-driven plugin architecture built around two C# interfaces: `IApiPlugin` (new endpoints mounted at `/{shortname}`) and `IHookPlugin` (before/after action interceptors). Beyond managed C# plugins, DMART also loads **native plugins** from `~/.dmart/plugins` — either crash-safe subprocess executables (JSON-lines over stdin/stdout) or shared libraries via a C ABI — enabling extensions written in any language.
+Event-driven plugin architecture built around two C# interfaces: `IApiPlugin` (new endpoints mounted at `/{shortname}`) and `IHookPlugin` (before/after action interceptors). Beyond managed C# plugins, DMART also loads **subprocess plugins** from `~/.dmart/plugins` — crash-safe executables speaking JSON-lines over stdin/stdout — enabling extensions written in any language.
 
 ## Request Flow
 
@@ -176,10 +140,10 @@ sequenceDiagram
         PluginManager->>PluginManager: Run IHookPlugin handlers
 
         Router->>SqlAdapter: Perform Action (CRUD)
-        SqlAdapter->>SqlAdapter: Persist to PostgreSQL & Index
+        SqlAdapter->>SqlAdapter: Persist to the database & index
 
         Router->>PluginManager: Trigger After Hooks
-        PluginManager->>PluginManager: Run async side effects (Task)
+        PluginManager->>PluginManager: Run after hooks (concurrent ones in the background)
 
         Router-->>Client: HTTP Response
     end
@@ -205,7 +169,7 @@ REST-like and resource-oriented. Key routers:
 
 - **`/public`**: Read-only access for public content.
 
-- **`/qr`**: QR code generation.
+- **`/qr`**: QR code endpoints (mapped, not implemented yet; they answer 501).
 
 - **`/info`**: System information and manifest.
 
@@ -217,16 +181,16 @@ REST-like and resource-oriented. Key routers:
 
 DMART natively handles analytical data files:
 
-- Specialized support for **SQLite** attachments — perform SQL queries directly on attached files via the API. Note that `sqlite` here is a data-asset content type only, not the database backend (the backend is always PostgreSQL).
+- **SQLite** files can be stored as data-asset attachments. Note that `sqlite` here is a content type, not to be confused with the SQLite database backend.
 
 - **Parquet**, **JSONL**, and **CSV** are treated as first-class data citizens.
 
 ## 7. Deployment
 
-- **Single Binary:** Native-AOT publish produces one self-contained `dmart` executable (~50 MB) with no runtime dependency — copy and run. The embedded admin UIs and sample seed data ship inside it, and the same binary doubles as the CLI (`seed`, `import`, `export`, `migrate`).
+- **Single Binary:** Native-AOT publish produces one self-contained `dmart` executable (~70 MB). The static musl build has no runtime dependency at all — copy and run; the glibc builds ship `libe_sqlite3.so` and `libargon2.so.1` beside it. The embedded admin UIs and sample seed data ship inside it, and the same binary doubles as the CLI (`seed`, `import`, `export`, `migrate`).
 
 - **Containerized:** Docker/Podman images available (`ghcr.io/edraj/csdmart`).
 
 - **Config:** Environment variables / `config.env`, bound and validated once at startup (strict unknown-key rejection, no hot reload).
 
-- **External dependency:** a PostgreSQL instance — no Redis, no separate search cluster required.
+- **External dependency:** none on SQLite (the default for the RPM, DEB and APK packages and the container); a PostgreSQL instance for the full tier — no Redis, no separate search cluster required.

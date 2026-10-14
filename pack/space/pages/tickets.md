@@ -13,7 +13,7 @@ A ticket is an entry whose `resource_type` is `ticket` (one of the 30 resource t
 | `collaborators` | `Dictionary<string, string>?` | Named collaborator slots (e.g. `{"assignee": "alice"}`). Set via the `assign` request. |
 | `resolution_reason` | `string?` | Why the ticket was closed / rejected. Required by transitions that declare `resolution_required`. |
 
-A ticket is created with the normal [`create` request](/entity-lifecycle) — you supply `workflow_shortname` and let the engine seed the initial state, or set `state` explicitly. Example create record:
+A ticket is created with the normal [`create` request](/entity-lifecycle) — you supply `workflow_shortname` and the engine sets the initial state. A `state` you send is replaced by the workflow's `initial_state`. Example create record:
 
 ```http
 POST /managed/request
@@ -41,11 +41,13 @@ POST /managed/request
 }
 ```
 
+The workflow is looked up in the ticket's own space, so this example needs a `channel` workflow under `/workflows` in `applications`; the seed data ships `channel` in `management`.
+
 The folder a ticket lives in can constrain which workflows are legal through its `workflow_shortnames` setting — see [Folders & Rendering](/folders). A ticket that declares a `workflow_shortname` must use one the folder allows.
 
 ## Workflows Are Data
 
-A workflow is _not_ code. It is a `content` entry (resource type `content`) stored under a `/workflows` folder in the management space. Its `payload.body` holds the state-machine definition. At transition time `WorkflowEngine` loads that entry — trying subpaths `/workflows`, `/workflow`, then `/` — deserialises the body, and evaluates the requested action against it.
+A workflow is _not_ code. It is a `content` entry (resource type `content`) stored under a `/workflows` folder in the **same space as the ticket**. Its `payload.body` holds the state-machine definition. At transition time `WorkflowEngine` loads that entry — trying subpaths `/workflows`, `/workflow`, then `/` — deserialises the body, and evaluates the requested action against it.
 
 ### Anatomy of a workflow body
 
@@ -253,7 +255,7 @@ All reporter fields are optional strings (plus the `channel_address` map). The s
 
 ## Locking Tickets
 
-An agent working a ticket can place an entry lock so nobody else edits it underneath them. Locking is generic to all entries but is especially useful for tickets. It uses the `lock` and `unlock` actions (two of the 11 action types):
+An agent working a ticket can place an entry lock so nobody else edits it underneath them. Locking is generic to all entries but is especially useful for tickets. Taking a lock needs the `lock` or the `update` action on the entry. The holder releases their own lock without any further grant; releasing someone else's lock needs `unlock`:
 
 ```
 # take the lock
@@ -263,9 +265,9 @@ PUT    /managed/lock/ticket/applications/api/v1/tickets/TCK-1042
 DELETE /managed/lock/applications/api/v1/tickets/TCK-1042
 ```
 
-While a lock is held, a plain `update` by anyone other than the lock holder is blocked. The permission gate runs first, so an unauthorized caller still gets a "not allowed" answer rather than a hint that the entry is merely locked.
+While a lock is held, a plain `update`, a `delete` or a `move` by anyone other than the lock holder is blocked. The permission gate runs first, so an unauthorized caller still gets a "not allowed" answer rather than a hint that the entry is merely locked.
 
-**Workflow actions bypass the lock.** The lock block applies only to plain `update`. The workflow-authorized overrides — `progress_ticket` and `assign` — carry their own action grant and keep working even when a lock is parked, so a supervisor can reassign or progress a locked ticket whose holder has gone offline.
+**Workflow actions bypass the lock.** The lock block applies only to plain `update`, `delete` and `move`. The workflow-authorized overrides — `progress_ticket` and `assign` — carry their own action grant and keep working even when a lock is parked, so a supervisor can reassign or progress a locked ticket whose holder has gone offline.
 
 ## Related Concepts
 

@@ -40,7 +40,7 @@ Every entity consists of two main parts:
 
 ## Creating & Managing Entities
 
-Entities are managed through the REST API — the single runtime path for all create, read, update, and delete operations. Every entity is persisted to **PostgreSQL**, which is the sole source of truth. The same entities can also be exported to (and imported from) the `.dm` JSON file layout for backup, migration, and seeding.
+Entities are managed through the REST API — the single runtime path for all create, read, update, and delete operations. Every entity is persisted to the database — **PostgreSQL or SQLite** — which is the sole source of truth. The same entities can also be exported to (and imported from) the `.dm` JSON file layout for backup, migration, and seeding.
 
 ### 1. Via REST API
 
@@ -78,7 +78,7 @@ The primary endpoint for CRUD operations is `POST /managed/request`. It accepts 
 | `move` | Move entities to a different space or subpath |
 | `assign` | Change ownership or group assignment |
 | `update_acl` | Modify Access Control Lists |
-| `patch` | Patch specific fields |
+| `patch` | Same handling as `update` |
 
 #### Cascade Delete: `force` & `dry_run`
 
@@ -120,7 +120,7 @@ Each deleted record comes back annotated with an `affected` total plus a per-cat
 }
 ```
 
-A plain (non-`force`) delete of a user that has created records is rejected — you must pass `force: true` to delete the user and everything they own. A force-delete can never wipe the `management` space, even if the target user owns it. Drop `dry_run` (or set it to `false`) to actually commit the cascade.
+How a user is deleted depends on `USER_DELETION_MODE`. In the default `soft` mode the user row is kept, marked deleted and stripped of its contacts and password, and nothing the user owns is touched, so `force` has no effect. In `hard` mode a plain delete of a user that owns records is rejected — you must pass `force: true` to delete the user and everything they own. A force-delete can never wipe the `management` space, even if the target user owns it. Drop `dry_run` (or set it to `false`) to actually commit the cascade.
 
 #### Reassigning Ownership: `assign`
 
@@ -146,7 +146,7 @@ The `assign` request type transfers an entry's owner to another user. `owner_sho
 
 #### Per-Entry ACLs: `update_acl`
 
-The `update_acl` request type sets the per-entry access control list from `attributes.acl`. Each ACL entry names a `user_shortname` and the list of `allowed_actions` that user may take on this specific entry — a per-entry grant layered on top of the role/permission model.
+The `update_acl` request type sets the per-entry access control list from `attributes.acl`. Each ACL entry names a `user_shortname`, the list of `allowed_actions` that user may take on this specific entry, and optionally a `denied` list of actions refused to that user whatever their roles allow — checked before the role/permission model.
 
 ```json
 {
@@ -172,7 +172,7 @@ The `update_acl` request type sets the per-entry access control list from `attri
 
 ### 2. Export & Import (Backup / Migration / Seeding)
 
-Entities live in PostgreSQL at runtime, but they can be round-tripped to and from a portable `.dm` JSON file layout via the CLI (`export`, `import`, `seed`, `migrate`). This zip-based format mirrors each entity as a `meta.<type>.json` file and is used for backups, migrations, and seeding sample data — it is **not** a live editing mode; the database always remains the source of truth.
+Entities live in the database at runtime, but they can be round-tripped to and from a portable `.dm` JSON file layout via the CLI (`export`, `import`, `seed`). This zip-based format mirrors each entity as a `meta.<type>.json` file and is used for backups, migrations, and seeding sample data — it is **not** a live editing mode; the database always remains the source of truth.
 
 ```
 spaces/
@@ -181,7 +181,7 @@ spaces/
 │   │   ├── .dm/
 │   │   │   ├── entity_shortname/
 │   │   │   │   ├── meta.content.json
-│   │   │   │   └── history/
+│   │   │   │   └── history.jsonl
 │   │   └── entity_shortname.json
 ```
 
@@ -254,12 +254,12 @@ Defines granular access controls (Actions, Conditions, Restrictions).
 
 ### Group Example
 
-Aggregates roles.
+A named set of users. Groups carry no roles; a user's access comes from the roles on the user. A group's members share ownership of entries whose `owner_group_shortname` names it.
 
 ```json
 {
   "resource_type": "group",
   "shortname": "editors_group",
-  "roles": ["editor"]
+  "displayname": { "en": "Editors" }
 }
 ```
