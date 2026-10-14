@@ -90,11 +90,59 @@ Authentication is JWT Bearer (HS256, symmetric key from `JWT_SECRET`) with Argon
 
 | Setting | Description | Default |
 |---|---|---|
-| `MAX_FAILED_LOGIN_ATTEMPTS` | Failed attempts before an account is auto-locked | `5` |
-| `LOCKOUT_COOLDOWN_SECONDS` | Seconds an account stays locked before a retry may clear it (0 = permanent until admin reset) | `900` |
-| `AUTH_RATE_LIMIT_PER_MINUTE` | Per-IP cap on `/user/login` + `/user/otp-request` per 60s | `10` |
+| `MAX_FAILED_LOGIN_ATTEMPTS` | Wrong passwords and codes before an account is auto-locked (0 = never lock) | `5` |
+| `LOCKOUT_COOLDOWN_SECONDS` | Seconds with no sign-in attempt before a locked account unlocks (0 = locked until an admin unlocks) | `900` |
+| `AUTH_RATE_LIMIT_PER_MINUTE` | Per-address cap on the sign-in, code and token routes per 60s (HTTP 429 beyond it) | `10` |
 | `MAX_OTP_VERIFY_ATTEMPTS` | Wrong guesses allowed against one OTP code before it is invalidated (0 = uncapped) | `5` |
 | `LOCK_PERIOD` | Seconds a `PUT /managed/lock` stays held before another user can take it | `300` |
+
+These limits are server-wide. They apply the same way to web, mobile and admin accounts; bot accounts are never locked by `MAX_FAILED_LOGIN_ATTEMPTS`, though their failures are still counted.
+
+#### One sign-in attempt
+
+```mermaid
+flowchart TD
+    start(["Sign-in attempt"]) --> atmax{"Locked?"}
+    atmax -- yes --> quiet{"Cool-down<br/>over?"}
+    quiet -- no --> touch["Restart the cool-down"]
+    touch --> locked(["USER_ACCOUNT_LOCKED"])
+    quiet -- yes --> clear["Unlock:<br/>attempt_count = 0"]
+    clear --> cred
+    atmax -- no --> cred{"Password<br/>or code right?"}
+    cred -- yes --> ok(["Signed in,<br/>attempt_count = 0"])
+    cred -- no --> inc["attempt_count + 1"]
+    inc --> reached{"Limit<br/>reached?"}
+    reached -- yes --> locked
+    reached -- no --> wrong(["Wrong password<br/>or code"])
+```
+
+*Locked* means `attempt_count` has reached `MAX_FAILED_LOGIN_ATTEMPTS`. *Cool-down over* means no attempt for more than `LOCKOUT_COOLDOWN_SECONDS`. A wrong code also uses up one of that code's own `MAX_OTP_VERIFY_ATTEMPTS`. Wrong passwords at the login, OIDC and MCP sign-in forms, wrong codes at login and password reset, a wrong current password on a profile change, and failed LDAP binds all add to the same counter.
+
+#### The account over time
+
+```mermaid
+stateDiagram-v2
+    state "No failures" as Clean
+    state "Some failures" as Counting
+    state "Locked" as Locked
+    [*] --> Clean
+    Clean --> Counting : wrong
+    Counting --> Counting : wrong
+    Counting --> Clean : right
+    Counting --> Locked : wrong, limit reached
+    Locked --> Locked : any attempt restarts the cool-down
+    Locked --> Clean : cool-down passes, or admin unlocks
+```
+
+The cool-down counts from the **last** attempt, not from when the lock started, so every attempt while locked starts it again, even one with the correct password. With the defaults:
+
+| Time | What happens | Result |
+|---|---|---|
+| 10:00–10:02 | 5 wrong passwords | The 5th locks the account |
+| 10:10 | The correct password | Refused: still locked, and the 15 minutes now run to 10:25 |
+| 10:26 | The correct password | Unlocked and signed in |
+
+A lock does not sign the user out: access tokens already issued keep working until they expire, but refreshing them at `/oauth/token` is refused. An admin unlocks an account early by saving the user with `attempt_count` set to `0` (the "clear on save" box in CXB).
 
 ### Registration, OTP & Profiles
 
@@ -103,8 +151,8 @@ Authentication is JWT Bearer (HS256, symmetric key from `JWT_SECRET`) with Argon
 | `IS_REGISTRABLE` | Allow self-registration via `POST /user/create` | `true` |
 | `IS_OTP_FOR_CREATE_REQUIRED` | Require a verified OTP for account creation | `true` |
 | `OTP_TOKEN_TTL` | One-time-password time-to-live (seconds) | `300` |
-| `ALLOW_OTP_RESEND_AFTER` | Minimum seconds between OTP re-sends to one destination | `60` |
-| `ALLOW_PASSWORD_RESET_RESEND_AFTER` | Minimum seconds between password-reset OTP re-sends | `60` |
+| `ALLOW_OTP_RESEND_AFTER` | Minimum seconds between OTP re-sends to one destination (covers every purpose; replaces the retired `ALLOW_PASSWORD_RESET_RESEND_AFTER`) | `60` |
+| `MAX_OTP_REQUESTS_PER_DAY` | Cap on OTPs sent to one destination in a rolling 24 hours (0 = no cap) | `10` |
 | `USER_CREATE_DEFAULT_ROLE` | Single role assigned to every self-created user (self-service create ignores roles in the body) | `""` (none) |
 | `USER_CREATE_DEFAULT_GROUP` | Single group assigned to every self-created user | `""` (none) |
 | `USER_PROFILE_PAYLOAD_PROTECTED_FIELDS` | CSV of payload fields users cannot update via `POST /user/profile` | `""` |
