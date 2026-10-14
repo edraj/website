@@ -19,15 +19,15 @@ graph TD
         D_App2["Mobile App"] --> API
         D_App3["Microservice"] --> API
         API <--> Engine["DMART Engine"]
-        Engine <--> Store[("PostgreSQL<br/>+ JSON Export")]
+        Engine <--> Store[("PostgreSQL or SQLite<br/>+ JSON Export")]
     end
 ```
 
-**Ownership** Your data lives in a standard PostgreSQL database you control, and can be exported in full to plain JSON files at any time — no proprietary lock-in.
+**Ownership** Your data lives in a standard PostgreSQL or SQLite database you control, and can be exported in full to plain JSON files at any time — no proprietary lock-in.
 
 **Accessibility** A unified, standardized API layer means any application or microservice can access your data securely through one consistent interface.
 
-**Resilience** Data is stored in battle-tested PostgreSQL and can be exported to human-readable JSON files, keeping it structured for longevity, version control, and easy inspection.
+**Resilience** Data is stored in battle-tested PostgreSQL or SQLite and can be exported to human-readable JSON files, keeping it structured for longevity, version control, and easy inspection.
 
 ## Tailored Benefits for Every Scale
 
@@ -55,9 +55,9 @@ As your business grows, so does the chaos of your data. DMART provides the struc
 
 - **Enhanced Security:** Robust role-based access control (RBAC) ensures employees only see what they need.
 
-- **Audit & Compliance:** Every change is tracked — complete history of who changed what and when.
+- **Audit & Compliance:** Every create, update and move is recorded in the entry's history — who changed what, and when.
 
-### 3. Big Business: Innovation & Federation
+### 3. Big Business: Innovation & Shared Identity
 
 Large enterprises often struggle with "Shadow IT" and the slow pace of corporate IT. DMART serves as an agile layer.
 
@@ -67,21 +67,16 @@ Large enterprises often struggle with "Shadow IT" and the slow pace of corporate
 
 - **Microservice Backbone:** Lightweight, flexible operational data store for microservices with common user session and security model.
 
-- **Data Federation:** Connect multiple DMART instances for seamless collaboration across business units.
+- **Shared Identity:** One DMART can be the user directory for the others: replicas keep their users and groups in step with it, and its OpenID Connect provider gives every app one sign-in. Syncing data between instances is designed but not built yet.
 
 - **Future-Proofing:** Standard, open formats ensure data is never obsolete regardless of technology shifts.
 
 ```mermaid
-graph LR
-    subgraph Enterprise_Ecosystem["Enterprise Ecosystem"]
-        direction TB
-        HR["HR Dept<br/>DMART Node"] <--> Fed(("Federation Layer"))
-        Sales["Sales Dept<br/>DMART Node"] <--> Fed
-        R_D["R&D Dept<br/>DMART Node"] <--> Fed
-
-        Fed --> GlobalSearch["Global Search & Analytics"]
-        Fed --> CorpPortal["Corporate Portal"]
-    end
+graph TD
+    Dir["Primary DMART<br/>users, groups, OIDC sign-in"]
+    Dir -->|"directory feed"| HR["HR Dept<br/>DMART node"]
+    Dir -->|"directory feed"| Sales["Sales Dept<br/>DMART node"]
+    Dir -->|"directory feed"| R_D["R&D Dept<br/>DMART node"]
 ```
 
 ## Conclusion

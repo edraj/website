@@ -8,9 +8,9 @@ Most endpoints require authentication with a JWT bearer token (HS256), supplied 
 
 **Header** `Authorization: Bearer <your_token>`
 
-**Cookie** `auth_token=<your_token>`
+**Cookie** `auth_token=<your_token>` — accepted only on same-site requests (judged by the browser's `Sec-Fetch-Site`) or with an `X-Requested-With` header, unless `CSRF_PROTECT_COOKIE_AUTH=false`.
 
-Tokens are obtained via `/user/login` (password or OTP) or through OAuth social login (Google, Facebook, Apple). DMART also exposes a full **OAuth 2.1 Authorization Server** — discovery, Dynamic Client Registration, and authorize/token endpoints under `/.well-known` — used for automatic onboarding of MCP clients.
+Tokens are obtained via `/user/login` (password or OTP) or through OAuth social login (Google, Facebook, Apple). With `ENABLE_MCP=true`, DMART also runs an **OAuth 2.1 Authorization Server** for automatic onboarding of MCP clients: discovery at `/.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource`, Dynamic Client Registration at `/oauth/register`, and `/oauth/authorize` and `/oauth/token`.
 
 Interactive API documentation is available as **Swagger UI** at `/docs`, with the raw OpenAPI schema at `/docs/openapi.json` (both served by ASP.NET Core).
 
@@ -88,7 +88,7 @@ Used for searching and filtering resources. Supports full-text search, aggregati
   "filter_schema_names": ["article"],
   "filter_shortnames": [],
   "filter_tags": ["tech"],
-  "search": "@title:Hello*",
+  "search": "@payload.body.title:Hello*",
   "from_date": "2023-01-01T00:00:00",
   "to_date": "2023-12-31T23:59:59",
   "exclude_fields": ["payload.body"],
@@ -99,7 +99,6 @@ Used for searching and filtering resources. Supports full-text search, aggregati
   "retrieve_json_payload": true,
   "retrieve_attachments": false,
   "retrieve_total": true,
-  "validate_schema": true,
   "retrieve_lock_status": false,
   "jq_filter": ". | select(.attributes.is_active == true)",
   "limit": 10,
@@ -112,7 +111,7 @@ Used for searching and filtering resources. Supports full-text search, aggregati
   },
   "join": [
     {
-      "join_on": "uuid",
+      "join_on": "owner_shortname:shortname",
       "alias": "author_details",
       "query": { "...nested Query..." }
     }
@@ -126,12 +125,12 @@ Used for searching and filtering resources. Supports full-text search, aggregati
 |---|---|
 | **ResourceType** (30) | `user`, `group`, `folder`, `schema`, `content`, `log`, `acl`, `comment`, `media`, `data_asset`, `locator`, `relationship`, `alteration`, `history`, `space`, `permission`, `role`, `ticket`, `json`, `lock`, `post`, `reaction`, `reply`, `share`, `plugin_wrapper`, `notification`, `csv`, `jsonl`, `sqlite`, `parquet` |
 | **RequestType** (7) | `create`, `update`, `patch`, `update_acl`, `assign`, `delete`, `move` |
-| **ContentType** (21) | `text`, `comment`, `reaction`, `markdown`, `html`, `json`, `image`, `image_jpeg`, `image_png`, `image_svg`, `image_gif`, `image_webp`, `python`, `pdf`, `audio`, `video`, `csv`, `parquet`, `jsonl`, `apk`, `sqlite` |
+| **ContentType** (22) | `text`, `comment`, `reaction`, `markdown`, `html`, `json`, `image`, `image_jpeg`, `image_png`, `image_svg`, `image_gif`, `image_webp`, `python`, `pdf`, `audio`, `video`, `csv`, `parquet`, `jsonl`, `apk`, `sqlite`, `binary` |
 | **ActionType** (11) | `query`, `view`, `update`, `create`, `delete`, `attach`, `assign`, `move`, `progress_ticket`, `lock`, `unlock` |
 | **QueryType** (12) | `search`, `subpath`, `events`, `history`, `tags`, `random`, `spaces`, `counters`, `reports`, `aggregation`, `attachments`, `attachments_aggregation` |
 | **Language** (5) | `arabic`, `english`, `kurdish`, `french`, `turkish` These full spellings are the persisted enum wire values (e.g. `space.languages`). The 2-letter keys `ar` / `en` / `ku` / `fr` / `tr` are ONLY keys inside `displayname` / `description` translation maps — they are NOT Language enum values. |
 | **SortType** (2) | `ascending`, `descending` |
-| **UserType** (3) | `web`, `mobile`, `bot` |
+| **UserType** (4) | `web`, `mobile`, `bot`, `admin` |
 | **PluginType** (2) | `hook`, `api` |
 | **EventListenTime** (2) | `before`, `after` |
 | **JoinType** (4) | `left`, `right`, `inner`, `outer` |
@@ -153,13 +152,14 @@ The following values are string **conventions** — they are validated/handled a
 
 ### Response envelope
 
-Every `/managed`, `/public`, and `/user` endpoint returns the same envelope. A success carries `records` and an `attributes` block (with `total` / `returned` counts on queries); a failure carries a single `error` triple and `records: null`.
+Every `/managed`, `/public`, and `/user` endpoint returns the same envelope. A success carries `records` and an `attributes` block (with `total` / `returned` counts on queries); a failure carries a single `error` object. Fields that are null are left out. `error.code` is DMART's own error code, not the HTTP status.
+
+On queries, `total` is `-1` when the count was skipped (`retrieve_total: false`; `/public/query` skips it unless asked). Above `QUERY_TOTAL_CAP`, `total` is the cap and `total_is_lower_bound` is `true`.
 
 ```
 // success
 {
   "status": "success",
-  "error": null,
   "records": [ /* ...Record objects... */ ],
   "attributes": { "total": 128, "returned": 10 }
 }
@@ -169,9 +169,8 @@ Every `/managed`, `/public`, and `/user` endpoint returns the same envelope. A s
   "status": "failed",
   "error": {
     "type": "jwtauth",
-    "code": 401,
-    "message": "Not authenticated",
-    "info": null
+    "code": 49,
+    "message": "Not authenticated [1]"
   }
 }
 ```
@@ -186,15 +185,13 @@ Checks if a user with specific fields already exists.
 
 POST `/user/create`
 
-Registers a new user.
+Registers a new user. The server assigns the shortname. With the default `IS_OTP_FOR_CREATE_REQUIRED=true`, first request a code with `/user/otp-request` and `purpose: "register"`, and send it as `email_otp` (or `msisdn_otp`).
 
 ```json
 {
-  "resource_type": "user",
-  "shortname": "jdoe",
-  "subpath": "users",
   "attributes": {
     "email": "jdoe@example.com",
+    "email_otp": "482913",
     "password": "StrongPassword123!",
     "displayname": { "en": "John Doe" }
   }
@@ -212,14 +209,16 @@ Authenticates a user and returns a token.
 }
 ```
 
-Or via OTP:
+Or via OTP (requested with `purpose: "login"`):
 
 ```json
 {
   "msisdn": "1234567890",
-  "otp": "123456"
+  "otp": "482913"
 }
 ```
+
+A `mobile` account that has signed in from a device must send that device's `device_id`; from another device, or none, the password is answered with `OTP_NEEDED` (115) and the user signs in with a code. Accounts of type `admin` sign in with a one-time code.
 
 GET `/user/profile`
 
@@ -239,43 +238,37 @@ Deletes the current user's account.
 
 POST `/user/otp-request`
 
-Requests an OTP for login or verification.
+Sends a one-time code. Body: one of `email`, `msisdn` or `shortname`, and a `purpose`: `login`, `reset`, `register` (for `/user/create`) or `verify-contact` (signed in only). A code works only for the purpose it was issued for.
 
-POST `/user/otp-request-login`
+POST `/user/password-reset-confirm`
 
-Requests an OTP specifically for login purposes.
+Sets a new password with a `reset` code. Body: the same identifier, `otp` and `password`.
 
-POST `/user/password-reset-request`
+POST `/user/verify-contact`
 
-Initiates the password reset process.
-
-POST `/user/otp-confirm`
-
-Verifies the OTP sent to the user.
-
-POST `/user/reset`
-
-Resets a user's password (requires appropriate permissions).
+Signed in: proves the caller controls an email or phone with a `verify-contact` code, and makes it theirs, verified. Body: `code` and `email` or `msisdn`.
 
 POST `/user/validate_password`
 
 Checks if the provided password is correct for the current user.
 
-### Social Login Callbacks
+### Social Login
 
-Handles callbacks from social login providers.
+GET `/user/google/login`, GET `/user/facebook/login`
 
-GET `/user/google/callback`
+Start a web sign-in with the provider.
 
-Google OAuth callback.
+GET `/user/google/callback`, GET `/user/facebook/callback`
 
-GET `/user/facebook/callback`
+Google and Facebook OAuth callbacks.
 
-Facebook OAuth callback.
+POST `/user/apple/callback`
 
-GET `/user/apple/callback`
+Apple OAuth callback (Apple posts the form). Takes a `code`, which DMART exchanges with Apple, or an `id_token`.
 
-Apple OAuth callback.
+POST `/user/google/mobile-login`, `/user/facebook/mobile-login`, `/user/apple/mobile-login`
+
+Sign in from a mobile app with a token the app got from the provider.
 
 ## Managed Content `/managed`
 
@@ -381,13 +374,13 @@ Admin-only. Returns the live progress of the current or last re-index run.
 
 POST `/managed/import`
 
-Imports data from a ZIP file. Body: `multipart/form-data` with `zip_file`.
+Imports data from a ZIP file. Body: `multipart/form-data` with `zip_file`. Global admins only.
 
 POST `/managed/export`
 
-Exports data based on a `Query` object.
+Exports data based on a `Query` object. Global admins only.
 
-POST `/managed/csv`
+POST `/managed/csv`, POST `/managed/csv/{space}`
 
 Exports query results as CSV.
 
@@ -428,7 +421,7 @@ Gets an entry by slug.
 
 GET `/managed/health/{health_type}/{space}`
 
-Runs a health check. Types: `soft`, `hard`.
+Runs a health check. Types: `soft`, `hard`. Global admins only.
 
 PUT `/managed/lock/{resource_type}/{space}/{subpath}/{shortname}`
 
@@ -440,7 +433,7 @@ DELETE `/managed/lock/{space}/{subpath}/{shortname}`
 
 GET `/managed/reload-security-data`
 
-Reloads the in-process permissions and roles cache from PostgreSQL.
+Reloads the in-process permissions and roles cache from the database, and drops the compiled schemas. Global admins only.
 
 POST `/managed/execute/{task_type}/{space}`
 
@@ -465,8 +458,13 @@ GET `/managed/shortening/{space}/{**rest}`
 **Creates** a short link for a DMART resource URL and returns a random token. The resolvable `short_url` is bounded by `APP_URL` and the token expires after `URL_SHORTER_EXPIRES` seconds.
 
 ```
-// -> { "short_url": "https://app.example.com/managed/s/aB3xY9" }
+// -> attributes: { "token": "9f86d081884c7d659a2feaa0c55ad015",
+//                  "short_url": "https://app.example.com/managed/s/9f86d081884c7d659a2feaa0c55ad015" }
 ```
+
+GET `/managed/directory-feed`
+
+On a directory primary: the user and group feed a replica pulls, password hashes included. Readable only by the bots in `DIRECTORY_FEED_READERS`; off when that is empty.
 
 GET `/managed/s/{token}`
 
@@ -494,11 +492,15 @@ Retrieves a public payload.
 
 POST `/public/submit/{space}/{**rest}`
 
-Submits data to a public endpoint (e.g. a form). An optional **leading** path segment selects the resource type: it is parsed against **PublicSubmitResourceType**, so only `content` or `ticket` are honored. When the leading segment is _not_ one of those, it is treated as the space name and the resource type defaults to `content` (it is not rejected). Submitting a `ticket` additionally requires a workflow shortname in the path.
+Submits data to a public endpoint (e.g. a form). The path takes three forms: `/public/submit/{space}/{schema}/{subpath}`, `/public/submit/{space}/{resource_type}/{schema}/{subpath}`, and, for tickets, `/public/submit/{space}/ticket/{workflow}/{schema}/{subpath}`. The segment after the space is the resource type only when it is `content` or `ticket`; otherwise it is the schema and the type is `content`. The `space.schema` pair must be listed in `ALLOWED_SUBMIT_MODELS`, which is empty — closed — by default.
 
 POST `/public/attach/{space}`
 
 Attaches a file to a record publicly.
+
+POST `/public/resource_with_payload`
+
+Anonymous variant of `/managed/resource_with_payload`. Like `/public/submit`, it writes only to `space.schema` pairs listed in `ALLOWED_SUBMIT_MODELS`.
 
 POST `/public/excute/{task_type}/{space}`
 
@@ -514,7 +516,7 @@ Gets a public entry by slug.
 
 ## QR Codes `/qr`
 
-Note: the `/qr` generate/validate endpoints are currently minimal / a stub in this port and are not yet fully featured.
+Note: both `/qr` endpoints are mapped but not implemented; they answer `501 Not Implemented`.
 
 GET `/qr/generate/{resource_type}/{space}/{subpath}/{shortname}`
 
@@ -536,17 +538,41 @@ Validates a scanned QR code.
 
 ## System Info `/info`
 
+Every `/info` route except `/info/me` is for global admins only (an active permission over all spaces and subpaths with create and update).
+
 GET `/info/me`
 
-Gets current user info.
+Returns the caller's `shortname`. Open to any signed-in user.
 
 GET `/info/settings`
 
-Gets system settings (restricted to 'dmart' user).
+Gets the effective settings, secrets redacted.
 
 GET `/info/manifest`
 
 Returns system version and status.
+
+GET `/info/plugins`
+
+Lists the loaded plugins.
+
+GET `/info/metrics`
+
+Returns process and runtime metrics.
+
+## Health `/health`
+
+GET `/health/live`, GET `/health/ready`
+
+Liveness and readiness probes, open without authentication. `ready` checks the database.
+
+## OpenID Connect
+
+With `OIDC_ISSUER` set, DMART is an OpenID Connect provider: discovery at `{issuer}/.well-known/openid-configuration`, and `/oidc/authorize`, `/oidc/token`, `/oidc/userinfo` and `/oidc/jwks`.
+
+## Plugin Routes
+
+Each API plugin mounts its own routes under `/{plugin_shortname}`. They require authentication.
 
 ## Realtime & WebSockets `/ws`
 
@@ -576,15 +602,15 @@ After connecting, the client subscribes by sending a `notification_subscription`
 
 POST `/send-message/{user}`
 
-Sends a message to a specific connected user.
+Sends a message to a specific connected user. Global admins only.
 
 POST `/broadcast-to-channels`
 
-Broadcasts a message to subscribers of one or more channels.
+Broadcasts a message to subscribers of one or more channels. Global admins only.
 
 GET `/ws-info`
 
-Returns information about active WebSocket connections.
+Returns information about active WebSocket connections. Global admins only.
 
 ## Model Context Protocol `/mcp`
 
@@ -615,7 +641,7 @@ The MCP server exposes these tools to agents. Every tool runs under the caller's
 | `dmart_schema` | Fetch a schema definition for a space/subpath. |
 | `dmart_create` | Create a new entry. |
 | `dmart_update` | Update / patch an existing entry. |
-| `dmart_delete` | Delete an entry. Requires an interactive **elicitation** confirmation before it proceeds; folders take an optional `force` flag to cascade-delete non-empty contents. |
+| `dmart_delete` | Delete an entry. With `confirm: true` it deletes without asking; without it, a client that supports **elicitation** is asked to confirm, and any other client is refused. Folders take an optional `force` flag to cascade-delete non-empty contents. |
 | `dmart_history` | Retrieve the change history of an entry. |
 | `dmart_download` | Download the raw payload / attachment of an entry. |
 | `dmart_semantic_search` | Natural-language vector search (requires pgvector + an embedding provider, same as `/managed/semantic-search`). |

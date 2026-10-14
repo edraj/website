@@ -1,10 +1,10 @@
-DMART ships with a plugin system that lets you extend the platform without forking it. Plugins come in two flavours: **hook plugins** react to before/after action events, and **API plugins** mount their own HTTP routes. They can be compiled into the binary as managed C# classes, or loaded at runtime as native plugins.
+DMART ships with a plugin system that lets you extend the platform without forking it. Plugins come in two flavours: **hook plugins** react to before/after action events, and **API plugins** mount their own HTTP routes. They can be compiled into the binary as managed C# classes, or run at runtime as subprocess plugins.
 
 ## Built-in Plugins
 
 These managed plugins are compiled into the single self-contained binary and registered at startup. The tag shows whether each is a hook or an API plugin.
 
-**audit** Records create, update, and delete actions for audit trails. Hook
+**audit** Writes a log line for every create, update, delete and other action, with who did it. Hook
 
 **semantic_indexer** Generates and maintains pgvector embeddings so entries can be found by semantic (vector) search. Hook
 
@@ -18,9 +18,9 @@ These managed plugins are compiled into the single self-contained binary and reg
 
 **system_notification_sender** Registered no-op stub. The original fanned out per-user notification entries and pushed via the gateway; the query + push sides aren't ported yet, so it only logs. Hook Stub
 
-**local_notification** Registered no-op stub. The real body needs the notification-persistence pipeline (attachment-first notification entries) which hasn't been ported; activating it in a space is a no-op today. Hook Stub
+**local_notification** Registered no-op stub. The real body needs the notification-persistence pipeline (attachment-first notification entries) which hasn't been ported; enabling it is a no-op today. Hook Stub
 
-**db_size_info** Exposes an endpoint reporting PostgreSQL storage usage for the deployment. API
+**db_size_info** Exposes an endpoint reporting the database's storage usage for the deployment (PostgreSQL or SQLite). API
 
 The three notification-sender plugins are marked _Stub_: they are registered only so `config.json` references don't warn `PLUGIN_UNKNOWN`, but their hook body is a no-op pending a push/SMS gateway integration. The one live notification path today is `realtime_updates_notifier`, which broadcasts changes over WebSocket.
 
@@ -30,9 +30,9 @@ There are two ways to add your own plugins, each suited to a different workflow.
 
 **Managed C# plugins** Implement `IHookPlugin` or `IApiPlugin` in-process. Fastest and fully typed, but compiled into the binary.
 
-**Native plugins** Dropped into `~/.dmart/plugins/<name>/` and loaded at runtime — no recompilation needed. Ship them as a subprocess executable or a shared library.
+**Subprocess plugins** Dropped into `~/.dmart/plugins/<name>/` and loaded at runtime — no recompilation needed. Ship them as an executable in any language.
 
-Each plugin keeps a `config.json` alongside it that declares its `shortname`, whether it is a `hook` or `api` plugin, and — for hooks — the event filters and ordering that decide when it runs. Ready-made examples live in the `custom_plugins_sdk/` directory.
+Each plugin keeps a `config.json` alongside it — a plugin without one never loads — that declares its `shortname`, whether it is a `hook` or `api` plugin, and — for hooks — the event filters and ordering that decide when it runs. Ready-made examples live in the `custom_plugins_sdk/` directory.
 
 ## Configuration
 
@@ -59,7 +59,7 @@ The `config.json` file defines the plugin's metadata and behavior.
 | `shortname` | Unique identifier for the plugin |
 | `is_active` | Set to `true` to enable the plugin |
 | `type` | `hook` — reacts to system events `api` — adds new API endpoints |
-| `listen_time` | `before` — execute before action (can block/modify) `after` — execute after action (logging, notifications) |
+| `listen_time` | `before` — execute before action (can veto it by throwing, but cannot change the entry) `after` — execute after action (logging, notifications) |
 | `ordinal` | Execution order relative to other plugins (lower = first) |
 | `filters` | Event filters. `subpaths` is a map of space → subpath patterns (`__all_spaces__` / `__all_subpaths__` match any space / subpath). For `resource_types`, `schema_shortnames`, and `actions`, an empty array `[]` matches everything. |
 
@@ -107,15 +107,13 @@ public sealed class MyApiPlugin : IApiPlugin
 }
 ```
 
-Endpoints are served under `/{shortname}/...` — the example above answers on `/my_custom_plugin/hello`.
+Endpoints are served under `/{shortname}/...` and require authentication — the example above answers on `/my_custom_plugin/hello`.
 
-### Native Plugins (runtime-loadable)
+### Subprocess Plugins (runtime-loadable)
 
-To extend a running deployment without recompiling the binary, drop a plugin into `~/.dmart/plugins/<name>/`. DMART supports two native modes and prefers the executable when both are present.
+To extend a running deployment without recompiling the binary, drop a plugin into `~/.dmart/plugins/<name>/`: a standalone executable in any language, next to its `config.json`. DMART speaks JSON-lines over stdin/stdout; if the process crashes it is respawned on the next event, so it can never take the server down.
 
-**Subprocess (recommended)** A standalone executable in any language. DMART speaks JSON-lines over stdin/stdout; if the process crashes it is respawned automatically, so it can never take the server down.
-
-**Shared library** A `.so`, `.dylib`, or `.dll` loaded in-process via a small C ABI (`get_info`, `hook`, `handle_request`, `free_string`, `init`, `dmart_plugin_version`). Lowest latency, but a crash takes down the host.
+In-process shared-library plugins (`.so` / `.dylib` / `.dll`) have been removed: a crash in them took the server down, and they cannot load in the static build. A directory that still holds one is reported as a load failure that says so.
 
 The subprocess protocol is a simple request/response over JSON lines:
 
@@ -126,4 +124,4 @@ The subprocess protocol is a simple request/response over JSON lines:
 {"type":"request","request":{...}}  {"status":"success","attributes":{...}}
 ```
 
-Working templates for both modes — plus higher-level examples — live in the `custom_plugins_sdk/` directory of the repository.
+Working templates — plus higher-level examples — live in the `custom_plugins_sdk/` directory of the repository.
