@@ -159,7 +159,7 @@ The cool-down counts from the **last** attempt, not from when the lock started, 
 | 10:10 | The correct password | Refused: still locked, and the 15 minutes now run to 10:25 |
 | 10:26 | The correct password | Unlocked and signed in |
 
-A lock does not sign the user out: access tokens already issued keep working until they expire, but refreshing them at `/oauth/token` is refused. An admin unlocks an account early by saving the user with `attempt_count` set to `0` (the "clear on save" box in CXB).
+A lock does not sign the user out: access tokens already issued keep working until they expire, but refreshing them at `/oauth/token` is refused. An admin unlocks an account early with a user update carrying `unlock: true`, which is what the "clear on save" box in CXB and the catalog sends. An `attempt_count` sent in an update is ignored, so a client that posts a user record back can neither clear a lock nor lower the counter. Nobody unlocks their own account this way, and unlocking an admin account takes a global admin or the admin that owns it.
 
 ### Registration, OTP & Profiles
 
