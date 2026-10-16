@@ -13,10 +13,13 @@ permissions:
   contents: read
 
 env:
-  # The dmart the site is built against in CI: a release binary, pinned by
-  # version AND checksum (the static musl build runs on any x86_64 runner).
-  DMART_VERSION: "1.5.22"
-  DMART_SHA256: "5e0643029a185424145db4b5ef44e941877bc4f2a31e62157c9b9432da20d935"
+  # The dmart the site is built against in CI: the Debian package from
+  # packages.imx.sh, pinned by version AND checksum. dmart's GitHub releases
+  # are private, and that repository serves the same bytes publicly: a .deb is
+  # not re-signed there, so this is the release's own SHA256SUMS-all entry.
+  # It keeps the newest five releases, so move the pin along with dmart.
+  DMART_VERSION: "1.6.8"
+  DMART_SHA256: "1ccd882d558bf84591ccc82fe6c89a3b2035344466a12fdea934318cf3ff607d"
   DMART_URL: "http://127.0.0.1:8282"
   # Throwaway admin of a dmart that lives for one job on localhost — not a
   # secret, and it guards nothing.
@@ -39,14 +42,17 @@ jobs:
           cache: yarn
           cache-dependency-path: app/yarn.lock
 
-      - name: Fetch dmart ${{ env.DMART_VERSION }}
+      - name: Install dmart ${{ env.DMART_VERSION }}
+        # apt resolves the package's dependencies (libargon2-1 among them).
+        # Installing it starts nothing: the next step runs its own server.
         run: |
           set -euo pipefail
-          name="dmart-${DMART_VERSION}-linux-musl-x64"
-          curl -fsSL -o dmart.tgz "https://github.com/edraj/csdmart/releases/download/v${DMART_VERSION}/${name}.tar.gz"
-          echo "${DMART_SHA256}  dmart.tgz" | sha256sum -c -
-          tar -xzf dmart.tgz
-          echo "DMART_BIN=$PWD/${name}/dmart" >> "$GITHUB_ENV"
+          deb="dmart_${DMART_VERSION}_amd64.deb"
+          curl -fsSL -o "$deb" "https://packages.imx.sh/deb/pool/main/$deb"
+          echo "${DMART_SHA256}  $deb" | sha256sum -c -
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends "./$deb"
+          echo "DMART_BIN=/usr/bin/dmart" >> "$GITHUB_ENV"
 
       - name: Start a throwaway dmart (SQLite)
         run: |
