@@ -1,6 +1,6 @@
 # The `website` pack
 
-dmart.cc's content as a dmart solution pack:
+dmart.cc's content as a dmart [solution pack](https://github.com/edraj/csdmart/tree/master/packs):
 `pack.json`, the space tree under `space/`, and a management overlay under
 `management/`. It is the same format as csdmart's own packs, so csdmart's
 `packs/install.sh` can install it too once packs can come from outside that

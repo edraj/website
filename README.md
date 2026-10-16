@@ -1,6 +1,6 @@
 # dmart.cc
 
-The website of [dmart](https://dmart.cc), and a working example
+The website of [dmart](https://github.com/edraj/csdmart), and a working example
 of the thing it advertises: **a public site built on top of dmart data**.
 
 Nothing the site shows is in this app's source. The pages, the navigation and

@@ -16,6 +16,11 @@
         "label": "Read Docs",
         "href": "/technical",
         "style": "secondary"
+      },
+      {
+        "label": "GitHub →",
+        "href": "https://github.com/edraj/csdmart",
+        "style": "link"
       }
     ],
     "figure": "architecture"
@@ -201,6 +206,11 @@
           "label": "Get Started",
           "href": "/features",
           "style": "primary"
+        },
+        {
+          "label": "View on GitHub →",
+          "href": "https://github.com/edraj/csdmart",
+          "style": "link"
         }
       ]
     }
