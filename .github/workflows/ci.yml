@@ -18,8 +18,8 @@ env:
   # are private, and that repository serves the same bytes publicly: a .deb is
   # not re-signed there, so this is the release's own SHA256SUMS-all entry.
   # It keeps the newest five releases, so move the pin along with dmart.
-  DMART_VERSION: "1.6.8"
-  DMART_SHA256: "1ccd882d558bf84591ccc82fe6c89a3b2035344466a12fdea934318cf3ff607d"
+  DMART_VERSION: "1.6.14"
+  DMART_SHA256: "909c0eaecab3ce20d2405015ad2aa0e86254814b87a7955f75b424d654990ce4"
   DMART_URL: "http://127.0.0.1:8282"
   # Throwaway admin of a dmart that lives for one job on localhost — not a
   # secret, and it guards nothing.
