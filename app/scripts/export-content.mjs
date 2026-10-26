@@ -90,6 +90,8 @@ const pages = pageRecords
             leadingHeading: hasLeadingHeading(body, type),
             hasDiagram: html.includes('<pre class="mermaid">'),
             html,
+            // The source, for the agent skill (scripts/build-skill.mjs); not in the page JSON.
+            markdown: type === "markdown" ? body : null,
         };
     })
     .filter((p) => /^[a-z0-9][a-z0-9-]*$/.test(p.slug));
@@ -139,9 +141,13 @@ writeFileSync(join(CONTENT, "site.json"), JSON.stringify(site, null, 2));
 writeFileSync(join(CONTENT, "home.json"), JSON.stringify(home ?? null, null, 2));
 writeFileSync(
     join(CONTENT, "index.json"),
-    JSON.stringify(pages.map((p) => ({ slug: p.slug, title: p.title, updatedAt: p.updatedAt, doc: docSlugs.has(p.slug) })), null, 2),
+    JSON.stringify(pages.map((p) => ({ slug: p.slug, title: p.title, description: p.description, updatedAt: p.updatedAt, doc: docSlugs.has(p.slug) })), null, 2),
 );
-for (const p of pages) writeFileSync(join(CONTENT, "pages", `${p.slug}.json`), JSON.stringify({ ...p, doc: docSlugs.has(p.slug) }, null, 2));
+mkdirSync(join(CONTENT, "markdown"));
+for (const { markdown, ...p } of pages) {
+    writeFileSync(join(CONTENT, "pages", `${p.slug}.json`), JSON.stringify({ ...p, doc: docSlugs.has(p.slug) }, null, 2));
+    if (markdown !== null) writeFileSync(join(CONTENT, "markdown", `${p.slug}.md`), markdown);
+}
 
 // One static route per page. Generated folders carry a marker so a later
 // export removes exactly the ones it made, never a hand-written route.

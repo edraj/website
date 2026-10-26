@@ -6,7 +6,7 @@
   "description": "dmart.cc: a public site built from dmart data through dmart's public API",
   "scripts": {
     "export": "node scripts/export-content.mjs",
-    "build": "node scripts/export-content.mjs && vite build && node scripts/finish-build.mjs",
+    "build": "node scripts/export-content.mjs && vite build && node scripts/finish-build.mjs && node scripts/build-skill.mjs",
     "typecheck": "svelte-check --tsconfig ./tsconfig.json",
     "verify": "node scripts/verify-build.mjs"
   },

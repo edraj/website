@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: helpdesk-ticket-workflow
+expected_outcome: |
+  helpdesk holds a workflow entry with the five-state machine described, and a ticket on that workflow
+  that went open → in_progress → resolved through progress-ticket, ending closed (is_open false) with
+  the resolution "paper removed". answer.md reports that final state.
