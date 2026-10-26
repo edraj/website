@@ -294,13 +294,13 @@ A number compares numerically, and values that are not numbers are skipped. Arab
 
 ## Negation `-@field:value`
 
-Prefix the selector with `-`. Negation works on every value form but one (below the examples):
+Prefix the selector with `-`. Negation works on every value form:
 
 | Form | Negated meaning |
 |---|---|
 | `-@field:value` | `field != value` (on a payload path: missing, or not holding `value`) |
 | `-@field:v1\|v2` | `field != v1 AND field != v2` (DeMorgan) |
-| `-@field:[a b]` | `NOT BETWEEN a AND b` |
+| `-@field:[a b]` | `NOT BETWEEN a AND b` (on a payload path: also a missing field) |
 | `-@field:*` | `field IS NULL` (or array empty) |
 | `-@tags:x` | `NOT (tags @> '["x"]'::jsonb)` |
 
@@ -314,9 +314,11 @@ Examples:
 -@roles:admin                      ⇒ roles array does NOT contain 'admin'
 ```
 
-On a payload path, a negated string, number, glob, comparison or `[]` test also matches rows that lack the field; a negated boolean or range does not.
+On a payload path, every negated test (string, number, boolean, range, glob, comparison or `[]`) also matches rows where the field is missing or JSON `null`. A value of another type, such as a string under `-@payload.body.n:[1 10]`, is still left out.
 
-One form does not carry over: a glob on a plain column. `-@shortname:web*` compares with the text `web*` as written, so it excludes nothing but a shortname spelled exactly so.
+A glob on a plain column negates as a glob: `-@shortname:web*` excludes every shortname that starts with `web`, in any case (`NOT ILIKE` on PostgreSQL). `!` (`@shortname:!web*`) and a `Literal()` value still compare the text as written. On a plain column, a negation leaves out rows where the column is NULL, as `!=` does.
+
+Permission row filters (`filter_fields_values`) use this same parser, so these rules decide which records a filtered permission covers.
 
 Besides the `-@` prefix, a value can start with `!` for not-equal (`@field:!v`, see above).
 
