@@ -11,17 +11,18 @@ pip install pydmart
 Usage
 
 ```python
-from pydmart import DmartService
+from pydmart import DmartService, QueryRequest, QueryType
 
 dmart = DmartService("http://localhost:8282")
 await dmart.login("dmart", "change-me")
 
-resp = await dmart.query({
-    "type": "subpath",          # QueryType
-    "space_name": "management",
-    "subpath": "/users",
-    "limit": 10,
-})
+resp = await dmart.query(QueryRequest(
+    type=QueryType.subpath,
+    space_name="management",
+    subpath="/users",
+    search="",
+    limit=10,
+))
 for record in resp.records:
     print(record.shortname)
 ```
@@ -71,15 +72,17 @@ npm install @edraj/tsdmart
 Usage
 
 ```typescript
+import axios from "axios";
 import { Dmart, QueryType } from "@edraj/tsdmart";
 
-Dmart.setBaseURL("http://localhost:8282");
+Dmart.setAxiosInstance(axios.create({ baseURL: "http://localhost:8282" }));
 await Dmart.login("dmart", "change-me");
 
 const resp = await Dmart.query({
   type: QueryType.subpath,
   space_name: "management",
   subpath: "/users",
+  search: "",
   limit: 10,
 });
 console.log(resp?.records?.map((r) => r.shortname));
@@ -97,19 +100,20 @@ flutter pub add dmart
 
 Usage
 
-```
+```dart
 import 'package:dmart/dmart.dart';
 
-final dmart = Dmart(baseUrl: 'http://localhost:8282');
-await dmart.login('dmart', 'change-me');
+Dmart.dmartServerUrl = 'http://localhost:8282';
+Dmart.initDmart();
+await Dmart.login(LoginRequest(shortname: 'dmart', password: 'change-me'));
 
-final resp = await dmart.query(QueryRequest(
-  type: QueryType.subpath,
+final (resp, _) = await Dmart.query(QueryRequest(
+  queryType: QueryType.subpath,
   spaceName: 'management',
   subpath: '/users',
   limit: 10,
 ));
-for (final record in resp.records) {
+for (final record in resp?.records ?? []) {
   print(record.shortname);
 }
 ```

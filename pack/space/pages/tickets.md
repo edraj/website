@@ -13,7 +13,7 @@ A ticket is an entry whose `resource_type` is `ticket` (one of the 30 resource t
 | `collaborators` | `Dictionary<string, string>?` | Named collaborator slots (e.g. `{"assignee": "alice"}`). Set via the `assign` request. |
 | `resolution_reason` | `string?` | Why the ticket was closed / rejected. Required by transitions that declare `resolution_required`. |
 
-A ticket is created with the normal [`create` request](/entity-lifecycle) — you supply `workflow_shortname` and the engine sets the initial state. A `state` you send is replaced by the workflow's `initial_state`. Example create record:
+A ticket is created with the normal [`create` request](/entity-lifecycle) — you supply `workflow_shortname` and the engine sets the initial state: a `state` you send is replaced by the workflow's `initial_state`, and `is_open` is set to `true`. If the workflow cannot be found in the ticket's space, the ticket keeps the `state` it was sent. Example create record:
 
 ```http
 POST /managed/request
@@ -24,7 +24,7 @@ POST /managed/request
     {
       "resource_type": "ticket",
       "subpath": "api/v1/tickets",
-      "shortname": "TCK-1042",
+      "shortname": "TCK_1042",
       "attributes": {
         "is_active": true,
         "workflow_shortname": "channel",
@@ -45,6 +45,8 @@ The workflow is looked up in the ticket's own space, so this example needs a `ch
 
 The folder a ticket lives in can constrain which workflows are legal through its `workflow_shortnames` setting — see [Folders & Rendering](/folders). A ticket that declares a `workflow_shortname` must use one the folder allows.
 
+A ticket can also be filed without signing in, through `POST /public/submit/{space}/ticket/{workflow}/{schema}/{subpath}`, when `ALLOWED_SUBMIT_MODELS` lists that `space.schema` pair (see the [API reference](/api-docs)). The request body becomes the payload, checked against the schema. DMART picks the shortname, the `anonymous` user owns the ticket, it starts in the workflow's initial state (`submitted` if the workflow is not found), and it is inactive until someone switches it on.
+
 ## Workflows Are Data
 
 A workflow is _not_ code. It is a `content` entry (resource type `content`) stored under a `/workflows` folder in the **same space as the ticket**. Its `payload.body` holds the state-machine definition. At transition time `WorkflowEngine` loads that entry — trying subpaths `/workflows`, `/workflow`, then `/` — deserialises the body, and evaluates the requested action against it.
@@ -57,11 +59,11 @@ A workflow is _not_ code. It is a `content` entry (resource type `content`) stor
 
 **next[] transition** An `action` (the verb the caller invokes), a target `state` (the engine also accepts `to` for back-compat), an optional `roles` gate, and an optional `resolution_required` flag.
 
-**resolutions[]** Optional per-state catalogue of allowed resolution reasons (each a `key` plus localized labels). Presentational — surfaced by the admin UI when a resolution is required.
+**resolutions[]** Optional per-state catalogue of resolution reasons (each a `key` plus localized labels). Presentational: the server does not check a resolution against it. The admin UI's ticket form offers the resolutions of the state a transition leads to.
 
 ### Full workflow definition (payload.body)
 
-This is the shape of a real seeded workflow (`management/workflows/channel`), trimmed to the essentials. Note that `new`, `pending`, `approved` and `completed` all have a `next` array (open states), while `failed` has none (terminal / closed):
+This is the shape of a real seeded workflow (`management/workflows/channel`), trimmed to the essentials, with `resolution_required` added to `reject` to show the flag. Note that `new`, `pending`, `approved`, `rejected` and `completed` all have a `next` array (open states), while `failed` has none (terminal / closed):
 
 ```json
 {
@@ -139,14 +141,14 @@ Because `rejected` and `completed` still have outgoing transitions, they are _op
 
 ## Advancing a Ticket: `progress-ticket`
 
-Tickets are never advanced by patching `state` directly. They use a dedicated endpoint that runs the workflow engine:
+Tickets are advanced through a dedicated endpoint that runs the workflow engine:
 
 `PUT /managed/progress-ticket/{space}/{subpath}/{shortname}/{action}`
 
 The trailing path segments are the ticket's location and the `action` to invoke; the JSON body carries the resolution and an optional comment:
 
 ```http
-PUT /managed/progress-ticket/applications/api/v1/tickets/TCK-1042/reject
+PUT /managed/progress-ticket/applications/api/v1/tickets/TCK_1042/reject
 {
   "resolution": "missing_documents",
   "comment": "ID scan unreadable"
@@ -155,21 +157,25 @@ PUT /managed/progress-ticket/applications/api/v1/tickets/TCK-1042/reject
 
 The body accepts `resolution` _or_ `resolution_reason` (both map to the ticket's `resolution_reason` column), plus an optional `comment`. A missing/empty body is allowed for transitions that do not require a resolution.
 
+The workflow governs this endpoint only. A plain `update` writes `state`, `is_open` and `resolution_reason` like any other field, checked by the `update` permission but not by the workflow. To hold a role to the workflow, grant it `progress_ticket` rather than `update`, or list those fields in its update permission's `restricted_fields` (see [Access Control](/access-control)).
+
 ### What the engine enforces
 
 `WorkflowService.ProgressAsync` + `WorkflowEngine.EvaluateAsync` apply these checks, in order, before any write happens:
 
-**1 · Ticket & workflow exist** The ticket must exist and carry a non-empty `workflow_shortname`, and that workflow entry must load and contain a `states` array.
+**1 · Caller may know the ticket** The ticket must exist, and the caller must hold `view`, `progress_ticket` or `update` on it, judged with the row filters of the permission that grants it. Otherwise the answer is the same "ticket not found" a missing ticket gets.
 
-**2 · Current state is known** The ticket's `state` must match a state in the workflow, and that state must have a `next` array (not terminal).
+**2 · Workflow exists** The ticket must carry a non-empty `workflow_shortname`, and that workflow entry must load and contain a `states` array.
 
-**3 · Action is a valid transition** Some entry in `next` must have `action` equal to the URL's action, with a non-empty target `state`.
+**3 · Current state is known** The ticket's `state` must match a state in the workflow, and that state must have a `next` array (not terminal).
 
-**4 · Actor holds a required role** If the transition lists `roles`, the actor (resolved to their user's roles) must hold at least one of them — otherwise the transition is refused.
+**4 · Action is a valid transition** Some entry in `next` must have `action` equal to the URL's action, with a non-empty target `state`.
 
-**5 · Resolution when required** If the transition sets `resolution_required: true`, a `resolution_reason` must be present in the body — else the request fails with `MISSING_DATA`.
+**5 · Actor holds a required role** If the transition lists `roles`, the actor must hold at least one of them among the roles on their user record — otherwise the transition is refused.
 
-When all checks pass, the service builds a patch — `state` = the new state, `is_open` = whether that state is open, and `resolution_reason` if supplied — and applies it through `EntryService.UpdateAsync` with the action override `progress_ticket` (so the permission walk gates on the `progress_ticket` action, not `update`). The success envelope echoes the outcome:
+**6 · Resolution when required** If the transition sets `resolution_required: true`, a `resolution_reason` must be present in the body — else the request fails with `MISSING_DATA`.
+
+When all checks pass, the service builds a patch — `state` = the new state, `is_open` = whether that state is open, and `resolution_reason` if supplied — and applies it through `EntryService.UpdateAsync` with the action override `progress_ticket` (so the permission walk gates on the `progress_ticket` action, not `update`). A non-empty `comment` is then stored as a `comment` attachment under the ticket, carrying the new state. [Plugins](/plugins) hear of the transition as an `update` event. The success envelope echoes the outcome:
 
 ```json
 {
@@ -187,10 +193,13 @@ The rejections are explicit. A few representative errors (all returned as `statu
 
 | Cause | Error |
 |---|---|
+| Ticket missing, or the caller may not view, progress or update it | `SHORTNAME_DOES_NOT_EXIST` — "ticket not found" |
 | Ticket has no `workflow_shortname` | `WORKFLOW_BODY_NOT_FOUND` — "ticket has no workflow_shortname" |
+| Workflow entry not found | `INVALID_TICKET_STATUS` — "workflow {name} not found" |
 | Action isn't a valid transition from the current state | `INVALID_TICKET_STATUS` — "You can't progress from {state} using {action}" |
 | Actor lacks a required role | `INVALID_TICKET_STATUS` — "You don't have the permission to progress this ticket with action {action}" |
 | Resolution required but omitted | `MISSING_DATA` — "this transition requires a resolution_reason" |
+| Caller lacks the `progress_ticket` action on the ticket | `NOT_ALLOWED` — "no progress_ticket access" |
 
 ## Assigning: the `assign` Request
 
@@ -205,7 +214,7 @@ POST /managed/request
     {
       "resource_type": "ticket",
       "subpath": "api/v1/tickets",
-      "shortname": "TCK-1042",
+      "shortname": "TCK_1042",
       "attributes": {
         "owner_shortname": "backoffice_agent_7",
         "collaborators": { "assignee": "backoffice_agent_7" }
@@ -243,7 +252,7 @@ Tickets often originate outside the system — a phone channel, a mobile app, an
 
 | Field | Purpose |
 |---|---|
-| `type` | Origin kind. Mirrors the UserType convention — `web`, `mobile`, or `bot`. |
+| `type` | Origin kind, such as `web`, `mobile` or `bot`. |
 | `name` | Human/agent name that filed the ticket. |
 | `channel` | The channel it arrived through. |
 | `distributor` | Distributor / partner reference. |
@@ -251,7 +260,7 @@ Tickets often originate outside the system — a phone channel, a mobile app, an
 | `msisdn` | Optional phone number of the reporter. |
 | `channel_address` | Optional free-form address bag for channel-specific routing. |
 
-All reporter fields are optional strings (plus the `channel_address` map). The set above is exactly what the model exposes — treat `type`'s values as the `web|mobile|bot` convention rather than a rigidly enforced enum on this field.
+All reporter fields are optional strings (plus the `channel_address` map). The set above is exactly what the model exposes, and no field's value is checked against a list: `type` takes any string.
 
 ## Locking Tickets
 
@@ -259,11 +268,13 @@ An agent working a ticket can place an entry lock so nobody else edits it undern
 
 ```
 # take the lock
-PUT    /managed/lock/ticket/applications/api/v1/tickets/TCK-1042
+PUT    /managed/lock/ticket/applications/api/v1/tickets/TCK_1042
 
 # release it
-DELETE /managed/lock/applications/api/v1/tickets/TCK-1042
+DELETE /managed/lock/applications/api/v1/tickets/TCK_1042
 ```
+
+A lock lasts `LOCK_PERIOD` seconds (300 by default); the holder locking again extends it, and anyone else gets `LOCKED_ENTRY`, naming the holder. Locking a ticket also records the agent in its `collaborators` as `processed_by`.
 
 While a lock is held, a plain `update`, a `delete` or a `move` by anyone other than the lock holder is blocked. The permission gate runs first, so an unauthorized caller still gets a "not allowed" answer rather than a hint that the entry is merely locked.
 
@@ -271,7 +282,7 @@ While a lock is held, a plain `update`, a `delete` or a `move` by anyone other t
 
 ## Related Concepts
 
-**[Access Control](/access-control)** The `progress_ticket`, `assign`, `lock` and `unlock` action types are all defined and gated here alongside the other 11 actions.
+**[Access Control](/access-control)** The `progress_ticket`, `assign`, `lock` and `unlock` action types are all defined and gated here alongside the other seven actions.
 
 **[Folders & Rendering](/folders)** A folder's `workflow_shortnames` setting constrains which workflows tickets created there may use.
 

@@ -1,4 +1,4 @@
-A folder in DMART is deceptively simple — and quietly one of the most powerful concepts in the platform. It is at once a **structural node** (the thing that makes a subpath browsable) and a **declarative control panel** that tells the admin UI exactly how to list, sort, filter, paginate and edit everything inside it, and tells the backend exactly what is allowed to live there. All of that lives in one small JSON body validated against a schema called `folder_rendering`. This page dissects every property.
+A folder in DMART is deceptively simple — and quietly one of the most powerful concepts in the platform. It is at once a **structural node** (the thing that makes a subpath browsable) and a **declarative control panel** that tells an admin UI how to list, sort and edit everything inside it, and tells the backend exactly what is allowed to live there. All of that lives in one small JSON body validated against a schema called `folder_rendering`. This page dissects every property.
 
 ## 1. A folder is just an entry
 
@@ -49,11 +49,11 @@ The meta simply references the body file and names the schema:
 
 ## 3. The `folder_rendering` schema — centralized & exact
 
-Every folder in every space is validated against a **single** canonical schema that lives in the `management` space at `management/schema/folder_rendering`. Two design decisions make it strict and safe:
+Every folder body that names `folder_rendering` as its schema (cxb's folder editor always does) is validated against a **single** canonical schema that lives in the `management` space at `management/schema/folder_rendering`. Every start creates that schema when it is missing, and never overwrites an edited copy. Two design decisions make it strict and safe:
 
 **Centralized** The schema validator special-cases the shortname `folder_rendering` and always resolves it from the `management` space — so one definition governs all spaces, and you never copy it per space.
 
-**Exact** `additionalProperties: false` at every level. An unknown or _misspelled_ field is rejected, not silently ignored — you find the typo immediately instead of debugging a prop that "does nothing".
+**Exact** `additionalProperties: false` at every level; only the objects inside `filter` are free-form. An unknown or _misspelled_ field is rejected, not silently ignored — you find the typo immediately instead of debugging a prop that "does nothing".
 
 **Minimal required** The only required property is `index_attributes`. A folder with nothing but one index attribute is valid; everything else is optional and defaulted.
 
@@ -66,56 +66,58 @@ These control what the listing (the "index page") looks like: which columns appe
 | Property | Type | What it does |
 |---|---|---|
 | `index_attributes` _(required)_ | `[{key, name}]` | The star of the show. Each item is a column: `key` is the entry field/attribute to read, `name` is the header text shown. Order = column order. Must be unique. See §8. |
-| `shortname_title` | `string` | The header label used for the shortname column (e.g. "Permission Shortname", "API Name") — lets a technical `shortname` read as a friendly noun. |
-| `search_columns` | `[{key, name}]` | Which columns appear in the search/results view when searching within the folder. Same `{key, name}` shape as index_attributes. |
-| `csv_columns` | `[{key, name}]` | Which columns (and their headers) are written when the list is exported to CSV. |
-| `icon` | `string` | The folder's main icon, shown next to it in the tree/sidebar. |
-| `icon_opened` | `string` | Icon shown when the folder is expanded. |
-| `icon_closed` | `string` | Icon shown when the folder is collapsed. |
-| `enable_pdf_schema_shortnames` | `string[]` | For entries using one of these schemas, the UI shows a "download as PDF" icon. |
+| `shortname_title` | `string` | The header label meant for the shortname column (e.g. "Permission Shortname", "API Name") — lets a technical `shortname` read as a friendly noun. |
+| `search_columns` | `[{key, name}]` | The columns meant for the search/results view when searching within the folder. Same `{key, name}` shape as index_attributes. |
+| `csv_columns` | `[{key, name}]` | The columns, and their headers, of the folder's CSV download. The server writes exactly these, each read by its key as in §8, and a CSV upload to the folder reads a file of that shape back. |
+| `icon` | `string` | The folder's main icon, for the tree/sidebar. |
+| `icon_opened` | `string` | Icon for the folder when expanded. |
+| `icon_closed` | `string` | Icon for the folder when collapsed. |
+| `enable_pdf_schema_shortnames` | `string[]` | Entries using one of these schemas are meant to get a "download as PDF" icon. |
+
+Of these, the bundled admin UIs (cxb and catalog) act on `index_attributes` and `csv_columns`; the others are kept for any front end that reads them, and cxb's folder editor sets them all.
 
 ## 5. Props — what may live here (server-enforced)
 
-These four are not just UI hints — the **backend** enforces them whenever a child is created, updated, or moved into the folder. An empty (or absent) array means "no restriction". See §9 for the enforcement details.
+These four are not just UI hints — the **backend** enforces them on the folder's direct children: all four whenever a record is created in the folder or an entry in it is updated, and the three content arrays also when an entry is moved into it. An empty (or absent) array means "no restriction". See §10 for the enforcement details.
 
 | Property | Type | What it restricts |
 |---|---|---|
 | `content_resource_types` | `string[]` (enum) | A child's `resource_type` must be one of these. Values are drawn from the full resource-type enum (`content`, `ticket`, `folder`, `media`, …). |
-| `content_schema_shortnames` | `string[]` | A child that declares a `payload.schema_shortname` must use one of these. Also drives which form the UI loads (see §8). |
+| `content_schema_shortnames` | `string[]` | A child that declares a `payload.schema_shortname` must use one of these. Also drives which form the UI loads (see §9). |
 | `workflow_shortnames` | `string[]` | A `ticket` created here that declares a `workflow_shortname` must use one of these. |
-| `unique_fields` | `string[][]` | A list of composite uniqueness constraints. Each inner list is a set of fields that together must be unique across all entries in the folder — e.g. `[["email"], ["first_name","last_name"]]`. |
+| `unique_fields` | `string[][]` | A list of composite uniqueness constraints. Each inner list is a set of fields that together must be unique across all entries in the folder — e.g. `[["payload.body.email"], ["payload.body.first_name","payload.body.last_name"]]`. See §10 for the fields a path can name. |
 
 ## 6. Props — action toggles
 
-Booleans that show or hide the corresponding buttons/affordances in the admin UI for this folder. They shape what an operator _can do_ from the listing.
+Booleans meant to show or hide the corresponding buttons/affordances in an admin UI for this folder. They shape what an operator _can do_ from the listing. Of the bundled UIs, catalog acts on `allow_csv` and `allow_upload_csv`; cxb's folder editor sets every toggle, but neither UI acts on the others, which are there for front ends that read them.
 
 | Property | Default | Effect |
 |---|---|---|
 | `allow_view` | `true` | Allow opening/viewing a resource inside the folder. |
-| `allow_create` | `true` | Show the "create resource" button (gates the create form). |
+| `allow_create` | `true` | Allow creating resources from the listing. |
 | `allow_create_category` | `false` | Allow creating a _sub-folder_ (a "category") inside this folder. |
 | `allow_update` | `true` | Allow editing existing resources. |
 | `allow_delete` | `false` | Allow deleting resources. |
 | `allow_csv` | `false` | Show the CSV **download** button (export the displayed list). |
 | `allow_upload_csv` | `false` | Show the CSV **upload** feature (batch-create from a CSV). |
-| `use_media` | `false` | Declares that entries here carry a media attachment (surfaces media affordances). |
+| `use_media` | `false` | Declares that entries here carry a media attachment. |
 
-These are UI gates for a smooth operator experience — they are _not_ a security boundary. Real authorization is always enforced by [RBAC + ACLs](/access-control) on the server regardless of what a folder's toggles say.
+These are UI hints for a smooth operator experience — they are _not_ a security boundary. Real authorization is always enforced by [RBAC + ACLs](/access-control) on the server regardless of what a folder's toggles say.
 
 ## 7. Props — query, sort, filter & behavior
 
-These decide _which_ entries the listing loads, in what order, and how it behaves — including the powerful ability to back a folder by a search instead of by its own subpath.
+These decide _which_ entries the listing loads, in what order, and how it behaves.
 
 | Property | Type | What it does |
 |---|---|---|
-| `query` | `{type, search, filter_types}` | `type` is `"subpath"` (list the folder's own contents) or `"search"` (list the results of a saved search query instead). `search` is the [query string](/query-search); `filter_types` narrows resource types. |
-| `append_subpath` | `string` | A string appended to the query subpath — lets a folder point its listing at a nested path below itself. |
-| `sort_by` | `string` | The field name used to order the listing (e.g. `created_at`, `shortname`). |
-| `sort_type` | `"ascending" \| "descending"` | The direction of the sort. |
-| `filter` | `object[]` | Additional filter options offered above the listing. |
-| `disable_filter` | `boolean` | Hides the search/filter icon entirely for this folder. |
-| `expand_children` | `boolean` | Whether the folder auto-expands its children in the tree. |
-| `stream` | `boolean` | Enables a folder-level **websocket watch** — the listing updates live as entries change. |
+| `query` | `{type, search, filter_types}` | `type` is `"subpath"` or `"search"`. When `type` and `search` are both set, cxb adds `search` (a [query string](/query-search)) to the folder's listing, together with whatever the operator types; the listing is still the folder's own. `filter_types` (resource types) is in the schema, but neither bundled UI reads it. |
+| `append_subpath` | `string` | A string meant to be appended to the query subpath; neither bundled UI reads it. |
+| `sort_by` | `string` | The field cxb first orders the listing by (e.g. `created_at`, `shortname`); without one, `shortname`. |
+| `sort_type` | `"ascending" \| "descending"` | The direction of that sort; without one, ascending. |
+| `filter` | `object[]` | Additional filter options meant for above the listing; neither bundled UI reads it. |
+| `disable_filter` | `boolean` | Meant to hide the search/filter icon for this folder; neither bundled UI reads it. |
+| `expand_children` | `boolean` | Both bundled UIs then list the folder's whole subtree, not just the entries directly inside it. |
+| `stream` | `boolean` | Enables a folder-level **websocket watch**: cxb subscribes to the folder and flags its Refresh button when an entry changes. Only subscribers who may read the changed record hear of it. |
 
 ## 8. `index_attributes` in depth
 
@@ -130,13 +132,13 @@ This is the one required property and the heart of folder rendering. It is an or
 ]
 ```
 
-**key** Which value to read from each entry. It can be a Meta field (`shortname`, `created_at`, `owner_shortname`) or a field inside the entry's `payload.body` (`end_point`, `verb`).
+**key** Which value to read from each entry. It can be a Meta field (`shortname`, `created_at`, `owner_shortname`) or a field inside the entry's `payload.body` (`end_point`, `verb`). A bare key is looked up in the entry's `payload.body` first, then its payload, its meta and the record itself; a dotted key (`payload.body.verb`) is a path. cxb also reads `status`, `author` and `displayname` specially.
 
 **name** The human-friendly column header rendered in the table. Purely presentational.
 
 ### Fallback columns
 
-If a folder somehow has no usable index attributes, the admin UI falls back to a sensible default set so the listing is never blank:
+If a folder somehow has no usable index attributes, the admin UI falls back to a sensible default set so the listing is never blank. cxb shows shortname, resource type, schema, created and updated; catalog shows:
 
 ```json
 [
@@ -149,11 +151,11 @@ If a folder somehow has no usable index attributes, the admin UI falls back to a
 
 ### Editing columns live
 
-Operators don't hand-edit JSON. The admin UI exposes a **column-settings modal** that adds, removes and reorders `index_attributes` visually, then writes them back into `payload.body.index_attributes` via a folder `update` request. The folder config is data you edit through the same CRUD API as everything else.
+Operators don't hand-edit JSON. Catalog exposes a **column-settings modal** that adds, removes and edits `index_attributes` visually, then writes them back into `payload.body.index_attributes` via a folder `update` request; cxb's folder form edits them along with the folder's other display, sort and toggle props. The folder config is data you edit through the same CRUD API as everything else.
 
 ## 9. How the admin UI renders a folder
 
-Putting the props together, here is the exact pipeline the admin SPA (CXB / Catalog) runs when you open a folder:
+Putting the props together, here is the pipeline the admin SPAs (CXB / Catalog) run when you open a folder:
 
 ```mermaid
 sequenceDiagram
@@ -161,30 +163,30 @@ sequenceDiagram
     participant API as DMART API
     UI->>API: GET folder entry (meta + payload.body)
     API-->>UI: folder_rendering config
-    UI->>UI: applyFolderContentDefaults() fills missing props
+    UI->>UI: fill missing props with defaults
     UI->>UI: build columns from index_attributes (or fallback)
-    UI->>API: query (type=subpath/search, sort_by, sort_type, filter_types)
+    UI->>API: query the folder (its subtree with expand_children), sort_by, sort_type, query.search
     API-->>UI: page of entries
     UI->>UI: render table — one column per index_attribute
-    UI->>UI: toolbar buttons gated by allow_create / allow_csv / allow_upload_csv …
+    UI->>UI: CSV buttons gated by allow_csv / allow_upload_csv
     Note over UI: click "Create" → load form from content_schema_shortnames
 ```
 
 1. **Load** the folder entry and read `payload.body`.
 
-2. **Default** every missing property (see §10) — crucially with `??`, so an explicit `false` from the server is preserved, not overwritten by a truthy default.
+2. **Default** every missing property (see §11) — a stored value of the right type is kept, so an explicit `false` from the server is preserved, not overwritten by a truthy default.
 
 3. **Columns** from `index_attributes`, or the fallback set.
 
-4. **Fetch** entries: `query.type` decides subpath-listing vs search; `sort_by`/`sort_type` order them (default `created_at` / `descending`).
+4. **Fetch** entries: the folder's own entries, or its whole subtree with `expand_children`. In cxb, `sort_by`/`sort_type` give the starting order (default `shortname` / `ascending`) and `query.search` narrows the list.
 
-5. **Toolbar**: the create button appears only if `allow_create`; CSV download only if `allow_csv`; CSV upload only if `allow_upload_csv`; and so on.
+5. **Toolbar**: in catalog, CSV download appears only if `allow_csv`, and CSV upload only if `allow_upload_csv`.
 
-6. **Create form**: driven by `content_schema_shortnames` — _zero_ schemas → a free-form entry; _one_ → that schema's form is auto-loaded and rendered; _many_ → the user picks which schema first.
+6. **Create form**: driven by `content_schema_shortnames` — _zero_ schemas → a free-form entry; _one_ → that schema's form is auto-loaded and rendered; _many_ → the user picks which schema first. cxb's create dialog offers only the resource types and schemas the folder lists, when it lists any.
 
 ## 10. Content policy is enforced on the server
 
-The three content arrays plus uniqueness are not merely UI conveniences. On every create / update / move, the backend reads the _parent folder's_ config and validates the child against it:
+The three content arrays plus uniqueness are not merely UI conveniences. When a record is created in a folder, when an entry in it is updated, and when an entry is moved into it, the backend reads the _parent folder's_ config and validates the child against it:
 
 - `content_resource_types` — the child's resource type must be allowed.
 
@@ -196,27 +198,43 @@ Semantics that matter in practice:
 
 **Empty = open** An empty or absent array imposes no restriction. Restrictions are opt-in.
 
+**Declared values only** A child that names no schema passes `content_schema_shortnames`, and a ticket without a workflow passes `workflow_shortnames`. Pair them with `content_resource_types` when a folder must be airtight.
+
+**Direct children** A folder's policy covers the records directly inside it, not those in its sub-folders, which follow their own folder.
+
 **Fails open** If the parent folder can't be read, enforcement is skipped rather than blocking the write.
 
-**Toggleable** Global enforcement is controlled by `ENFORCE_FOLDER_CONTENT_POLICY` (default `true`).
+**Toggleable** Global enforcement is controlled by `ENFORCE_FOLDER_CONTENT_POLICY` (default `true`). Set to `false`, a violation is logged and the write goes through; either way `dmart check` lists content that breaks its folder's policy (`folder_content_violations`).
+
+### Uniqueness
+
+`unique_fields` is checked on every create and update in the folder. Each inner list is a compound key: a write is refused (`DATA_SHOULD_BE_UNIQUE`) when another record in the folder already holds the same values for every field of it.
+
+- A field is `payload.body.<path>` for a body field, or one of `shortname`, `slug`, `owner_shortname`, `tags`, `displayname.<lang>` and `description.<lang>`. In a folder of users, roles or permissions it names the record's own attribute, such as `email` or `msisdn`.
+
+- A list value counts each of its elements, and `[]` reaches into a list of objects: `payload.body.variants[].sku`.
+
+- Values are compared exactly as written, against every record in the folder, whether or not the writer can read it.
+
+- A user is always held unique by `email` and `msisdn`, whatever the folder declares.
 
 ## 11. Default values
 
-When a property is absent, the admin UI applies these defaults (using `??` so a real `false`/empty value is never clobbered):
+When a property is absent, the admin UI applies these defaults (a stored value of the right type is kept, so a real `false`/empty value is never clobbered):
 
 | Group | Default |
 |---|---|
 | `allow_view`, `allow_create`, `allow_update` | `true` |
 | `allow_delete`, `allow_create_category`, `allow_csv`, `allow_upload_csv`, `use_media`, `stream`, `expand_children`, `disable_filter` | `false` |
-| `index_attributes`, `content_schema_shortnames`, `content_resource_types`, `*_columns`, `workflow_shortnames` | `[]` |
+| `index_attributes`, `content_schema_shortnames`, `content_resource_types`, `*_columns`, `workflow_shortnames`, `enable_pdf_schema_shortnames` | `[]` |
 | `query` | `{ type: "", search: "", filter_types: [] }` |
-| `icon`, `icon_opened`, `icon_closed`, `shortname_title` | `""` |
+| `icon`, `icon_opened`, `icon_closed`, `shortname_title`, `sort_by`, `sort_type` | `""` |
 
 ## 12. Worked examples (real seed folders)
 
 ### a. Minimal, read-only listing — `management/permissions`
 
-One column, everything locked down. A pure browse view.
+One column, every edit toggle off. Meant as a pure browse view.
 
 ```json
 {
@@ -236,7 +254,7 @@ One column, everything locked down. A pure browse view.
 
 ### b. Rich, editable listing — `applications/api`
 
-Four columns (two of them payload fields), full CRUD, CSV export, auto-expanding tree, constrained to one schema and the `content` type.
+Four columns (two of them payload fields), every edit toggle on, CSV export, a listing of its whole subtree (`expand_children`), constrained to one schema and the `content` type.
 
 ```json
 {
@@ -286,9 +304,9 @@ Two schemas allowed, and a bespoke `search_columns` set that differs from the in
 }
 ```
 
-### d. Query-backed folder — `management/health_check`
+### d. Sorted folder with a query — `management/health_check`
 
-Instead of listing its own subpath, this folder lists the results of a `search` query, sorted by creation time.
+A `search`-type `query` with an empty search, so cxb adds nothing to the listing, and opens it oldest first (`sort_by`/`sort_type`).
 
 ```json
 {
@@ -307,7 +325,7 @@ Instead of listing its own subpath, this folder lists the results of a `search` 
 
 ## 13. Validation, strictness & the auto-fixer
 
-Because the schema is exact, a folder body is rejected at write time (and at seed/startup) if it contains an unknown field or misses `index_attributes`. To repair legacy folders that predate the tightened schema, DMART ships a CLI:
+Because the schema is exact, a folder body that names it is rejected when it is saved if it contains an unknown field or misses `index_attributes`. `dmart check [space]` counts the folders whose bodies break the schema, whatever schema they name (`folder_body_schema_violations`; `hard` adds sample paths). To repair legacy folders that predate the tightened schema, DMART ships a CLI:
 
 ```
 dmart fix-folder-rendering [space] [--apply]
@@ -317,8 +335,8 @@ dmart fix-folder-rendering [space] [--apply]
 
 - **Fills** a required-but-missing `index_attributes` with `[]`.
 
-- **Widens** non-empty content-policy arrays so they still cover the folder's existing children (won't retroactively orphan data).
+- **Widens** non-empty content-policy arrays so they still cover the folder's existing direct children (won't retroactively orphan data).
 
 - **Reports** invalid `content_resource_types` enum values without silently deleting them.
 
-Run it without `--apply` for a dry-run report; add `--apply` to write the fixes. See the [CLI reference](/cli).
+Run it without `--apply` for a dry-run report; add `--apply` to write the fixes. Without a space it goes through every space. It never touches the folders' content. See the [CLI reference](/cli).
