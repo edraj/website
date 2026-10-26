@@ -13,13 +13,13 @@ permissions:
   contents: read
 
 env:
-  # The dmart the site is built against in CI: the Debian package from
-  # packages.imx.sh, pinned by version AND checksum. dmart's GitHub releases
-  # are private, and that repository serves the same bytes publicly: a .deb is
-  # not re-signed there, so this is the release's own SHA256SUMS-all entry.
-  # It keeps the newest five releases, so move the pin along with dmart.
-  DMART_VERSION: "1.6.14"
-  DMART_SHA256: "909c0eaecab3ce20d2405015ad2aa0e86254814b87a7955f75b424d654990ce4"
+  # The dmart the site is built against in CI: the newest release in the RPM
+  # repository at packages.imx.sh, the same Fedora package dmart.cc's API runs.
+  # dnf checks the repository's metadata and the package against dmart's
+  # signing key, and the key is pinned by its fingerprint. Nothing to move
+  # along with dmart: a release that breaks the site shows up here.
+  DMART_REPO: "https://packages.imx.sh"
+  DMART_KEY_FINGERPRINT: "928487D2599079CC2B2D67984FDF58FB6E9F83BD"
   DMART_URL: "http://127.0.0.1:8282"
   # Throwaway admin of a dmart that lives for one job on localhost — not a
   # secret, and it guards nothing.
@@ -29,8 +29,15 @@ jobs:
   site:
     name: pack → dmart → site
     runs-on: ubuntu-latest
+    # Fedora, like the hosts dmart runs on, so the job installs the RPM.
+    container: registry.fedoraproject.org/fedora:44
     timeout-minutes: 15
     steps:
+      # git for a real checkout, tar and xz for setup-node's download, gnupg2
+      # for the key check; the rest the steps below call.
+      - name: Tools
+        run: dnf -y -q --setopt=install_weak_deps=False install git-core tar gzip xz gnupg2 python3 openssl findutils
+
       # Pinned by commit SHA rather than tag, matching the convention in
       # edraj/csdmart: a mutable tag can be repointed at new code by anyone
       # who controls the action's repository, and CI runs with a token.
@@ -39,19 +46,26 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
-          cache: yarn
-          cache-dependency-path: app/yarn.lock
 
-      - name: Install dmart ${{ env.DMART_VERSION }}
-        # apt resolves the package's dependencies (libargon2-1 among them).
+      # Yarn 1, which app/yarn.lock is written for; Fedora's image has none.
+      - name: Yarn
+        run: npm install -g yarn@1.22.22
+
+      - name: Install the newest dmart
         # Installing it starts nothing: the next step runs its own server.
         run: |
           set -euo pipefail
-          deb="dmart_${DMART_VERSION}_amd64.deb"
-          curl -fsSL -o "$deb" "https://packages.imx.sh/deb/pool/main/$deb"
-          echo "${DMART_SHA256}  $deb" | sha256sum -c -
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends "./$deb"
+          key="$RUNNER_TEMP/dmart.asc"
+          curl -fsSL -o "$key" "$DMART_REPO/dmart.asc"
+          fpr="$(gpg --show-keys --with-colons "$key" | awk -F: '$1 == "fpr" { print $10; exit }')"
+          if [ "$fpr" != "$DMART_KEY_FINGERPRINT" ]; then
+            echo "dmart.asc has fingerprint $fpr, expected $DMART_KEY_FINGERPRINT"; exit 1
+          fi
+          rpm --import "$key"
+          printf '%s\n' '[dmart]' 'name=dmart' "baseurl=$DMART_REPO/rpm/fc44/x86_64" \
+            'gpgcheck=1' 'repo_gpgcheck=1' "gpgkey=file://$key" > /etc/yum.repos.d/dmart.repo
+          dnf -y -q --setopt=install_weak_deps=False install dmart
+          echo "Installed $(rpm -q dmart)" | tee -a "$GITHUB_STEP_SUMMARY"
           echo "DMART_BIN=/usr/bin/dmart" >> "$GITHUB_ENV"
 
       - name: Start a throwaway dmart (SQLite)
