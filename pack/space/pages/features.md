@@ -12,6 +12,8 @@ DMART treats data as a first-class citizen, moving beyond traditional database c
 
 **Hierarchical** Organize data into intuitive Spaces and Subpaths, similar to a file system.
 
+**Multilingual** Display names and descriptions are kept in English, Arabic and Kurdish side by side.
+
 ```mermaid
 graph TD
     Space["Space: Project/Business"] --> Folder["Folder: Category"]
@@ -27,11 +29,11 @@ graph TD
 
 Finding information is effortless with DMART's robust search engine.
 
-- **Full-Text Search:** Instantly search across all data, including structured fields and text content.
+- **Full-Text Search:** Search across all data, including structured fields and text content. Plain words find whole and partial words in any of their forms, correct misspellings, and come back best match first — in Arabic too, even when typed on an English keyboard layout.
 
 - **Advanced Filtering:** Filter results by tags, creation dates, authors, and specific data attributes.
 
-- **Native SQL Search:** Uses SQL full-text search capabilities for high-performance querying.
+- **Native SQL Search:** Search runs inside the database — full-text and trigram indexes on PostgreSQL, FTS5 on SQLite — with no separate search cluster. Semantic search is available on PostgreSQL with pgvector and an embedding API.
 
 ## 3. Collaboration & Workflow Automation
 
@@ -47,11 +49,11 @@ stateDiagram-v2
     Resolved --> [*]
 ```
 
-- **Ticketing System:** Transform any data entry into a trackable ticket with states (e.g., "Open," "In Progress," "Resolved").
+- **Ticketing System:** Track work as tickets that move through states (e.g., "Open," "In Progress," "Resolved").
 
 - **Custom Workflows:** Define custom state transitions and rules to match your specific business processes.
 
-- **Assignments:** Assign entries or tickets to specific users or roles.
+- **Assignments:** Hand an entry or ticket over to another user, who becomes its owner, and name its collaborators.
 
 - **Comments & Reactions:** Collaborate directly on data entries with threaded comments and emoji reactions.
 
@@ -63,7 +65,9 @@ Security is granular and configurable to match organizational needs.
 
 - **Role-Based Access Control (RBAC):** Define roles (e.g., Admin, Editor, Viewer) with specific permissions.
 
-- **Granular Permissions:** Control access at the folder or even individual entry level (Create, Read, Update, Delete).
+- **Granular Permissions:** Control access at the folder or even individual entry level (Create, Read, Update, Delete), down to individual fields, and limit a role to the records that match a filter.
+
+- **Protected Administrator Sign-In:** Administrator accounts sign in with a password and a one-time code, and self-registration stays off until an instance turns it on.
 
 ## 5. Integration & Extensibility
 
@@ -78,29 +82,37 @@ sequenceDiagram
 
     App->>API: Create New Entry (POST)
     API->>Plugin: Execute Pre-Save Hook
-    Plugin-->>API: Validated / Modified Data
+    Plugin-->>API: Allow, or Veto the Write
     API->>Store: Persist Data
     Store-->>API: Success
-    API->>App: 201 Created
-    API->>Plugin: Execute Post-Save Hook (Notification)
+    API->>Plugin: Execute Post-Save Hook (Notification, in the Background)
+    API->>App: 200 OK
 ```
 
 - **RESTful API:** A comprehensive, documented API for interacting with every aspect of the platform.
 
 - **Plugin Architecture:** Extend functionality with custom plugins for logic, validation, or external integrations.
 
-- **Realtime Notifications:** The live notification path today is realtime WebSocket broadcast. The `realtime_updates_notifier` plugin runs on data changes and workflow events and pushes update messages to connected WebSocket clients subscribed to the relevant space/subpath channels — no polling required.
+- **AI Agents (MCP):** An optional MCP server lets AI agents query, read and write entries as a signed-in DMART user, within that user's permissions.
 
-- **Email/SMS Delivery:** One-time codes are sent over SMTP (`MAIL_HOST`) and an SMS gateway (`SEND_SMS_OTP_API`). General notification delivery is not built yet: the notification plugins (`system_notification_sender`, `admin_notification_sender`, `local_notification`) are registered _no-op stubs_ pending a push/SMS/SMTP gateway pipeline.
+- **Single Sign-On & Directory:** DMART can be the OpenID Connect provider for your other applications, and serve its users and groups over LDAP to mail servers and other directory clients. A directory replica on another host keeps answering LDAP sign-ins while the primary is down.
+
+- **Realtime Notifications:** The live notification path today is realtime WebSocket broadcast. The `realtime_updates_notifier` plugin runs on data changes and workflow events and pushes update messages to connected WebSocket clients subscribed to the relevant space/subpath channels — no polling required. Each listener hears only of records it may read.
+
+- **Email/SMS Delivery:** One-time codes are sent over SMTP (`MAIL_HOST`) and an SMS gateway (`SEND_SMS_OTP_API`), each with its own on/off switch. General notification delivery is not built yet: the notification plugins (`system_notification_sender`, `admin_notification_sender`, `local_notification`) are registered _no-op stubs_ pending a push/SMS/SMTP gateway pipeline. A subprocess plugin can already send email through DMART's mail settings.
 
 ## 6. Deployment & Operations
 
 Built for flexibility and reliability in various environments.
 
-- **Container-Ready:** Ships as a single self-contained, Native-AOT binary (no runtime to install), packaged into a tiny Docker/Podman image for consistent environments.
+- **Container-Ready:** Ships as a single self-contained, Native-AOT binary (no runtime to install), also packaged into a single-process Docker/Podman image for consistent environments.
+
+- **Signed Packages:** Install and upgrade through signed RPM (Fedora, RHEL 9), DEB and APK (Alpine) package repositories.
 
 - **Air-Gapped Friendly:** The self-contained binary bundles the server, CLI, and admin UIs with no external service dependencies — on SQLite, not even a database server — ideal for on-premises and isolated networks.
 
 - **SQL-Backed:** A single PostgreSQL or SQLite database is the source of truth for all entries, users, and attachments — providing transactional integrity and reliability.
+
+- **Health Checks:** Liveness and readiness endpoints for load balancers, a `dmart selfcheck` smoke test for a running server, and `dmart check` to find stored content the server cannot read or serve.
 
 - **Portable Import/Export:** Round-trip any Space to and from a human-readable `spaces/` + `.dm` file layout (packaged as a zip) for seeding, migration, and backup — ideal for longevity and moving data between deployments.

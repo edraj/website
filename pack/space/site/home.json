@@ -68,7 +68,7 @@
         },
         {
           "title": "Use it everywhere",
-          "body": "A REST API, SDKs for Python, TypeScript, Dart and C#, an admin UI, a catalog, and an MCP server for AI agents, all from one binary."
+          "body": "A REST API, an admin UI, a catalog, an MCP server for AI agents, an LDAP directory and OpenID Connect sign-in, all from one binary, with SDKs for Python, TypeScript, Dart and C#."
         }
       ]
     },
@@ -85,7 +85,7 @@
         },
         {
           "title": "Powerful Search",
-          "body": "Full-text search, filtering, aggregation. Powered by SQL full-text blazing performance.",
+          "body": "Full-text search with spelling correction, in English and Arabic, plus filtering and aggregation. It runs inside the database, with no search cluster to operate.",
           "href": "/features",
           "icon": "filter"
         },
@@ -107,7 +107,7 @@
       "id": "runs-anywhere",
       "kind": "figures",
       "title": "Runs Where a Backend Normally Can’t",
-      "body": "One self-contained binary, compiled ahead of time. No runtime to install, no container required, no separate frontend to deploy — the admin UI ships inside it.\n\nMeasured on a **Raspberry Pi Zero 2 W** with 416 MB of usable RAM, serving with PostgreSQL alongside it on the same board: **106 MB** resident for the whole stack, ~14 ms warm reads, and four concurrent logins served with a bounded peak that is fully reclaimed. A 10-hour continuous write soak held memory flat — a plateau, not a slope — with no OOM and no thermal throttling. The same binary runs on a server.",
+      "body": "One self-contained binary, compiled ahead of time. No runtime to install, no container required, no separate frontend to deploy — the admin UI ships inside it.\n\nMeasured on a **Raspberry Pi Zero 2 W** with 416 MB of usable RAM, serving with PostgreSQL alongside it on the same board: **106 MB** of memory for the whole stack at idle, ~14 ms warm reads, and four concurrent logins served with a bounded peak that is fully reclaimed. A 10-hour continuous write soak held memory flat — a plateau, not a slope — with no OOM and no thermal throttling. The same binary runs on a server.",
       "items": [
         {
           "title": "106 MB",
@@ -134,7 +134,7 @@
         },
         {
           "title": "Standard formats, not a vendor schema",
-          "body": "Payloads are JSON, constrained by **JSON Schema Draft 7** and evaluated by a standard library. There is no dmart-specific type system to migrate out of."
+          "body": "Structured payloads are JSON, constrained by **JSON Schema Draft 7** and evaluated by a standard library. There is no dmart-specific type system to migrate out of."
         },
         {
           "title": "Self-hosted, AGPL-3.0",

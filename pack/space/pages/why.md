@@ -53,9 +53,9 @@ As your business grows, so does the chaos of your data. DMART provides the struc
 
 - **Unified Data View:** Consolidate dispersed information into a single "Source of Truth."
 
-- **Enhanced Security:** Robust role-based access control (RBAC) ensures employees only see what they need.
+- **Enhanced Security:** Robust role-based access control (RBAC), with per-entry ACLs and row filters, ensures employees only see what they need, and administrator accounts sign in with a password and a one-time code.
 
-- **Audit & Compliance:** Every create, update and move is recorded in the entry's history — who changed what, and when.
+- **Audit & Compliance:** Creates, updates and moves are recorded in the entry's history — who changed what, and when.
 
 ### 3. Big Business: Innovation & Shared Identity
 
@@ -67,7 +67,7 @@ Large enterprises often struggle with "Shadow IT" and the slow pace of corporate
 
 - **Microservice Backbone:** Lightweight, flexible operational data store for microservices with common user session and security model.
 
-- **Shared Identity:** One DMART can be the user directory for the others: replicas keep their users and groups in step with it, and its OpenID Connect provider gives every app one sign-in. Syncing data between instances is designed but not built yet.
+- **Shared Identity:** One DMART can be the user directory for the others: replicas keep a read-only copy of its users and groups in step with it and answer LDAP sign-ins on their own while it is down, its LDAP directory serves mail servers and other directory clients, and its OpenID Connect provider gives every app one sign-in. An existing LDAP directory moves in with `dmart import-ldif`. Syncing data between instances is designed but not built yet.
 
 - **Future-Proofing:** Standard, open formats ensure data is never obsolete regardless of technology shifts.
 

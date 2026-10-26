@@ -1,4 +1,4 @@
-The `search` field on the `Query` body (`POST /managed/query`, `POST /public/query`) accepts a small RediSearch-flavoured expression language. The name is historical: this is purely a **syntax** — the parser compiles it straight into SQL `WHERE` clauses, on PostgreSQL (pg_trgm wildcards + GIN jsonb containment) or SQLite. There is no Redis or RediSearch engine anywhere in the stack; every query runs against the database. This page covers **every operator** and **every value form**, with worked examples for each.
+The `search` field on the `Query` body (`POST /managed/query`, `POST /public/query`) accepts a small RediSearch-flavoured expression language. The name is historical: this is purely a **syntax** — the parser compiles it straight into SQL `WHERE` clauses, on PostgreSQL (full-text and pg_trgm indexes, GIN-indexed jsonb tests) or SQLite (FTS5). There is no Redis or RediSearch engine anywhere in the stack; every query runs against the database. This page covers **every operator** and **every value form**, with worked examples for each.
 
 ## At a glance
 
@@ -19,8 +19,7 @@ The `search` field is consulted when `type` is one of:
 
 | `type` | Effect of `search` |
 |---|---|
-| `search` | Primary use — full RediSearch-style expression. |
-| `subpath` | Same parser; combined with the subpath narrowing. |
+| `search`, `subpath` | Primary use: filters the records under `space_name` / `subpath` (and below it, unless `exact_subpath` is true). The two types run identically, and so does `reports`. |
 | `aggregation` | Filters the rows before aggregation. |
 | `attachments_aggregation` | Same, for the attachments table. |
 | `tags` | Filters which entries' tags are counted. |
@@ -29,6 +28,12 @@ The `search` field is consulted when `type` is one of:
 | `counters` | Filters the rows whose count is returned. |
 
 The `search` field is **ignored** for `type` = `spaces` and `history`. For `events` it is a plain, case-sensitive substring matched against each raw event line.
+
+In the `management` space, a query at `/users`, `/roles`, `/groups` or `/permissions` (or below) runs on that table, so a selector names that table's columns: `email`, `msisdn`, `roles` and `groups` are columns of users, not of entries.
+
+The query's other filters are ANDed with the search: `filter_types`, `filter_shortnames`, `filter_schema_names`, `filter_tags` (any of the listed tags), and `from_date` / `to_date`, which bound `created_at`.
+
+**Permissions narrow every search.** A query returns only rows the caller may list. A permission's row filter (`filter_fields_values`) is ANDed onto the search, and parsed on its own, so nothing in the search (an `or`, an unbalanced quote or paren) can loosen it. A record whose ACL denies the caller `query` or `view` is left out of pages, totals, counters, tags and aggregations, unless the caller is a global admin. Attachments and history are listed only where the record they hang off would be. See [access control](/access-control).
 
 ## Kinds of token
 
@@ -67,9 +72,11 @@ Each word is matched:
 
 - **typed joined or apart**: `airfrayer` finds "Air Fryer".
 
-Every typed word must match. Results come back best match first — whole words, then parts of words, then corrections — unless the query sets `sort_by`.
+Every typed word must match. Results come back best match first — whole words, then parts of words, then corrections, most recently updated first within each — unless the query sets `sort_by`.
 
-A word with a digit (`x200`), a single letter, or a fragment of more than 200 of the space's words is matched as a plain substring of the entry's values, without corrections. A word that starts with `-` is matched literally. With `ENABLE_SMART_SEARCH=false`, every plain word is a case-insensitive substring match.
+A word with a digit (`x200`), a single letter, or a fragment of more than 200 of the space's words is matched as a plain substring of the entry's values, without corrections. An entry's indexed text stops at 100,000 characters, so a word past that point in a very large body is not found.
+
+A word that starts with `-` is not an exclusion: it and the words typed next to it are matched as plain substrings. So is every plain word with `ENABLE_SMART_SEARCH=false`, and on every table but entries (users, roles, groups, permissions, attachments): a case-insensitive substring of the shortname, payload, display names, descriptions and tags, read as JSON text, key names included.
 
 ```
 hello                  ⇒ entries whose values contain "hello" as a word, part of a word, or a near spelling
@@ -88,21 +95,23 @@ web01 @payload.body.dc:us-east
 
 `field` is the column name (e.g. `shortname`, `is_active`) or a dotted jsonb path (e.g. `payload.body.email`). A field that is not a column — `@title:x`, `@BadName:x` — is a `400` (`INVALID_DATA`) naming the problem; it is never silently dropped. Custom data lives under `@payload.body.<field>`.
 
+Columns the API never returns cannot be searched, as a field or as the start of a path: a user's `password`, `last_login` and `last_failed_login`, a history row's `request_headers` and an attachment's `media`. Naming one is a `400`.
+
 The behaviour depends on which **category** `field` falls into:
 
 | Category | Examples | Behaviour |
 |---|---|---|
 | Plain text column | `shortname`, `subpath`, `slug`, `space_name`, `owner_shortname`, `state` | Exact `=` match; `*` in value falls back to `ILIKE` glob. |
-| Owner contact | `email`, `msisdn` | Matched through the entry owner's user record; whole values only. |
+| Folder subtree | `@subpath:/a/*` | Every row below the folder `/a`, matched exactly and case-sensitively; `_` and `%` in the name match only themselves. `@subpath:/a\|/a/*` takes `/a` too. |
+| Owner contact | `email`, `msisdn` | On any table but users, matched through the owner's user record, and only for a caller who may list every user (a global admin, or a grant on `management/users` with no condition and no row filter); anyone else gets a `400`. On users they are the user's own columns. Whole values only. |
 | Boolean column | `is_active`, `is_open` | Cast to boolean before compare. |
-| JSONB array column | `tags`, `roles`, `groups` | `@>` containment (does the array contain this value?). |
-| TEXT array column | `query_policies` | `unnest()` + LIKE for pattern matching. |
+| JSONB array column | `tags`; on users also `roles`, `groups`, `services`, `mail_aliases` | `@>` containment (does the array contain this value?). |
+| TEXT array column | `query_policies` | `unnest()`, with `ILIKE` when the value holds `*`. |
 | Timestamp column | `created_at`, `updated_at`, `timestamp` | Numeric values are treated as Unix milliseconds; ISO strings cast to `timestamptz`. |
-| `payload.…` jsonb path | `payload.body.x`, `payload.body.config.db.host` | `payload @> '{…}'::jsonb` containment, type-aware. |
+| Other JSON column path | `displayname.en`, `description.ar` | The text at that key, compared like a plain text column; `@displayname.*:v` is a substring of the whole column. |
+| `payload.…` jsonb path | `payload.body.x`, `payload.body.config.db.host` | The value held there, or as an element of an array there, by the value's type (below). On PostgreSQL an equality is one jsonpath test, `payload @? …`, which the payload's GIN index serves. |
 | `payload.…*` wildcard | `payload.body.*`, `payload.*` | `ILIKE` over the cast-to-text subtree. |
 | `payload.…[]` array iteration | `payload.body.tags[]`, `payload.body.items[].sku` | `EXISTS (… jsonb_array_elements …)` over each element. |
-
-To filter by schema, use the query's `filter_schema_names` field.
 
 ## Array iteration in payload paths
 
@@ -117,11 +126,11 @@ Append `[]` to a path segment to iterate over a JSONB array. Two shapes:
                 ⇒ payload.body.tags is an array AND some element equals "alpha"
 ```
 
-Internally: `EXISTS (SELECT 1 FROM jsonb_array_elements_text(payload->'body'->'tags') AS e WHERE e = $1)` — guarded by `jsonb_typeof(...) = 'array'`.
+On PostgreSQL, internally: `EXISTS (SELECT 1 FROM jsonb_array_elements_text(payload->'body'->'tags') AS e WHERE e = $1)` — guarded by `jsonb_typeof(...) = 'array'`.
 
 ### Object-array element match (with sub-path)
 
-`@payload.body.arr[].x:value` — `arr` is an array of objects; the predicate matches if **any** element's `x` equals `value`.
+`@payload.body.arr[].x:value` — `arr` is an array of objects; the predicate matches if **any** element's `x` equals `value`, or is itself an array holding `value`. (Comparisons and ranges test `x` as one value.)
 
 ```
 @payload.body.items[].sku:ABC123
@@ -135,7 +144,7 @@ Sub-paths can nest:
                 ⇒ payload.body.items has an element where config.host equals "localhost"
 ```
 
-Internally: `EXISTS (SELECT 1 FROM jsonb_array_elements(...) AS x WHERE x->>'sku' = $1)`.
+On PostgreSQL, internally: `EXISTS (SELECT 1 FROM jsonb_array_elements(...) AS x WHERE x->>'sku' = $1)`.
 
 ### All value forms work over `[]`
 
@@ -157,7 +166,7 @@ Every value form from the _Value forms_ section composes with array iteration:
 
 - The path before `[]` must resolve to a JSONB array. The emitted predicate is guarded with `jsonb_typeof(...) = 'array'`, so non-array values silently don't match.
 
-- Existence checks on the array itself (`@payload.body.arr[]:*`) are not specially handled — for "the array has at least one element", use the column-level form `@payload.body.arr:*` (which checks the array reference is non-null).
+- Existence checks on the array itself (`@payload.body.arr[]:*`) are not specially handled: `arr[]` is read as a literal key, so it matches nothing. `@payload.body.arr:*` tests only that the key is present; an empty array passes it.
 
 ## Value forms
 
@@ -167,37 +176,37 @@ Any of the following can appear after the colon in `@field:value`.
 
 ```
 @shortname:my_entry          ⇒ shortname = 'my_entry'   (exact)
-@payload.body.name:john      ⇒ payload contains {"body": {"name": "john"}}
+@payload.body.name:john      ⇒ payload.body.name is "john", or an array holding "john"
 ```
 
 ### 2. Quoted string (for spaces inside)
 
 ```
 @payload.body.name:"John Doe"
-                             ⇒ payload contains {"body": {"name": "John Doe"}}
+                             ⇒ payload.body.name is "John Doe" (or an array holding it)
 ```
 
 Quotes are required only when the value contains whitespace.
 
 ### 3. Boolean
 
-`true` / `false` (case-insensitive). Triggers a boolean cast.
+`true` / `false` (case-insensitive). On a boolean column, a boolean compare. On a payload path it matches a JSON boolean or the string `"true"` / `"false"` in any case, held directly or in an array; other strings (`"yes"`, `"1"`) do not count. Strings are compared, never cast, and both engines answer alike.
 
 ```
 @is_active:true              ⇒ CAST(is_active AS BOOLEAN) = true
-@payload.body.enabled:false  ⇒ payload's `enabled` is the JSONB `false`
+@payload.body.enabled:false  ⇒ `enabled` is false, "false" / "FALSE", or an array holding one
 ```
 
 ### 4. Numeric
 
-Optional minus, digits, optional decimal: `-?\d+(?:\.\d+)?`.
+Optional minus, ASCII digits, optional decimal: `-?[0-9]+(\.[0-9]+)?`.
 
 ```
-@payload.body.count:42       ⇒ payload's `count` equals 42 (number, not string)
-@payload.body.score:3.14     ⇒ payload's `score` equals 3.14
+@payload.body.count:42       ⇒ `count` is the number 42 or the string "42", or an array holding either
+@payload.body.score:3.14     ⇒ `score` equals 3.14
 ```
 
-Numeric detection is per **value**: if the value parses as a number, the predicate adds a JSONB type guard (`jsonb_typeof = 'number'`) plus a `::float` comparison.
+Numeric detection is per **value**. On PostgreSQL this equality compares the number exactly, to any precision. A negated search (`-@`), a `[]` path, a comparison and a range compare as floating point, as every numeric test does on SQLite. A comparison or range on a payload path skips values that are not JSON numbers (the string `"150"` is not `>100`).
 
 ### 5. Wildcard (existence) `*`
 
@@ -213,7 +222,14 @@ Negated, it asserts absence:
 
 ```
 -@slug:*                     ⇒ slug IS NULL
--@payload.body.email:*       ⇒ payload's path `body.email` IS NULL
+-@payload.body.email:*       ⇒ payload has no key `body.email`
+```
+
+On a payload path, `*` asks whether the key is there, so a key holding JSON `null` counts as present. To treat a JSON `null` as missing, use `null`:
+
+```
+@payload.body.email:null     ⇒ `email` is missing or JSON null
+-@payload.body.email:null    ⇒ `email` is present with a non-null value
 ```
 
 ### 6. Wildcard glob (column-level)
@@ -268,7 +284,7 @@ Prefix the value with the operator. The value is a **number** or an **ISO 8601 d
 @payload.body.due:<2026-06-01      ⇒ compared as text, which orders ISO dates correctly
 ```
 
-A number compares numerically, and values that are not numbers are skipped. On `created_at`, `updated_at` and `timestamp` every value must be a date or epoch milliseconds; `@updated_at:>yesterday` is a request error.
+A number compares numerically, and values that are not numbers are skipped. Arabic-Indic (`٥`) and Persian (`۵`) digits in a comparison or range are read as the number. On `created_at`, `updated_at` and `timestamp` every value must be a date or epoch milliseconds; `@updated_at:>yesterday` is a request error.
 
 ### 10. Not equal `!`
 
@@ -278,11 +294,11 @@ A number compares numerically, and values that are not numbers are skipped. On `
 
 ## Negation `-@field:value`
 
-Prefix the selector with `-`. Negation works on every value form:
+Prefix the selector with `-`. Negation works on every value form but one (below the examples):
 
 | Form | Negated meaning |
 |---|---|
-| `-@field:value` | `field != value` (or `NOT (jsonb @> …)`) |
+| `-@field:value` | `field != value` (on a payload path: missing, or not holding `value`) |
 | `-@field:v1\|v2` | `field != v1 AND field != v2` (DeMorgan) |
 | `-@field:[a b]` | `NOT BETWEEN a AND b` |
 | `-@field:*` | `field IS NULL` (or array empty) |
@@ -292,11 +308,15 @@ Examples:
 
 ```
 -@state:deleted                    ⇒ state != 'deleted'
--@payload.body.status:deleted      ⇒ NOT (payload @> '{"body":{"status":"deleted"}}')
+-@payload.body.status:deleted      ⇒ status is missing, another string, or an array without "deleted"
 -@payload.body.env:staging|dev     ⇒ env != 'staging' AND env != 'dev'
 -@payload.body.score:[0 50]        ⇒ score NOT BETWEEN 0 AND 50
 -@roles:admin                      ⇒ roles array does NOT contain 'admin'
 ```
+
+On a payload path, a negated string, number, glob, comparison or `[]` test also matches rows that lack the field; a negated boolean or range does not.
+
+One form does not carry over: a glob on a plain column. `-@shortname:web*` compares with the text `web*` as written, so it excludes nothing but a shortname spelled exactly so.
 
 Besides the `-@` prefix, a value can start with `!` for not-equal (`@field:!v`, see above).
 
@@ -367,17 +387,17 @@ web01 nginx
 
 ```
 @payload.body.enabled:true
-                ⇒ payload.body.enabled === true (JSON boolean)
+                ⇒ payload.body.enabled is true, or "true" in any case (or an array holding it)
 ```
 
 ```
 @payload.body.count:42
-                ⇒ payload.body.count === 42 (JSON number)
+                ⇒ payload.body.count is 42 or "42" (or an array holding it)
 ```
 
 ```
 @payload.body.name:john
-                ⇒ payload.body.name === "john" (JSON string)
+                ⇒ payload.body.name is "john" (or an array holding it)
 ```
 
 ### Deep nested path
@@ -413,7 +433,12 @@ web01 nginx
 
 ```
 -@payload.body.email:*
-                ⇒ payload.body.email is missing or null
+                ⇒ payload.body.email is missing
+```
+
+```
+@payload.body.email:null
+                ⇒ payload.body.email is missing or JSON null
 ```
 
 ```
@@ -447,6 +472,8 @@ web01 nginx
 
 ### Tags / roles / groups (jsonb arrays)
 
+`roles` and `groups` are columns of users, so the `@roles` and `@groups` recipes run on `management/users`.
+
 ```
 @tags:important
                 ⇒ tags array contains "important"
@@ -471,7 +498,7 @@ web01 nginx
 
 ```
 @query_policies:test:api:content:true:*
-                ⇒ at least one element of query_policies LIKE 'test:api:content:true:%'
+                ⇒ at least one element of query_policies ILIKE 'test:api:content:true:%'
 ```
 
 ### OR-list
@@ -534,7 +561,7 @@ web01 nginx
 
 ```
 @payload.body.created:[2024-01-01,2024-12-31]
-                ⇒ created sort-key BETWEEN '2024-01-01' AND '2024-12-31'
+                ⇒ created, as text, BETWEEN '2024-01-01' AND '2024-12-31'
 ```
 
 ### Timestamp range / comparison
@@ -655,15 +682,37 @@ web01 @payload.body.dc:us-east
 ### Composite real-world example
 
 ```
-(@is_active:true @roles:editor) @payload.body.published:true -@tags:archived @updated_at:>1735689600000
-                ⇒ active editors with published=true,
+(@is_active:true @tags:featured) @payload.body.published:true -@tags:archived @updated_at:>1735689600000
+                ⇒ active entries tagged "featured" with published=true,
                   not tagged "archived",
                   updated since 2025-01-01 UTC
 ```
 
+## Sorting, paging and totals
+
+These fields of the `Query` body shape every listing, whatever its `search`.
+
+- **`sort_by`** — a column such as `shortname`, `created_at`, `updated_at`, `slug`, `is_active`, `resource_type` or `owner_shortname` (on entries also `state` and `schema_shortname`), or a dotted path (`payload.body.rank`; `body.rank` is shorthand, and a leading `@` or `attributes.` is dropped). Numbers at a path sort as numbers (2 before 10). Comma-separated keys sort in turn. A key that cannot be used, a hidden column included, is dropped; with none left, rows sort by `updated_at`. Without `sort_by`, rows sort by `updated_at`, except an entries search with plain words, which comes back best match first. `random` ignores it.
+
+- **`sort_type`** — `descending` (the default) or `ascending`, for every key. Rows without the key come first when descending and last when ascending, on both engines.
+
+- **`limit`** — omitted, `DEFAULT_QUERY_LIMIT` (default 10). `-1` asks for `MAX_QUERY_LIMIT` (default 10000), any other value below 1 means 100, and a larger limit is cut to `MAX_QUERY_LIMIT`.
+
+- **`offset`** — rows to skip.
+
+- **`total`** and **`returned`** come back in `attributes`. `/managed/query` counts unless the body says `retrieve_total: false` (an omitted field follows `RETRIEVE_TOTAL_DEFAULT`, true by default). `/public/query` counts only when the body says `retrieve_total: true`, and its GET form never does. A skipped count reports `total` as `-1`. Above `QUERY_TOTAL_CAP` (default 100000) the count stops: `total` is the cap and `total_is_lower_bound` is `true`.
+
+### CSV export
+
+`POST /managed/csv` takes the same body and answers a CSV file, sized by the same `limit` rule: one file holds at most `MAX_QUERY_LIMIT` rows, a body without `limit` gets `DEFAULT_QUERY_LIMIT` rows, and `-1` asks for as many as the server allows. A folder that names its `csv_columns` is exported as those columns.
+
+The file cannot say that it stopped short, so `POST /managed/csv?preview=1` answers, in `attributes`, what the CSV for the same body would hold: `exported`, `total`, `limit`, `truncated`, the `reason` it stops short (`max_query_limit`, `default_query_limit` or `limit`) and a `message`. `/managed/csv/{space}`, which also runs a saved query, takes `?preview=1` too.
+
 ## Aggregation `type:"aggregation"`
 
-When `type` is `aggregation` (over the `entries` table) or `attachments_aggregation` (over the `attachments` table), the query carries an `aggregation_data` object instead of returning raw entries. It compiles straight into a single SQL `SELECT … GROUP BY …`. The `search` string, if present, still runs — as the `WHERE` clause _before_ aggregation.
+When `type` is `aggregation` (over the `entries` table) or `attachments_aggregation` (over the `attachments` table), the query carries an `aggregation_data` object instead of returning raw entries. It compiles straight into a single SQL `SELECT … GROUP BY …`. The `search` string, if present, still runs — as the `WHERE` clause _before_ aggregation — and so do the caller's row filters and ACL denies, so the counts cover only what a listing would show.
+
+Groups are paged like records: `limit` (by default `DEFAULT_QUERY_LIMIT`, 10) caps how many groups one response holds, and `total` is the number of groups in it. They come in no set order unless `sort_by` names a grouped field.
 
 ### The `aggregation_data` shape
 
@@ -683,7 +732,7 @@ When `type` is `aggregation` (over the `entries` table) or `attachments_aggregat
 }
 ```
 
-`group_by` is a list of column names or dotted `payload.*` paths; a leading `@` is optional and stripped. `reducers` is a list of aggregate specs. (A third field, `load`, is accepted for wire-compat with upstream but the SQL builder derives its columns from `group_by` + `reducers` only — `load` is effectively a no-op here.)
+`group_by` is a list of column names or dotted paths (`payload.body.status`, `displayname.en`); a leading `@` is optional and stripped. A column the API never returns (see _Field selectors_) is skipped, as a group-by and as a reducer argument. `reducers` is a list of aggregate specs. (A third field, `load`, is accepted for wire-compat with upstream but the SQL builder derives its columns from `group_by` + `reducers` only — `load` is effectively a no-op here.)
 
 ### The `reducers[]` item shape
 
@@ -695,7 +744,7 @@ When `type` is `aggregation` (over the `entries` table) or `attachments_aggregat
 
 - `args` — positional arguments. `args[0]` is the target field (column or dotted `payload.*` path; a leading `@` is stripped). A missing `args[0]` is only valid for `count` / `count_distinct` (which fall back to `*`); every other reducer with no field is dropped from the SELECT.
 
-- `alias` — the output attribute key. When omitted, the `reducer_name` itself is used. Aliases and group-by keys are sanitised to `[a-zA-Z0-9_]` (`@` and `.` become `_`), so `@payload.body.status` surfaces under the key `payload_body_status`.
+- `alias` — the output attribute key. When omitted, the `reducer_name` itself is used. Aliases and group-by keys are sanitised to `[a-zA-Z0-9_]`: `@` is dropped, `.` and any other character become `_`, and a leading digit gets an `a_` prefix. So `@payload.body.status` surfaces under the key `payload_body_status`.
 
 ### `reducer_name` reference
 
@@ -713,7 +762,7 @@ When `type` is `aggregation` (over the `entries` table) or `attachments_aggregat
 | `first_value` | `[field]` | `(ARRAY_AGG(field ORDER BY updated_at DESC))[1]` |
 | `random_sample` | `[field]` | `(ARRAY_AGG(field ORDER BY RANDOM()))[1]` |
 
-On SQLite, `stddev`, `quantile`, `first_value` and `random_sample` are not available and answer `400`; the others work on both engines.
+On SQLite, `stddev`, `quantile`, `first_value` and `random_sample` are not available and answer `400`; the others work on both engines. On a dotted path, `min` and `max` compare numbers as numbers (9 below 10) and rank numbers below text, on both engines.
 
 `group_concat` / `tolist` are the same reducer; so are `count` / `r_count`, `count_distinct` / `count_distinctish`, and `sum` / `total` (wire-compat aliases). Any unrecognised `reducer_name` is silently skipped.
 
@@ -728,13 +777,13 @@ Each result group becomes one `Record` with `resource_type: "content"`, `shortna
     {
       "resource_type": "content",
       "shortname": "aggregation",
-      "subpath": "/orders",
+      "subpath": "orders",
       "attributes": { "payload_body_status": "paid", "orders": 128, "avg_total": 57.4 }
     },
     {
       "resource_type": "content",
       "shortname": "aggregation",
-      "subpath": "/orders",
+      "subpath": "orders",
       "attributes": { "payload_body_status": "pending", "orders": 34, "avg_total": 41.2 }
     }
   ],
@@ -742,11 +791,11 @@ Each result group becomes one `Record` with `resource_type: "content"`, `shortna
 }
 ```
 
-Integer aggregates come back as JSON integers and numeric aggregates (`avg`, `sum`, `stddev`, `quantile`) as JSON doubles.
+Counts come back as JSON integers. `sum`, `avg`, `stddev` and `quantile` come back as JSON numbers without trailing zeros (`22.5`, `90`); on PostgreSQL `sum`, `avg` and `stddev` are exact decimals. A group key or aggregate that is SQL `NULL` (rows without the field, an `avg` over no numbers) is left out of `attributes`.
 
 ### `attachments_aggregation`
 
-Identical grammar, but the `FROM` table is `attachments` instead of `entries` — use it to aggregate over attachments (media / comments / relationships / …) hanging off a parent subpath. Example: count attachments per content-type across a subpath.
+Identical grammar, but the `FROM` table is `attachments` instead of `entries` — use it to aggregate over attachments (media / comments / relationships / …) hanging off a parent subpath. It counts the attachments an `attachments` listing would list: those whose parent record the caller could list, of the attachment types the caller's grants read. Example: count attachments per content-type across a subpath.
 
 ```json
 {
@@ -754,7 +803,7 @@ Identical grammar, but the `FROM` table is `attachments` instead of `entries` �
   "space_name": "shop",
   "subpath": "orders",
   "aggregation_data": {
-    "group_by": ["@payload_content_type"],
+    "group_by": ["@payload.content_type"],
     "reducers": [ { "reducer_name": "count", "alias": "n" } ]
   }
 }
@@ -781,19 +830,21 @@ Each item in the `join` list has this shape:
 }
 ```
 
-- `join_on` — a comma-separated list of `left:right` field pairs. `left` is a path on the **base** record, `right` a path on the joined (sub-query) record. Append `[]` to a side to match against each element of a JSONB array (e.g. `payload.body.tags[]:shortname`). Multiple pairs (comma-separated) must all match.
+- `join_on` — a comma-separated list of `left:right` field pairs. `left` is a path on the **base** record, `right` a path on the joined (sub-query) record: `shortname`, `subpath`, `uuid`, `resource_type`, another attribute, or a payload path. An array value matches on its elements, with or without a trailing `[]` (e.g. `payload.body.tags[]:shortname`), and a `[]` inside a path visits each element at any depth (`payload.body.tiles[].shortname:shortname`). Multiple pairs (comma-separated) must all match. A payload key works without `retrieve_json_payload`: the body is fetched for the join and still left out of the response unless that side asked for it.
 
 - `alias` — the key under which matches are attached. Each base record gains `attributes.join.{alias}` — a list of the matched sub-query records (empty list when nothing matched).
 
-- `type` — a `JoinType`: `left` (default), `right`, `inner`, or `outer`. A missing or `null` type is treated as `left`.
+- `type` — a `JoinType`: `left` (default), `right`, `inner`, or `outer`. A missing or `null` type is treated as `left`. A right record that no base record matched, appended by `right` or `outer`, carries `attributes.join._join_origin: "right"`.
 
-- `query` — a nested `Query` object (same schema, recursively) describing the right-hand side to pull and match against.
+- `query` — a nested `Query` object (same schema, recursively) describing the right-hand side to pull and match against. Its `limit` caps the matches attached to **each base record**; without one, every match attaches, up to the pull cap below.
 
-**Pagination semantics.** A `left` join is cardinality-preserving — the base page is fetched normally, then matches are attached. A cardinality-_changing_ join (`inner`, `right`, or `outer`) can drop or append rows, so the server fetches the base set **unpaginated** (offset 0, capped at `MaxQueryLimit`), performs the join over the whole set, then **re-paginates the joined result** with your original `limit`/`offset`. In other words: `inner`/`right`/`outer` give you "join-then-page" semantics, bounded by the max-limit cap.
+A join that cannot run (a blank `alias`, a `join_on` that is not `left:right` pairs, a `query` that is not a valid query object) fails the whole query with `INVALID_DATA`, and a sub-query that fails on its own fails the query as it would alone. Neither answers with the base rows un-joined.
+
+**Pagination semantics.** A `left` join is cardinality-preserving — the base page is fetched normally, then matches are attached. A cardinality-_changing_ join (`inner`, `right`, or `outer`) can drop or append rows, so the server fetches the base set **unpaginated** (offset 0, capped at `MAX_QUERY_LIMIT`), performs the join over the whole set, then **re-paginates the joined result** with your original `limit`/`offset`, with `total` as the joined count. In other words: `inner`/`right`/`outer` give you "join-then-page" semantics, bounded by the max-limit cap. When the base fetch or the right-hand pull comes back full, the response says `total_is_lower_bound: true`.
 
 `right`/`outer` joins are O(right-table-size) by design (they must surface right records the base set never referenced). The pull of right-hand records is capped at `MAX_QUERY_LIMIT` rows; matches past the cap are missing, and the server logs a warning. Pair them with a selective `query.search` to keep them fast.
 
-With `ENABLE_INNER_JOIN_PUSHDOWN` on (the default), an eligible `inner` join is pushed into SQL as an `EXISTS` semi-join instead, so the base query pages and counts in the database.
+With `ENABLE_INNER_JOIN_PUSHDOWN` on (the default), an eligible `inner` join is pushed into SQL as an `EXISTS` semi-join instead, so the base query pages and counts in the database. It is eligible when both sides are entries queries, every pair is plain (`shortname`, `subpath`, `uuid`, `resource_type` or a payload path, no `[]`), and the request has no `right` or `outer` join.
 
 A worked example — orders with their customer attached:
 
@@ -803,12 +854,14 @@ A worked example — orders with their customer attached:
   "space_name": "shop",
   "subpath": "orders",
   "limit": 10,
+  "retrieve_json_payload": true,
   "join": [
     {
       "join_on": "payload.body.customer:shortname",
       "alias": "customer",
       "type": "inner",
-      "query": { "type": "subpath", "space_name": "shop", "subpath": "customers" }
+      "query": { "type": "subpath", "space_name": "shop", "subpath": "customers",
+                 "retrieve_json_payload": true }
     }
   ]
 }
@@ -820,12 +873,12 @@ A matched base record comes back like:
 {
   "resource_type": "content",
   "shortname": "order_1001",
-  "subpath": "/orders",
+  "subpath": "orders",
   "attributes": {
     "payload": { "body": { "customer": "acme", "total": 57.4 } },
     "join": {
       "customer": [
-        { "resource_type": "content", "shortname": "acme", "subpath": "/customers",
+        { "resource_type": "content", "shortname": "acme", "subpath": "customers",
           "attributes": { "payload": { "body": { "tier": "gold" } } } }
       ]
     }
@@ -842,6 +895,7 @@ A matched base record comes back like:
   "type": "search",
   "space_name": "shop",
   "subpath": "orders",
+  "retrieve_json_payload": true,
   "jq_filter": ".attributes.payload.body"
 }
 ```
@@ -854,7 +908,9 @@ The filter above projects each record down to just its payload body, so `records
 
 - Subprocess timeout is `JQ_TIMEOUT` seconds (config key, default `2`). A timeout returns a `JQ_TIMEOUT` failure envelope; a jq syntax/runtime error returns `JQ_ERROR`.
 
-- The filter is capped at **1024 characters** and rejected if it references dangerous builtins (`env`, `$ENV`, `input`, `debug`, `stderr`, `path(`, `getpath`, `halt`, `halt_error`, `builtins`, `modulemeta`, `$__loc__`).
+- The filter is capped at **1024 characters** and rejected if it references dangerous builtins (`env`, `$ENV`, `input`, `inputs`, `input_filename`, `input_line_number`, `debug`, `stderr`, `path(`, `getpath`, `halt`, `halt_error`, `builtins`, `modulemeta`, `$__loc__`) or starts with an `import` or `include` directive.
+
+- At most `JQ_MAX_CONCURRENCY` (default 4) `jq` processes run at once; a request that waits longer than `JQ_QUEUE_TIMEOUT_SECONDS` (default 5) for one gets a retryable `JQ_TIMEOUT`. Output past 32 MB is a `JQ_ERROR`.
 
 - `jq` must be on `PATH` (the RPM/container declares it as a dependency); if it is missing the filter fails cleanly rather than crashing the request.
 
@@ -862,11 +918,11 @@ A `jq_filter` may also be set on a join's nested `query`, where it reshapes that
 
 ## `history` & `events` queries
 
-These two query types do not use the `search` DSL (see the table at the top) and instead read audit trails. Only a request with no caller at all is refused. On `/public/query` the anonymous user is checked against its permissions like anyone else: `history` against the parent entry, `events` at the space level.
+These two query types do not use the `search` DSL (see the table at the top) and instead read audit trails. Both show a change only where the caller could list the record it belongs to now, under its grants' conditions, row filters and ACL; the history of an attachment also needs a grant on the attachment's own type.
 
 ### `history`
 
-Reads the per-entry change log from the `histories` table. Narrow it with `filter_shortnames` to a specific entry (plus the usual `subpath`):
+Reads the per-entry change log from the `histories` table. A request with no caller at all is refused; on `/public/query` the anonymous user is checked like anyone else. Narrow it with `filter_shortnames` to a specific entry, and with `from_date` / `to_date` on the change's time. It reads the `subpath` and everything below it, whatever `exact_subpath` says, newest change first:
 
 ```json
 {
@@ -874,16 +930,17 @@ Reads the per-entry change log from the `histories` table. Narrow it with `filte
   "space_name": "shop",
   "subpath": "orders",
   "filter_shortnames": ["note1"],
-  "limit": 20,
-  "sort_type": "descending"
+  "limit": 20
 }
 ```
 
-Each record carries the change's `timestamp`, `user_shortname`, request type, and a diff of what changed.
+Each record carries `owner_shortname` (who made the change), `timestamp`, `diff` (each changed field's old and new value, passwords masked) and `last_checksum_history`.
 
 ### `events`
 
-Reads the append-only space event feed (`events.jsonl` under the space, when the optional event log is enabled). It is filtered by `from_date` / `to_date`, and by `search` as a plain, case-sensitive substring of each raw line, and paged — `filter_shortnames`, `filter_types`, and `subpath` are **ignored** (events live at the space root). Default sort is newest-first.
+Reads the append-only space event feed (`events.jsonl` under the space, written when `SPACES_FOLDER` is set; past `EVENTS_LOG_MAX_BYTES`, 50 MiB by default, it rolls over and one previous file is kept and read). It needs a signed-in caller: on `/public/query` it answers `NOT_AUTHENTICATED`. It is filtered by `subpath` (and below it, unless `exact_subpath`), by `from_date` / `to_date`, and by `search` as a plain, case-sensitive substring of each raw line, and paged — `filter_shortnames` and `filter_types` are **ignored**. Default sort is newest-first.
+
+An event carries what its record held, so a caller other than a global admin sees an event only for a record it could list now, matched by uuid: not one deleted, moved away or replaced under the same name since. Such callers get each event without its `request_headers`.
 
 ```json
 {
@@ -894,9 +951,9 @@ Reads the append-only space event feed (`events.jsonl` under the space, when the
 }
 ```
 
-If the space has no configured event log, the events feed is simply empty — there is no database fallback (parity with upstream).
+If the space has no event log, the events feed is simply empty — there is no database fallback (parity with upstream).
 
-Looking for natural-language / vector search instead of the `search` DSL? That is a separate endpoint — `POST /managed/semantic-search` (pgvector cosine similarity), documented on its own page. It does not use the `search` string or any of the query types above.
+Looking for natural-language / vector search instead of the `search` DSL? That is a separate endpoint — `POST /managed/semantic-search` (pgvector cosine similarity), documented in the [API reference](/api-docs). It does not use the `search` string or any of the query types above.
 
 ## Quick reference
 
@@ -906,10 +963,12 @@ Looking for natural-language / vector search instead of the `search` DSL? That i
 | `@field:value` | exact match (column or jsonb path) |
 | `@field:"v with spaces"` | quoted value |
 | `@field:true` / `:false` | boolean compare |
-| `@field:42` / `:3.14` | numeric compare (with type guard on jsonb) |
+| `@field:42` / `:3.14` | numeric compare; on a payload path also `"42"` and arrays holding it |
 | `@field:*` | exists / IS NOT NULL |
 | `-@field:*` | missing / IS NULL |
+| `@payload.x:null` | payload key missing or JSON null |
 | `@col:abc*` | glob (column-level ILIKE) |
+| `@subpath:/a/*` | every row below the folder `/a` |
 | `@payload.x.*:v` | substring search over the cast-to-text subtree |
 | `@payload.body.arr[]:v` | EXISTS — primitive-array element equals `v` |
 | `@payload.body.arr[].x:v` | EXISTS — object-array element's `x` equals `v` |
@@ -917,12 +976,12 @@ Looking for natural-language / vector search instead of the `search` DSL? That i
 | `@field:[a b]` | range (space or comma separator) |
 | `@field:>n` `@field:>=n` `@field:<n` `@field:<=n` | comparisons (numbers or ISO dates) |
 | `@field:!v` | not equal |
-| `-@field:value` | negation (works on every form above) |
+| `-@field:value` | negation (every form above but a column glob) |
 | `A B` / `(A B) (C)` | AND (whitespace, between groups too) |
 | `A or B` | OR; AND binds tighter |
 | `and` | no-op keyword, ignored |
-| `@tags:x` `@roles:x` `@groups:x` | jsonb array containment |
-| `@query_policies:pat:*` | TEXT[] LIKE pattern (unnest) |
+| `@tags:x` `@roles:x` `@groups:x` | jsonb array containment (`roles`, `groups`: users) |
+| `@query_policies:pat:*` | TEXT[] ILIKE pattern (unnest) |
 | `@created_at:[ms ms]` | timestamp range, numeric = Unix milliseconds |
 | `@created_at:[iso,iso]` | timestamp range, ISO strings |
 
@@ -937,6 +996,8 @@ The search language deliberately does **not** support:
 - **Indexed** access into JSON arrays (`@payload.body.items[0].name`). Use `@payload.body.items[].name:value` to match _any_ element instead.
 
 - **Nested** array iteration. Only the first `[]` in a path is treated as iteration — subsequent `[]` segments are interpreted as literal key names. `@payload.body.a[].b[].c:v` does **not** double-iterate.
+
+It also has hard bounds: a search of more than 65,536 characters, the caller's row filters included, matches nothing, and parentheses nested more than 100 deep are a `400`.
 
 For semantic / vector search, use the separate `POST /managed/semantic-search` endpoint — it is **not** part of the `search` string.
 

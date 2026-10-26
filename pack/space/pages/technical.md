@@ -14,6 +14,8 @@ graph TD
     subgraph "Backend (AOT binary)"
         API -->|RW| SQL["PostgreSQL or SQLite"]
         API -->|"MCP /mcp"| MCP["MCP Server"]
+        API -->|"/oidc"| OIDC["OpenID Connect Provider"]
+        LDAP["LDAP Directory (read-only)"] -->|R| SQL
     end
 
     subgraph "Embedded Frontend"
@@ -21,30 +23,33 @@ graph TD
         CAT["Catalog (/cat)"] -->|"API Calls"| API
     end
 
-    SQL -->|"Export (zip)"| Backup["Backup / Import-Export"]
+    LdapClient["Mail server / LDAP client"] -->|"LDAP / LDAPS"| LDAP
+    SQL -->|"Export (zip, Parquet)"| Backup["Backup / Import-Export"]
 ```
 
 ### Backend Stack
 
-- **Language & Runtime:** C# on .NET 10, compiled ahead of time with **Native AOT** into a single self-contained binary (~70 MB) — no runtime install required. JSON is source-generated (System.Text.Json), and the same binary bundles both the server and the CLI client.
+- **Language & Runtime:** C# on .NET 10, compiled ahead of time with **Native AOT** into a single self-contained binary (about 70 MB; the fully static build about 77 MB) — no runtime install required. JSON is source-generated (System.Text.Json), and the same binary bundles both the server and the CLI client.
 
 - **Web Framework:** ASP.NET Core Minimal APIs on the **Kestrel** HTTP server, built with the slim/AOT host (`WebApplication.CreateSlimBuilder`). Endpoints are route groups (`MapGroup`), not MVC controllers. Swagger/OpenAPI is served at `/docs`.
 
 - **Data Persistence:** one SQL database is the single source of truth for all runtime data: **PostgreSQL** (via Npgsql) for the full tier, or **SQLite** for a single node, the edge and development — ACID compliant with relational integrity. There is no Redis and no filesystem runtime store; caches are in-process only.
 
-- **Authentication:** JWT Bearer (HS256, Argon2id-hashed passwords), sign-in with a one-time code by email or SMS, and Google, Facebook and Apple sign-in. DMART can also be an OAuth 2.1 authorization server for MCP clients (`ENABLE_MCP=true`), an OpenID Connect provider (`OIDC_ISSUER`), and a read-only LDAP directory with replicas.
+- **Authentication:** JWT Bearer (HS256, Argon2id-hashed passwords), sign-in with a password or a one-time code by email or SMS, and Google, Facebook and Apple sign-in. Administrator accounts sign in with a password **and** a one-time code, and can be limited to listed addresses (`ADMIN_IP_ALLOWLIST`). Self-registration is off unless an instance enables it (`IS_REGISTRABLE=true`).
+
+- **Identity for other systems:** DMART can also be an OAuth 2.1 authorization server for MCP clients (`ENABLE_MCP=true`), an OpenID Connect provider with single sign-on (`OIDC_ISSUER`), and a read-only LDAPv3 directory of its users and groups (`LDAP_PORT`, with StartTLS or LDAPS). A **directory replica** on another host keeps a read-only copy of the users and groups, password hashes included, and answers LDAP binds on its own while the primary is down. `dmart import-ldif` moves an existing LDAP directory into DMART's users.
 
 - **Interoperability:** Built-in MCP server at `/mcp` (Streamable HTTP; off by default, enable with `ENABLE_MCP=true`) and WebSocket endpoints for realtime updates.
 
 ### Frontend Stack
 
-DMART ships two **Svelte 5 + Vite** admin SPAs that are **embedded directly into the .NET binary** and served by ASP.NET middleware — no separate frontend deployment:
+DMART ships two **Svelte 5 + Vite** single-page apps that are **embedded directly into the .NET binary** and served by ASP.NET middleware — no separate frontend deployment:
 
 - **CXB (`/cxb`):** the Customer eXperience Builder — the primary administrative interface.
 
-- **Catalog (`/cat`):** a user-oriented SPA.
+- **Catalog (`/cat`):** a user-facing app for browsing and publishing entries, with threaded comments and reactions, messaging, polls, surveys and notifications.
 
-- **Under the hood:** Svelte 5, @roxi/routify v3, Vite, and Svelte stores for state.
+- **Under the hood:** Svelte 5, @roxi/routify v3, Vite, Tailwind CSS with Flowbite, and Svelte stores for state.
 
 ## 3. Data Model
 
@@ -82,11 +87,11 @@ Data is stored in normalized SQL tables, on PostgreSQL or SQLite, ensuring ACID 
 
 ### 4.2 Advanced Search & Querying
 
-The `/query` endpoint supports a rich query language that is compiled to SQL. On PostgreSQL, search uses trigram indexes (`pg_trgm` + GIN on jsonb) and full-text indexes, with optional **pgvector** semantic search for cosine-similarity matching; on SQLite, FTS5 indexes:
+The `/query` endpoint supports a rich query language that is compiled to SQL. On PostgreSQL, search uses trigram indexes (`pg_trgm` + GIN on jsonb) and full-text indexes, with optional **pgvector** semantic search for cosine-similarity matching (given an embedding API); on SQLite, FTS5 indexes. See [Query & Search](/query-search).
 
 - **Filtering:** By space, subpath, resource type, schema, and specific shortnames.
 
-- **Full-text Search:** plain words match whole and partial words in entry values, with spelling correction, best match first.
+- **Full-text Search:** plain words match whole and partial words in entry values, in any of their forms, with spelling correction, best match first. Arabic is handled natively: diacritics and letter variants are ignored, and Arabic typed on an English keyboard layout is still found.
 
 - **Aggregation:** Grouping and reducing data (counts, sums).
 
@@ -96,19 +101,23 @@ The `/query` endpoint supports a rich query language that is compiled to SQL. On
 
 ### 4.3 Access Control (RBAC + ACL)
 
-Security enforced via a comprehensive `AccessControl` module:
+Security enforced via a comprehensive `AccessControl` module (see [Access Control](/access-control)):
 
-- **Permission Scope:** Action type, subpath, resource type, conditions, field-level restrictions.
+- **Permission Scope:** Action type, subpath, resource type, conditions, field-level restrictions, and row filters that narrow a grant to matching records — applied to listings and to reads by name alike.
 
-- **ACLs:** Per-instance access overrides on individual entries.
+- **ACLs:** Per-instance access overrides on individual entries. A deny hides the record from listings, counts and exports, not only from a direct read.
+
+- **Realtime & Events:** WebSocket notifications and the events feed reach only callers who may read the changed record.
 
 ### 4.4 Workflows & Tickets
 
-Ticketing system with state management and a `/progress-ticket` API for workflow transitions.
+Ticketing system with state management and a `/progress-ticket` API for workflow transitions. See [Tickets & Workflows](/tickets).
 
 ### 4.5 Data Import/Export
 
-- **ZIP:** Full space export/import preserving folder structure.
+- **ZIP:** Export a whole space, or one folder of it, preserving folder structure, and import it into PostgreSQL or SQLite.
+
+- **Parquet:** `dmart export --parquet` writes a columnar archive of a space or folder, of every space as a full backup (`--all`), or of only what changed since an earlier export (`--since`); `dmart import --parquet` restores it.
 
 - **CSV Export:** Stream query results as CSV (`/csv` endpoint).
 
@@ -116,7 +125,7 @@ Ticketing system with state management and a `/progress-ticket` API for workflow
 
 ### 4.6 Plugin System
 
-Event-driven plugin architecture built around two C# interfaces: `IApiPlugin` (new endpoints mounted at `/{shortname}`) and `IHookPlugin` (before/after action interceptors). Beyond managed C# plugins, DMART also loads **subprocess plugins** from `~/.dmart/plugins` — crash-safe executables speaking JSON-lines over stdin/stdout — enabling extensions written in any language.
+Event-driven plugin architecture built around two C# interfaces: `IApiPlugin` (new endpoints mounted at `/{shortname}`) and `IHookPlugin` (before/after action interceptors). Beyond managed C# plugins, DMART also loads **subprocess plugins** from `~/.dmart/plugins` — crash-safe executables speaking JSON-lines over stdin/stdout — enabling extensions written in any language. A subprocess plugin can call back into DMART mid-request to read and write entries, run queries, send email or broadcast on a channel. See [Plugins](/plugins).
 
 ## Request Flow
 
@@ -134,10 +143,11 @@ sequenceDiagram
     Middleware->>Router: Route Request (Minimal API)
     Router->>AccessControl: Check Permissions (RBAC/ACL)
     alt Access Denied
-        AccessControl-->>Client: 403 Forbidden
+        AccessControl-->>Client: 401 Not Allowed
     else Access Granted
+        Router->>Router: Validate Payload (JSON Schema)
         Router->>PluginManager: Trigger Before Hooks
-        PluginManager->>PluginManager: Run IHookPlugin handlers
+        PluginManager->>PluginManager: Run IHookPlugin handlers (may veto)
 
         Router->>SqlAdapter: Perform Action (CRUD)
         SqlAdapter->>SqlAdapter: Persist to the database & index
@@ -165,15 +175,23 @@ REST-like and resource-oriented. Key routers:
 
 - `/import` / `/export`: Bulk data operations.
 
+- `/health/{type}/{space}`: the data health checks `dmart check` runs.
+
 - **`/user`**: Authentication and profile management.
 
-- **`/public`**: Read-only access for public content.
+- **`/public`**: Anonymous access: public reads, plus form submissions and uploads into the spaces and schemas an instance allows (`ALLOWED_SUBMIT_MODELS`). Anything created anonymously starts inactive.
 
 - **`/qr`**: QR code endpoints (mapped, not implemented yet; they answer 501).
 
-- **`/info`**: System information and manifest.
+- **`/info`**: System information, manifest and metrics, for global admins (except `/info/me`).
+
+- **`/health/live`**, **`/health/ready`**: Liveness and readiness probes. Readiness checks the database and, on a directory replica, that its copy is synced.
+
+- **`/ws`**: WebSocket channel subscriptions for realtime updates.
 
 - **`/mcp`**: Model Context Protocol server (Streamable HTTP) exposing DMART tools to AI clients, paired with the OAuth 2.1 Authorization Server for client onboarding. Requires `ENABLE_MCP=true`; off by default.
+
+- **`/oidc`**: OpenID Connect provider, with discovery at `/.well-known/openid-configuration`. Requires `OIDC_ISSUER`; off by default.
 
 - **`/docs`**: Swagger UI and OpenAPI schema (`/docs/openapi.json`).
 
@@ -187,10 +205,14 @@ DMART natively handles analytical data files:
 
 ## 7. Deployment
 
-- **Single Binary:** Native-AOT publish produces one self-contained `dmart` executable (~70 MB). The static musl build has no runtime dependency at all — copy and run; the glibc builds ship `libe_sqlite3.so` and `libargon2.so.1` beside it. The embedded admin UIs and sample seed data ship inside it, and the same binary doubles as the CLI (`seed`, `import`, `export`, `migrate`).
+- **Single Binary:** Native-AOT publish produces one self-contained `dmart` executable (about 70 MB; 77 MB for the fully static build). The static musl build has no runtime dependency at all — copy and run; the glibc tarballs ship `libe_sqlite3.so` and `libargon2.so.1` beside it. The embedded admin UIs and sample seed data ship inside it, and the same binary doubles as the [CLI](/cli) (`seed`, `import`, `export`, `migrate`, `check`, `selfcheck`, and an interactive client).
 
-- **Containerized:** Docker/Podman images available (`ghcr.io/edraj/csdmart`).
+- **Packages:** RPM (Fedora and RHEL 9), DEB and APK (Alpine) packages from signed package repositories, plus tarballs for Linux on x86-64 and arm64 (glibc, and fully static musl). Release files are checksummed and signed.
+
+- **Containerized:** a single-process Alpine image (`ghcr.io/edraj/csdmart`), on SQLite by default; point it at an external PostgreSQL for the full tier.
 
 - **Config:** Environment variables / `config.env`, bound and validated once at startup (strict unknown-key rejection, no hot reload).
 
 - **External dependency:** none on SQLite (the default for the RPM, DEB and APK packages and the container); a PostgreSQL instance for the full tier — no Redis, no separate search cluster required.
+
+- **Health & Operations:** `/health/live` and `/health/ready` for load balancers and orchestrators. `dmart selfcheck` smoke-tests a running server (readiness, sign-in, CRUD, query), and `dmart selfcheck --ready-only --wait <seconds>` waits for a restarted node before you move on to the next. `dmart check` finds stored content the server cannot read or serve: orphaned attachments, unknown content types, media whose bytes do not match their type, missing folders, payloads that break their schema. On the server's own host, `dmart cli` signs in without a password, from the server's configuration.
