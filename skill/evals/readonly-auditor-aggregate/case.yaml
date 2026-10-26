@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: readonly-auditor-aggregate
+expected_outcome: |
+  An auditor user exists who can query shop/products, cannot write anything, and cannot read other spaces.
+  answer.md gives, per category, the count and average price of in-stock, non-discontinued products priced
+  10-50: books 2 / 20.00, games 2 / 42.50, toys 1 / 10.00 (the 10 and 50 bounds included), computed by a dmart aggregation query run as the auditor.

@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: books-catalog-setup-and-query
+expected_outcome: |
+  The bookshop space has a books folder, a schema requiring title, author, year (integer) and price,
+  and four book entries that use the schema. answer.md lists Klara and the Sun (2021), then Never Let
+  Me Go (2005), and nothing else, from a query dmart ran.

@@ -36,7 +36,7 @@ jobs:
       # git for a real checkout, tar and xz for setup-node's download, gnupg2
       # for the key check; the rest the steps below call.
       - name: Tools
-        run: dnf -y -q --setopt=install_weak_deps=False install git-core tar gzip xz gnupg2 python3 openssl findutils
+        run: dnf -y -q --setopt=install_weak_deps=False install git-core tar gzip xz gnupg2 python3 openssl findutils jq
 
       # Pinned by commit SHA rather than tag, matching the convention in
       # edraj/csdmart: a mutable tag can be repointed at new code by anyone
@@ -104,6 +104,11 @@ jobs:
       - name: Verify the built pages
         working-directory: app
         run: yarn verify
+
+      # Every ```bash block of skill/SKILL.md, against this job's dmart: the
+      # skill's recipes do what it says, on the newest dmart.
+      - name: The agent skill's recipes
+        run: DMART="$DMART_URL" DMART_PASSWORD="$DMART_ADMIN_PASSWORD" skill/test-recipes.sh
 
       - name: dmart log
         if: failure()

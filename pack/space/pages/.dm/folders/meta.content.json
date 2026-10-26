@@ -7,7 +7,7 @@
     "en": "Folders & Rendering"
   },
   "description": {
-    "en": "A folder in DMART is deceptively simple — and quietly one of the most powerful concepts in the platform. It is at once a **structural node** (the thing that makes a subpath browsable) and a **declarative control panel** that tells the admin UI exactly how to list, sort, filter, paginate and edit everything inside it, and tells the backend exactly what is allowed to live there. All of that lives in one small JSON body validated against a schema called `folder_rendering`. This page dissects every property."
+    "en": "A folder in DMART is deceptively simple — and quietly one of the most powerful concepts in the platform. It is at once a **structural node** (the thing that makes a subpath browsable) and a **declarative control panel** that tells an admin UI how to list, sort and edit everything inside it, and tells the backend exactly what is allowed to live there. All of that lives in one small JSON body validated against a schema called `folder_rendering`. This page dissects every property."
   },
   "tags": [
     "docs"

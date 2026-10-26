@@ -31,8 +31,24 @@ for (const p of pages) {
 }
 check(existsSync(join(DIST, "sitemap.xml")), "missing sitemap.xml");
 
+// The agent skill (scripts/build-skill.mjs): a SKILL.md an agent can load, a
+// reference per docs page, and the zip and llms.txt that point at them.
+const skillMd = join(DIST, "skill/dmart/SKILL.md");
+if (existsSync(skillMd)) {
+  const md = readFileSync(skillMd, "utf8");
+  const front = md.match(/^---\n([\s\S]*?)\n---\n/);
+  check(front && /^name: dmart$/m.test(front[1]), "skill: SKILL.md has no `name: dmart` frontmatter");
+  const description = front?.[1].match(/^description: (.+)$/m)?.[1] ?? "";
+  check(description.length > 0 && description.length <= 1024, `skill: description is ${description.length} chars (1-1024)`);
+  check(!md.includes("{{"), "skill: an unfilled {{placeholder}} in SKILL.md");
+  for (const p of index.filter((p) => p.doc))
+    check(existsSync(join(DIST, `skill/dmart/references/${p.slug}.md`)), `skill: no reference for /${p.slug}`);
+} else failures.push("missing skill/dmart/SKILL.md");
+check(existsSync(join(DIST, "skill/dmart.zip")), "missing skill/dmart.zip");
+check(existsSync(join(DIST, "llms.txt")), "missing llms.txt");
+
 if (failures.length) {
   console.error(`verify: ${failures.length} problem(s)\n  ` + failures.join("\n  "));
   process.exit(1);
 }
-console.log(`verify: ${pages.length} pages, each with its content in the HTML; no inline script`);
+console.log(`verify: ${pages.length} pages, each with its content in the HTML; no inline script; the agent skill and llms.txt`);

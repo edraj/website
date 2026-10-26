@@ -7,7 +7,7 @@
     "en": "Query Search"
   },
   "description": {
-    "en": "The `search` field on the `Query` body (`POST /managed/query`, `POST /public/query`) accepts a small RediSearch-flavoured expression language. The name is historical: this is purely a **syntax** — the parser compiles it straight into SQL `WHERE` clauses, on PostgreSQL (pg_trgm wildcards + GIN jsonb containment) or SQLite. There is no Redis or RediSearch engine anywhere in the stack; every query runs against the database. This page covers **every operator** and **every value form**, with worked examples for each."
+    "en": "The `search` field on the `Query` body (`POST /managed/query`, `POST /public/query`) accepts a small RediSearch-flavoured expression language. The name is historical: this is purely a **syntax** — the parser compiles it straight into SQL `WHERE` clauses, on PostgreSQL (full-text and pg_trgm indexes, GIN-indexed jsonb tests) or SQLite (FTS5). There is no Redis or RediSearch engine anywhere in the stack; every query runs against the database. This page covers **every operator** and **every value form**, with worked examples for each."
   },
   "tags": [
     "docs"
