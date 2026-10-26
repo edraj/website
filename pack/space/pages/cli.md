@@ -112,7 +112,7 @@ Exports a space to a zip archive in the DMART on-disk layout (`spaces/` + `.dm/m
 
 - `--subpath <path>`: export one folder, its own record included, and everything under it. Such an archive carries no record of the space itself, so the space must exist where it is imported.
 
-- `--parquet`: write the columnar Parquet layout, a directory (`./<space>-parquet` unless `--output` names one), instead of a zip. One space's export holds its content without the space's own record, so it restores only where the space exists (exporting `management` adds the spaces, users, roles and permissions); `--all --parquet` exports every space as a full backup, into `./dmart-backup` by default.
+- `--parquet`: write the columnar Parquet layout, a directory (`./<space>-parquet` unless `--output` names one), instead of a zip. One space's export holds its content without the space's own record, so it restores only where the space exists (exporting `management` adds the spaces, users, groups, roles and permissions); `--all --parquet` exports every space as a full backup, into `./dmart-backup` by default.
 
 - `--since <previous-export-dir>`: with `--parquet`, export only what changed since that earlier export.
 

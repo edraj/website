@@ -157,7 +157,7 @@ PUT /managed/progress-ticket/applications/api/v1/tickets/TCK_1042/reject
 
 The body accepts `resolution` _or_ `resolution_reason` (both map to the ticket's `resolution_reason` column), plus an optional `comment`. A missing/empty body is allowed for transitions that do not require a resolution.
 
-The workflow governs this endpoint only. A plain `update` writes `state`, `is_open` and `resolution_reason` like any other field, checked by the `update` permission but not by the workflow. To hold a role to the workflow, grant it `progress_ticket` rather than `update`, or list those fields in its update permission's `restricted_fields` (see [Access Control](/access-control)).
+The workflow is the only way to move a ticket. On a ticket whose workflow exists, an `update` (or `patch`, an MCP update, or an alteration) that changes `state`, `is_open`, `resolution_reason` or `workflow_shortname` is refused with `INVALID_TICKET_STATUS` (300), naming this endpoint; `workflow_shortname` counts too, so a ticket cannot be pointed at a missing workflow to have its state written directly. An update that sends those fields back unchanged, as a front end saving the whole record does, passes. A global admin may still write them, to repair a stuck ticket, and a ticket whose workflow is not found behaves as any other entry.
 
 ### What the engine enforces
 

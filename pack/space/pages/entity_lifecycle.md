@@ -223,7 +223,7 @@ spaces/
 
 **A space or one folder.** `dmart export <space>` writes the whole space, including the space's own record (`.dm/meta.space.json`). `--subpath <path>` writes one folder: its own record and everything below it, but not the space's record. A folder's archive therefore imports only where its space already exists; rows of a missing space are refused and reported once per space (`"kind": "space-missing"`). An import skips rows that already exist unless `-r` (`--replace`) is given.
 
-**Parquet.** For large installations, `dmart export <space> --parquet [--subpath <path>]` writes a columnar archive directory instead of a zip: the space's (or folder's) entries, attachments and history, plus spaces, users, roles and permissions when the space is `management`. `dmart export --all --parquet` is the full backup — every space, plus users, roles and permissions — and re-reads what it wrote to verify it. `dmart import <dir> --parquet` restores either. A space or folder archive carries no space record, so it restores only where its space exists: rows of a missing space are refused, and the command exits 1.
+**Parquet.** For large installations, `dmart export <space> --parquet [--subpath <path>]` writes a columnar archive directory instead of a zip: the space's (or folder's) entries, attachments and history, plus spaces, users, groups, roles and permissions when the space is `management`. `dmart export --all --parquet` is the full backup — every space, plus users, groups, roles and permissions — and re-reads what it wrote to verify it. `dmart import <dir> --parquet` restores either. A space or folder archive carries no space record, so it restores only where its space exists: rows of a missing space are refused, and the command exits 1.
 
 ## Types of Records
 
@@ -245,12 +245,12 @@ The full list of 30 is in the [Data Model](/data-model) catalog.
 
 ## Management Space
 
-The `management` space is reserved for system-critical entities. Security primitives are stored in specific subpaths; an export of the management space writes users, roles and permissions at these paths:
+The `management` space is reserved for system-critical entities. Security primitives are stored in specific subpaths; an export of the management space writes users, groups, roles and permissions at these paths:
 
 | Entity | Path |
 |---|---|
 | **Users** | `management/users/.dm/<username>/meta.user.json` |
-| **Groups** | `management/groups` (not carried by exports) |
+| **Groups** | `management/groups/.dm/<groupname>/meta.group.json` |
 | **Roles** | `management/roles/.dm/<rolename>/meta.role.json` |
 | **Permissions** | `management/permissions/.dm/<permname>/meta.permission.json` |
 
