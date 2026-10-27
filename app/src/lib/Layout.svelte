@@ -10,6 +10,8 @@
   const canonical = $derived(site.baseUrl && path !== null ? site.baseUrl + path : null);
   const ogImage = site.baseUrl ? site.baseUrl + "/og-card.png" : null;
   const linkCurrent = (link) => (link.docs ? kind === "doc" : path !== null && link.href === path);
+  const SEARCH_ICON =
+    '<svg class="search-icon" viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="8.5" cy="8.5" r="5.75" fill="none" stroke="currentColor" stroke-width="2"/><path d="m13 13 4.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
 </script>
 
 <svelte:head>
@@ -39,10 +41,29 @@
           <a class="header-link" href={safeHref(link.href)} aria-current={linkCurrent(link) ? "page" : undefined} rel={isExternal(link.href) ? "noopener" : undefined}>{link.label}</a>
         {/each}
       </nav>
+      <!-- site.js opens the dialog below; finish-build adds ?v= to data-index. -->
+      <button type="button" class="search-toggle" aria-label="Search" aria-haspopup="dialog" aria-controls="search" aria-keyshortcuts="/ Control+K Meta+K" data-index="/search.json">
+        {@html SEARCH_ICON}<span class="search-toggle-label" aria-hidden="true">Search</span><kbd class="search-toggle-key" aria-hidden="true">/</kbd>
+      </button>
       <button type="button" class="theme-toggle" aria-label="Toggle dark mode"><span class="theme-icon theme-icon-moon" aria-hidden="true">🌙</span><span class="theme-icon theme-icon-sun" aria-hidden="true">☀️</span></button>
     </div>
   </header>
   <div class="nav-scrim" hidden></div>
+
+  <dialog class="search-dialog" id="search" aria-label="Search {site.brand}">
+    <div class="search-panel">
+      <div class="search-bar" role="search">
+        {@html SEARCH_ICON}
+        <input class="search-input" type="search" placeholder="Search the docs" aria-label="Search" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="go" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="search-results" />
+        <button type="button" class="search-close" aria-label="Close search">✕</button>
+      </div>
+      <div class="search-results" id="search-results" role="listbox" aria-label="Results"></div>
+      <div class="search-foot">
+        <p class="search-status" role="status"></p>
+        <p class="search-keys" aria-hidden="true"><span><kbd>↑</kbd><kbd>↓</kbd> choose</span><span><kbd>Enter</kbd> open</span><span><kbd>Esc</kbd> close</span></p>
+      </div>
+    </div>
+  </dialog>
 
   <div class="layout">
     {#if kind === "doc"}
