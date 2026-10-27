@@ -23,6 +23,7 @@ for (const p of pages) {
   check(!/<script(?![^>]*\bsrc=)[^>]*>\s*\S/i.test(html), `${p.path}: inline <script>`);
   check(!/\son[a-z]+\s*=\s*["']/i.test(html.replace(/<svg[\s\S]*?<\/svg>/g, "")), `${p.path}: inline event handler`);
   check(/<link rel="stylesheet"[^>]*\/assets\/[^"]+\.css"/.test(html), `${p.path}: no stylesheet link`);
+  check(/data-index="\/search\.json\?v=[0-9a-f]{10}"/.test(html), `${p.path}: no search button pointing at search.json?v=…`);
   // A link inside a link is invalid: the browser splits the outer one apart,
   // which is how a linked card ends up as several empty boxes.
   let depth = 0, deepest = 0;
@@ -30,6 +31,12 @@ for (const p of pages) {
   check(deepest <= 1, `${p.path}: a link nested inside a link`);
 }
 check(existsSync(join(DIST, "sitemap.xml")), "missing sitemap.xml");
+
+// The search index (scripts/search-index.mjs) has every page in it.
+if (existsSync(join(DIST, "search.json"))) {
+  const urls = new Set(JSON.parse(readFileSync(join(DIST, "search.json"), "utf8")).map((e) => e.url));
+  for (const p of [{ slug: "" }, ...index]) check(urls.has(`/${p.slug}`), `search: /${p.slug} is not in search.json`);
+} else failures.push("missing search.json");
 
 // The agent skill (scripts/build-skill.mjs): a SKILL.md an agent can load, a
 // reference per docs page, and the zip and llms.txt that point at them.
@@ -51,4 +58,4 @@ if (failures.length) {
   console.error(`verify: ${failures.length} problem(s)\n  ` + failures.join("\n  "));
   process.exit(1);
 }
-console.log(`verify: ${pages.length} pages, each with its content in the HTML; no inline script; the agent skill and llms.txt`);
+console.log(`verify: ${pages.length} pages, each with its content in the HTML; no inline script; the search index; the agent skill and llms.txt`);

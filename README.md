@@ -32,9 +32,15 @@ app/    the site: Svelte 5 + Routify 3, prerendered at build time
 3. **Every page is real HTML.** Routify prerenders each route through its own
    server renderer. Pages ship without an app bundle: the content is in the
    markup, and the interactive parts (theme, docs drawer, copy buttons,
-   diagrams, the animated explainer) are one small script, `app/public/site.js`.
-   Nothing needs `'unsafe-inline'`, so the site runs under a strict CSP.
-4. **Caddy serves it as files.** The build is copied to `/var/www/dmart.cc` on
+   diagrams, the animated explainer, search) are one small script,
+   `app/public/site.js`. Nothing needs `'unsafe-inline'`, so the site runs
+   under a strict CSP.
+4. **Search runs in the browser.** The build also writes `search.json`: every
+   page cut into sections at its headings, as plain text
+   (`app/scripts/search-index.mjs`). The search dialog (`/` or Ctrl+K) fetches
+   it once and matches the query against it in the page, so search needs no
+   server either.
+5. **Caddy serves it as files.** The build is copied to `/var/www/dmart.cc` on
    i1 and Caddy serves it from disk, with the CSP and caching headers set there
    (infra-ansible, role dmart, `landing_static`). dmart is needed only to build
    the site, not to serve it.

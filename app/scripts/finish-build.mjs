@@ -3,11 +3,13 @@
 //     servers) answer a miss with 404.html.
 //   - sitemap.xml and robots.txt, from the same export the pages came from,
 //     so they cannot drift from what was built.
-//   - public/site.js is copied unhashed; its URL gets ?v=<content hash> so a
-//     new build is never served an old script from cache.
+//   - search.json, the index the search dialog fetches (scripts/search-index.mjs).
+//   - public/site.js and search.json are written unhashed; their URLs get
+//     ?v=<content hash> so a new build is never served an old copy from cache.
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { buildSearchIndex } from "./search-index.mjs";
 
 const DIST = "dist/client";
 const site = JSON.parse(readFileSync("src/content/site.json", "utf8"));
@@ -34,7 +36,13 @@ if (site.baseUrl) {
   console.warn("finish-build: no base URL (site config base_url or SITE_URL) — no sitemap.xml");
 }
 
-const version = createHash("sha256").update(readFileSync(join(DIST, "site.js"))).digest("hex").slice(0, 10);
+const sections = buildSearchIndex("src/content");
+const search = JSON.stringify(sections);
+writeFileSync(join(DIST, "search.json"), search);
+
+const hash = (data) => createHash("sha256").update(data).digest("hex").slice(0, 10);
+const version = hash(readFileSync(join(DIST, "site.js")));
+const searchVersion = hash(search);
 const htmlFiles = [];
 const walk = (dir) => {
   for (const name of readdirSync(dir)) {
@@ -47,6 +55,7 @@ walk(DIST);
 for (const f of htmlFiles) {
   const html = readFileSync(f, "utf8")
     .replace('<script src="/site.js"></script>', `<script src="/site.js?v=${version}"></script>`)
+    .replace('data-index="/search.json"', `data-index="/search.json?v=${searchVersion}"`)
     .replace(/<!--ssr:(head|css|html)-->/g, "");
   writeFileSync(f, html);
 }
@@ -55,4 +64,4 @@ const referenced = htmlFiles.map((f) => readFileSync(f, "utf8")).join("\n");
 for (const name of readdirSync(join(DIST, "assets")))
   if (name.endsWith(".js") && !referenced.includes(`/assets/${name}`)) rmSync(join(DIST, "assets", name));
 
-console.log(`finish-build: ${htmlFiles.length} HTML file(s), site.js?v=${version}${site.baseUrl ? ", sitemap.xml" : ""}`);
+console.log(`finish-build: ${htmlFiles.length} HTML file(s), site.js?v=${version}, search.json (${sections.length} sections)${site.baseUrl ? ", sitemap.xml" : ""}`);

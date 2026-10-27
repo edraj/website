@@ -126,6 +126,29 @@
     diagramQueue = (diagramQueue || Promise.resolve()).then(renderDiagramsNow, renderDiagramsNow);
   }
 
+  // Diagrams are drawn after the browser has scrolled to the URL's #section,
+  // and they make the page above it taller. Scroll anchoring would make up
+  // for that, but the browser does not anchor inside the docs grid; so once
+  // they are drawn, a visitor who has not moved since is put back on it.
+  var movedSinceLoad = false;
+
+  function keepHashInView() {
+    var id = window.location.hash.slice(1);
+    if (!id || movedSinceLoad) return;
+    try {
+      id = decodeURIComponent(id);
+    } catch (e) {
+      /* use it as it is */
+    }
+    var target = document.getElementById(id);
+    if (target) target.scrollIntoView();
+  }
+
+  function renderFirst() {
+    renderDiagrams();
+    if (diagramQueue) diagramQueue.then(keepHashInView);
+  }
+
   function diagramFont() {
     try {
       return window.getComputedStyle(document.body).fontFamily || 'sans-serif';
@@ -141,18 +164,23 @@
       diagrams.push(nodes[i]);
     }
     if (!diagrams.length) return;
+    var moved = function () {
+      movedSinceLoad = true;
+    };
+    var kinds = ['wheel', 'touchstart', 'keydown', 'mousedown'];
+    for (var k = 0; k < kinds.length; k++) window.addEventListener(kinds[k], moved, { once: true, passive: true });
 
     // Measure with the web font, not its fallback: wait (briefly) for it.
     var fonts = document.fonts;
     if (!fonts || typeof fonts.load !== 'function' || typeof Promise === 'undefined') {
-      renderDiagrams();
+      renderFirst();
       return;
     }
     var started = false;
     var start = function () {
       if (started) return;
       started = true;
-      renderDiagrams();
+      renderFirst();
     };
     window.setTimeout(start, 1500);
     Promise.all([fonts.load('400 16px "IBM Plex Sans"'), fonts.load('600 16px "IBM Plex Sans"')]).then(start, start);
@@ -524,12 +552,342 @@
     for (var i = 0; i < boxes.length; i++) initExplainer(boxes[i]);
   }
 
+  /* ── Search ──────────────────────────────────────────────────────────── */
+
+  // The index is one JSON file the build writes (scripts/search-index.mjs):
+  // every page cut into sections at its h2–h4 headings, as plain text. It is
+  // fetched the first time the dialog opens, or when the pointer reaches the
+  // button, and searched here. Every word of the query must start a word in a
+  // section (`ticket` finds "tickets", not "row" in "narrows"), and a match in
+  // its heading counts for more than one in its text.
+  var MAX_RESULTS = 20;
+  var PER_PAGE = 5; // so one long page cannot fill the list
+
+  // Lower case, accents dropped, one character for one: a position in the
+  // folded text is the same position in the original, for the snippet.
+  function fold(s) {
+    return s
+      .replace(/[A-Z]+/g, function (m) {
+        return m.toLowerCase();
+      })
+      .replace(/[^\x00-\x7f]/g, function (c) {
+        var base = c.normalize ? c.normalize('NFD').charAt(0) : c;
+        var lower = base.toLowerCase();
+        return lower.length === 1 ? lower : c;
+      });
+  }
+
+  // Punctuation separates words, so `subpath` starts a word in
+  // `exact_subpath` and in `@payload.subpath`.
+  function startsWord(text, at) {
+    return at === 0 || !/[a-z0-9\u0080-\uffff]/.test(text.charAt(at - 1));
+  }
+
+  // Where `term` next starts a word in `text`, from `from` on; -1 if nowhere.
+  function find(text, term, from) {
+    var at = text.indexOf(term, from);
+    while (at !== -1 && !startsWord(text, at)) at = text.indexOf(term, at + 1);
+    return at;
+  }
+
+  // How many times `term` starts a word in `text`, up to `limit`.
+  function count(text, term, limit) {
+    var n = 0;
+    for (var at = find(text, term, 0); at !== -1 && n < limit; at = find(text, term, at + term.length)) n++;
+    return n;
+  }
+
+  function scoreEntry(entry, terms, phrase) {
+    var total = 0;
+    var inTitle = 0;
+    for (var i = 0; i < terms.length; i++) {
+      var title = count(entry.ftitle, terms[i], 1);
+      var text = count(entry.ftext, terms[i], 8);
+      // Past the first match in the text, more add little: a long section
+      // that repeats a word is not the better answer for it.
+      var points = title * 12 + count(entry.fcontext, terms[i], 1) * 4 + (text ? 3 + (text - 1) * 0.5 : 0);
+      if (points === 0) return 0;
+      inTitle += title;
+      total += points;
+    }
+    if (inTitle === terms.length) total += 10;
+    if (entry.ftitle === phrase) total += 20;
+    else if (terms.length > 1 && find(entry.ftitle, phrase, 0) !== -1) total += 15;
+    else if (terms.length > 1 && find(entry.ftext, phrase, 0) !== -1) total += 6;
+    return total;
+  }
+
+  function search(entries, query) {
+    var phrase = fold(query.replace(/"/g, ' ')).replace(/\s+/g, ' ').trim();
+    if (phrase.length < 2) return null;
+    var terms = phrase.split(' ').filter(function (term, i, all) {
+      return all.indexOf(term) === i;
+    });
+    var scored = [];
+    for (var i = 0; i < entries.length; i++) {
+      var score = scoreEntry(entries[i], terms, phrase);
+      if (score > 0) scored.push({ entry: entries[i], score: score });
+    }
+    // Array.prototype.sort is stable: equal scores keep the index's order.
+    scored.sort(function (a, b) {
+      return b.score - a.score;
+    });
+    var results = [];
+    var perPage = {};
+    for (var j = 0; j < scored.length && results.length < MAX_RESULTS; j++) {
+      var page = scored[j].entry.url.split('#')[0];
+      perPage[page] = (perPage[page] || 0) + 1;
+      if (perPage[page] <= PER_PAGE) results.push(scored[j].entry);
+    }
+    return { terms: terms, results: results };
+  }
+
+  // Appends text[from, to) to `el`, with every match of a term in a <mark>.
+  function appendMarked(el, text, folded, terms, from, to) {
+    var ranges = [];
+    for (var i = 0; i < terms.length; i++) {
+      for (var at = find(folded, terms[i], from); at !== -1 && at < to; at = find(folded, terms[i], at + terms[i].length)) {
+        ranges.push([at, Math.min(at + terms[i].length, to)]);
+      }
+    }
+    ranges.sort(function (a, b) {
+      return a[0] - b[0];
+    });
+    var pos = from;
+    for (var j = 0; j < ranges.length; j++) {
+      var start = Math.max(ranges[j][0], pos);
+      if (start >= ranges[j][1]) continue;
+      if (start > pos) el.appendChild(document.createTextNode(text.slice(pos, start)));
+      var mark = document.createElement('mark');
+      mark.textContent = text.slice(start, ranges[j][1]);
+      el.appendChild(mark);
+      pos = ranges[j][1];
+    }
+    if (pos < to) el.appendChild(document.createTextNode(text.slice(pos, to)));
+  }
+
+  // About two lines of the text, from shortly before its first match, cut at
+  // spaces.
+  var SNIPPET = 180;
+
+  function appendSnippet(el, entry, terms) {
+    var text = entry.text;
+    var first = -1;
+    for (var i = 0; i < terms.length; i++) {
+      var at = find(entry.ftext, terms[i], 0);
+      if (at !== -1 && (first === -1 || at < first)) first = at;
+    }
+    var from = 0;
+    if (first > 50) {
+      from = text.indexOf(' ', first - 50) + 1;
+      if (from <= 0 || from > first) from = first;
+    }
+    var to = Math.min(text.length, from + SNIPPET);
+    if (to < text.length) {
+      var space = text.lastIndexOf(' ', to);
+      if (space > first) to = space;
+    }
+    if (from > 0) el.appendChild(document.createTextNode('… '));
+    appendMarked(el, text, entry.ftext, terms, from, to);
+    if (to < text.length) el.appendChild(document.createTextNode(' …'));
+  }
+
+  function initSearch() {
+    var toggle = document.querySelector('.search-toggle');
+    var dialog = document.getElementById('search');
+    if (!toggle || !dialog) return;
+    if (typeof dialog.showModal !== 'function' || typeof window.fetch !== 'function') {
+      toggle.hidden = true;
+      return;
+    }
+    var input = dialog.querySelector('.search-input');
+    var list = dialog.querySelector('.search-results');
+    var status = dialog.querySelector('.search-status');
+    var closeButton = dialog.querySelector('.search-close');
+    var entries = null;
+    var loading = false;
+    var active = -1;
+
+    function load() {
+      if (entries || loading) return;
+      loading = true;
+      window
+        .fetch(toggle.getAttribute('data-index') || '/search.json', { credentials: 'same-origin' })
+        .then(function (response) {
+          if (!response.ok) throw new Error('search index: HTTP ' + response.status);
+          return response.json();
+        })
+        .then(
+          function (data) {
+            for (var i = 0; i < data.length; i++) {
+              data[i].ftitle = fold(data[i].title);
+              // A page's own entry has no context to show, but it is in its
+              // page as much as its sections are.
+              data[i].fcontext = fold(data[i].context || data[i].title);
+              data[i].ftext = fold(data[i].text);
+            }
+            entries = data;
+            loading = false;
+            if (dialog.open) update();
+          },
+          function () {
+            // Tried again the next time the dialog opens.
+            loading = false;
+            if (dialog.open) update();
+          }
+        );
+    }
+
+    function setActive(index, reveal) {
+      var items = list.children;
+      if (active >= 0 && items[active]) items[active].setAttribute('aria-selected', 'false');
+      active = index;
+      if (index >= 0 && items[index]) {
+        items[index].setAttribute('aria-selected', 'true');
+        input.setAttribute('aria-activedescendant', items[index].id);
+        if (reveal) items[index].scrollIntoView({ block: 'nearest' });
+      } else {
+        input.removeAttribute('aria-activedescendant');
+      }
+    }
+
+    function render(found) {
+      list.textContent = '';
+      active = -1;
+      var results = found ? found.results : [];
+      for (var i = 0; i < results.length; i++) {
+        var entry = results[i];
+        var item = document.createElement('a');
+        item.className = 'search-result';
+        item.id = 'search-result-' + i;
+        item.href = entry.url;
+        item.tabIndex = -1;
+        item.setAttribute('role', 'option');
+        item.setAttribute('aria-selected', 'false');
+        if (entry.context) {
+          var context = document.createElement('span');
+          context.className = 'search-result-context';
+          context.textContent = entry.context;
+          item.appendChild(context);
+        }
+        var title = document.createElement('span');
+        title.className = 'search-result-title';
+        appendMarked(title, entry.title, entry.ftitle, found.terms, 0, entry.title.length);
+        item.appendChild(title);
+        if (entry.text) {
+          var snippet = document.createElement('span');
+          snippet.className = 'search-result-snippet';
+          appendSnippet(snippet, entry, found.terms);
+          item.appendChild(snippet);
+        }
+        list.appendChild(item);
+      }
+      input.setAttribute('aria-expanded', results.length ? 'true' : 'false');
+      list.scrollTop = 0;
+      if (results.length) setActive(0, false);
+      else input.removeAttribute('aria-activedescendant');
+    }
+
+    function update() {
+      if (!entries) {
+        status.textContent = loading ? 'Loading the index…' : 'Search is not available right now.';
+        return;
+      }
+      var query = input.value.trim();
+      var found = search(entries, query);
+      render(found);
+      if (!found) status.textContent = '';
+      else if (!found.results.length) status.textContent = 'No results for “' + query + '”.';
+      else status.textContent = found.results.length + (found.results.length === 1 ? ' result' : ' results');
+    }
+
+    function open() {
+      if (dialog.open) return;
+      dialog.showModal();
+      input.focus();
+      input.select();
+      load();
+      update();
+    }
+
+    function close() {
+      if (dialog.open) dialog.close();
+    }
+
+    toggle.addEventListener('click', open);
+    toggle.addEventListener('pointerenter', load);
+    toggle.addEventListener('focus', load);
+    closeButton.addEventListener('click', close);
+    input.addEventListener('input', update);
+
+    input.addEventListener('keydown', function (e) {
+      var size = list.children.length;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (size) setActive(e.key === 'ArrowDown' ? (active + 1) % size : (active - 1 + size) % size, true);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (active >= 0 && list.children[active]) list.children[active].click();
+      } else if (e.key === 'Escape' || e.key === 'Esc') {
+        // Not left to the browser: in a search field, Esc may only clear it.
+        e.preventDefault();
+        e.stopPropagation();
+        close();
+      }
+    });
+
+    // The pointer moves the highlight; scrolling under a still pointer does not.
+    list.addEventListener('mousemove', function (e) {
+      var node = e.target;
+      while (node && node.parentNode !== list) node = node.parentNode;
+      if (node) {
+        for (var i = 0; i < list.children.length; i++) {
+          if (list.children[i] === node && i !== active) setActive(i, false);
+        }
+      }
+    });
+
+    // Following a result closes the dialog first, so a link to a section of
+    // this same page scrolls to it in plain view. A modified click opens a
+    // new tab and leaves the dialog as it is.
+    list.addEventListener('click', function (e) {
+      if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+      close();
+    });
+
+    // A click on the backdrop lands on the <dialog> itself; the panel fills
+    // the rest. Both ends must be there, or selecting text in the field and
+    // releasing outside would close it.
+    var downOnBackdrop = false;
+    dialog.addEventListener('mousedown', function (e) {
+      downOnBackdrop = e.target === dialog;
+    });
+    dialog.addEventListener('click', function (e) {
+      if (downOnBackdrop && e.target === dialog) close();
+      downOnBackdrop = false;
+    });
+
+    // `/` (outside a text field), or Ctrl+K / Cmd+K.
+    document.addEventListener('keydown', function (e) {
+      if (e.defaultPrevented || dialog.open) return;
+      var target = e.target;
+      var typing = target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+      var slash = e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && !typing;
+      var commandK = (e.key === 'k' || e.key === 'K') && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey;
+      if (slash || commandK) {
+        e.preventDefault();
+        open();
+      }
+    });
+  }
+
   function onReady() {
     initThemeToggle();
     initDrawer();
     initCopyButtons();
     initDiagrams();
     initExplainers();
+    initSearch();
   }
 
   if (document.readyState === 'loading') {
