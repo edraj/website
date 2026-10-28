@@ -419,7 +419,7 @@ A role, group or permission takes the same request, with `resource_type` `role`,
 
 - **A contact `email` is unique, whatever its case.** A create or update whose `email` another account in the same folder holds, in any case, is refused with `DATA_SHOULD_BE_UNIQUE` (415, naming `@email`); one held by an account in another folder, by the database, with `INVALID_DATA` ("… already in use"). An update that keeps the account's own email, in any case, is not checked for it.
 
-- **`is_email_verified` and `is_msisdn_verified` default to `false`.** Until they are set, or the user verifies the contact, a sign-in that names that email or phone is refused with `USER_ISNT_VERIFIED` (11). A sign-in by shortname is not.
+- **`is_email_verified` and `is_msisdn_verified` default to `false`.** Until they are set, or the contact is verified, a password sign-in that names that email or phone is refused with `USER_ISNT_VERIFIED` (11); one by shortname is not. A sign-in by code needs no verified address: the code proves it, and the sign-in marks the address it went to verified, as a password reset by code does. So an account an admin created signs in by code whichever identifier it names.
 
 User managers are also held to these rules there. A global admin is held to none of them.
 
@@ -440,7 +440,7 @@ User managers are also held to these rules there. A global admin is held to none
 | Type | How it signs in |
 |---|---|
 | `web` | A password, or a one-time code. With `WEB_DEVICE_OTP` on, a password or Google, Facebook or Apple sign-in works only from the account's trusted browser (see [Trusted Browser](#trusted-browser-web_device_otp)). |
-| `mobile` | As `web`, naming its device in `device_id` on every sign-in; one that names none is refused (`INVALID_DATA`, 402). A password or provider sign-in from a device other than the account's trusted one, or while it has none (its very first sign-in included), is asked for a code (`OTP_NEEDED`, 115), and the sign-in by code then trusts that device. |
+| `mobile` | As `web`, naming its device in `device_id` on every sign-in (or in an `X-DeviceId` header, when the body has none); one that names none is refused (`INVALID_DATA`, 402). A password or provider sign-in from a device other than the account's trusted one, or while it has none (its very first sign-in included), is asked for a code (`OTP_NEEDED`, 115), and the sign-in by code then trusts that device. |
 | `bot` | For integrations. Never locked by failed attempts and outside the session limit; its token works until it expires or is ended by a sign-out. |
 | `admin` | A password **and** a one-time code, both checked. Never through Google, Facebook, Apple, an LDAP bind, or the MCP and OpenID Connect sign-in forms. With `ADMIN_IP_ALLOWLIST` set, served only from those addresses, at sign-in and on every request. |
 
@@ -453,12 +453,12 @@ Off by default, for tightly secured instances. With `WEB_DEVICE_OTP=true`, an ac
 - **The browser's identity** is a random token the server sets in the `dmart_device` cookie (HttpOnly, `SameSite=Lax`, `Path=/`, `Secure` over HTTPS, for 400 days). A `device_id` in the request body counts for nothing for a web account. Only the token's SHA-256 fingerprint is stored, in the account's `device_id`: one trusted browser per account, with no expiry.
 - **Password and provider sign-ins** (`/user/login` with a password; Google, Facebook, Apple) succeed only from the trusted browser. From any other browser, the first one included, the right password answers `OTP_NEEDED` (115), which cxb's and catalog's sign-in forms turn into a code step. A wrong password is still just a wrong password.
 - **A sign-in by code** makes its browser the trusted one, with a new token. The browser trusted before needs a code next time.
-- **A verified email or phone is required.** A web account with neither cannot sign in at all: once the credential checks out it gets `USER_ISNT_VERIFIED` (11). A password reset by code verifies the address the code went to, or an admin sets `is_email_verified` or `is_msisdn_verified`.
+- **A verified email or phone is required.** A web account with neither cannot sign in by password or provider: once the credential checks out it gets `USER_ISNT_VERIFIED` (11), before the trusted-browser check. A code is the way in: a sign-in by code, or a password reset by code, marks the address the code went to verified, and the sign-in by code also trusts the browser. An admin can instead set `is_email_verified` or `is_msisdn_verified`.
 - **The stored browser is guarded:** nobody sets their own account's `device_id` through `/managed/request`, and the profile does not change it.
 - **Other sign-in forms.** The MCP and OpenID Connect sign-in forms take a password only, so a web account signs in there only from its trusted browser. Apple's web sign-in always asks for a code, since its callback carries no `SameSite=Lax` cookie. A script or the `dmart` CLI signing in to a web account with a password must keep the cookie and handle the code step; a `bot` account is the type for those.
 - **The built-in `dmart` account** is a web account unless `ADMIN_USER_TYPE=admin`, so give it a verified email or phone the server can send to before turning this on. `WEB_DEVICE_OTP=false` and a restart is the way back in.
 
-**Locked to a device.** `locked_to_device` works on an account of any type, and on password, code and Google, Facebook and Apple sign-in alike. The first sign-in that sends a `device_id` claims the device. After that, a sign-in with no `device_id`, or with another one, is refused with `USER_ACCOUNT_LOCKED` (110); unlike a `mobile` account's new device, it is not offered a code. A user who replaces the phone needs an admin to clear the account's `device_id` with a user update.
+**Locked to a device.** `locked_to_device` works on an account of any type, and on password, code and Google, Facebook and Apple sign-in alike. The first sign-in that sends a `device_id` (in the body, or an `X-DeviceId` header) claims the device. After that, a sign-in with no `device_id`, or with another one, is refused with `USER_ACCOUNT_LOCKED` (110); unlike a `mobile` account's new device, it is not offered a code. A user who replaces the phone needs an admin to clear the account's `device_id` with a user update.
 
 ### Password Rule
 
@@ -517,6 +517,6 @@ A user carries three directory fields beside its contact `email`, for the mail, 
 
 - **Who sets them.** They are set through `/managed/request`, never through `/user/profile`, and nobody changes their own `mailbox` or `mail_aliases` (see [Managing User Accounts](#managing-user-accounts)). An update checks only the fields it changes. A soft delete clears all three, which frees the addresses.
 
-- **Sign-in and reset.** A user signs in with the mailbox in `email` and a password, never with a one-time code. A password reset that names the mailbox sends its code to the account's phone, else its contact email, never to the mailbox.
+- **Sign-in and reset.** A user signs in with the mailbox in `email` and a password, never with a one-time code. A password reset that names the mailbox sends its code where a code asked for by shortname would go, in the order `OTP_SHORTNAME_CHANNELS` sets (see [Settings](/settings#registration-otp--profiles); with `none`, the default order, a verified phone first), and never to the mailbox.
 
 - **Where they show.** LDAP serves `mail` as the mailbox, else the contact email once it is verified, with `mailAlias` and `authorizedService`. OpenID Connect asserts the mailbox, else the contact email, as `email`.
