@@ -184,6 +184,7 @@ A lock does not sign the user out: access tokens already issued keep working unt
 
 | Setting | Description | Default |
 |---|---|---|
+| `WEB_DEVICE_OTP` | A trusted browser for accounts of type `web`, for tightly secured instances. On, a web account signs in with its password, or through Google, Facebook or Apple, only from the browser it last signed in to with a one-time code, and only once its email or phone is verified. See [Trusted Browser](/access-control#trusted-browser-web_device_otp). | `false` |
 | `IS_REGISTRABLE` | Allow self-registration via `POST /user/create`, and the accounts `ENABLE_OTP_IMPLICIT_REGISTRATION` creates | `false` |
 | `IS_OTP_FOR_CREATE_REQUIRED` | Require a verified OTP for account creation. Off, self-registration marks any email or phone it is given as verified without proof, which startup warns about. | `true` |
 | `OTP_TOKEN_TTL` | One-time-password time-to-live (seconds). An expired code is never redeemed: sent after it, the code that was issued answers `OTP_EXPIRED` (308), and any other code answers as a wrong one. | `300` |
@@ -207,7 +208,7 @@ Accounts of type `admin` sign in with their password and a one-time code, both c
 | Setting | Description | Default |
 |---|---|---|
 | `ADMIN_IP_ALLOWLIST` | IPs and CIDR ranges admin accounts may sign in and work from, checked at sign-in and on every request. Empty = no address limit. Behind a proxy it needs `TRUSTED_PROXIES`. An entry that does not parse stops startup. | `""` |
-| `ADMIN_USER_TYPE` | Type the built-in `dmart` account is held to at every start: `web` or `admin`. As `admin` it signs in with its password and a code, so it needs an email or phone the server can send to; becoming one ends its sessions. Setting `web` again and restarting is the way back in when codes stop arriving. | `"web"` |
+| `ADMIN_USER_TYPE` | Type the built-in `dmart` account is held to at every start: `web` or `admin`. As `admin` it signs in with its password and a code, so it needs an email or phone the server can send to; becoming one ends its sessions. Setting `web` again and restarting is the way back in when codes stop arriving. As `web` it is held to `WEB_DEVICE_OTP`, so it needs a verified email or phone before that is turned on. | `"web"` |
 
 ### Password Hashing
 

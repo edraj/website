@@ -32,6 +32,7 @@ dm "$DMART/user/profile" | jq -c '{status, shortname: .records[0].shortname}'
 
 - Ask the user for credentials; never guess passwords. Failed sign-ins count toward an account lockout, and sign-in routes are rate-limited (10 a minute per address by default), so don't retry in a loop.
 - An account of type `admin` signs in with its password **and** a one-time code: the password alone answers error code `115` (`OTP_NEEDED`) and sends the code; ask the user for it, then send `password` and `otp` together.
+- A `mobile` account must send `device_id` on every sign-in. With `WEB_DEVICE_OTP` on, a `web` account signs in by password only from its trusted browser (a cookie), so a script gets `OTP_NEEDED` (115): use a `bot` account for scripts.
 - Keep the token out of files, commits and logs; it is a credential.
 
 ## Five rules that prevent most mistakes

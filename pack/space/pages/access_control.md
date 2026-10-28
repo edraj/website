@@ -415,7 +415,7 @@ A role, group or permission takes the same request, with `resource_type` `role`,
 
 - **A password is set only on `create`**, and must meet the [password rule](#password-rule). An `update` carrying `password` is refused with `INVALID_DATA` ("password cannot be changed via /managed/request; use the OTP password-reset flow or /user/profile"). To get someone back into an account, set `force_password_change` and have them reset the password by code, or run `dmart passwd` on the host.
 
-- **A create without a password** always sets `force_password_change`, and the user sets a first password through a reset by code.
+- **A create without a password** always sets `force_password_change`, and the user sets a first password through a reset by code. Catalog's create-user form works this way: it sets no password, and offers to send the new user the code by email or phone at once, with the reset-password link to pass on.
 
 - **A contact `email` is unique, whatever its case.** A create or update whose `email` another account in the same folder holds, in any case, is refused with `DATA_SHOULD_BE_UNIQUE` (415, naming `@email`); one held by an account in another folder, by the database, with `INVALID_DATA` ("… already in use"). An update that keeps the account's own email, in any case, is not checked for it.
 
@@ -427,7 +427,7 @@ User managers are also held to these rules there. A global admin is held to none
 
 - **What roles and permissions grant.** Setting a role's `permissions` or `grantable_by`, a group's `grantable_by`, or a permission's `subpaths`, `resource_types`, `actions`, `conditions`, `restricted_fields`, `allowed_fields_values` or `filter_fields_values` takes a global admin, as does switching a role, group or permission back on.
 
-- **Nobody changes their own account's sign-in or access fields** there: `email`, `msisdn`, `force_password_change`, `type`, `is_active`, `roles`, `groups`, `is_email_verified`, `is_msisdn_verified`, `locked_to_device` (and `device_id` where it decides the sign-in), the hosted `mailbox` and `mail_aliases`, nor an `unlock`. Posting a record back unchanged is fine.
+- **Nobody changes their own account's sign-in or access fields** there: `email`, `msisdn`, `force_password_change`, `type`, `is_active`, `roles`, `groups`, `is_email_verified`, `is_msisdn_verified`, `locked_to_device` (and `device_id` where it decides the sign-in: a mobile account's, and a web account's under `WEB_DEVICE_OTP`), the hosted `mailbox` and `mail_aliases`, nor an `unlock`. Posting a record back unchanged is fine.
 
 - **On another account**, the same fields need a global admin when the account holds a role or group the actor could not give. On an admin account they need a global admin, or the admin that owns the account while that owner is an active admin able to give every role and group the account holds.
 
@@ -439,12 +439,24 @@ User managers are also held to these rules there. A global admin is held to none
 
 | Type | How it signs in |
 |---|---|
-| `web` | A password, or a one-time code. |
-| `mobile` | As `web`. Once it has signed in from a device, a password sign-in from any other device, or with none, is asked for a code (`OTP_NEEDED`, 115). |
+| `web` | A password, or a one-time code. With `WEB_DEVICE_OTP` on, a password or Google, Facebook or Apple sign-in works only from the account's trusted browser (see [Trusted Browser](#trusted-browser-web_device_otp)). |
+| `mobile` | As `web`, naming its device in `device_id` on every sign-in; one that names none is refused (`INVALID_DATA`, 402). A password or provider sign-in from a device other than the account's trusted one, or while it has none (its very first sign-in included), is asked for a code (`OTP_NEEDED`, 115), and the sign-in by code then trusts that device. |
 | `bot` | For integrations. Never locked by failed attempts and outside the session limit; its token works until it expires or is ended by a sign-out. |
 | `admin` | A password **and** a one-time code, both checked. Never through Google, Facebook, Apple, an LDAP bind, or the MCP and OpenID Connect sign-in forms. With `ADMIN_IP_ALLOWLIST` set, served only from those addresses, at sign-in and on every request. |
 
 The type grants no permissions; roles do. An admin account needs a password and a phone or an email for its code, which `/managed/request` enforces, and making an account an admin ends its sessions. An admin resets its password by code only while another admin has set `force_password_change` on the account; the reset clears it. The built-in `dmart` account is held at every start to `ADMIN_USER_TYPE`: `web` (the default) or `admin`.
+
+### Trusted Browser (`WEB_DEVICE_OTP`)
+
+Off by default, for tightly secured instances. With `WEB_DEVICE_OTP=true`, an account of type `web` gets what a `mobile` account has, a trusted device, except that the device is a browser and the server names it. Mobile, admin and bot accounts, and LDAP binds, are unaffected.
+
+- **The browser's identity** is a random token the server sets in the `dmart_device` cookie (HttpOnly, `SameSite=Lax`, `Path=/`, `Secure` over HTTPS, for 400 days). A `device_id` in the request body counts for nothing for a web account. Only the token's SHA-256 fingerprint is stored, in the account's `device_id`: one trusted browser per account, with no expiry.
+- **Password and provider sign-ins** (`/user/login` with a password; Google, Facebook, Apple) succeed only from the trusted browser. From any other browser, the first one included, the right password answers `OTP_NEEDED` (115), which cxb's and catalog's sign-in forms turn into a code step. A wrong password is still just a wrong password.
+- **A sign-in by code** makes its browser the trusted one, with a new token. The browser trusted before needs a code next time.
+- **A verified email or phone is required.** A web account with neither cannot sign in at all: once the credential checks out it gets `USER_ISNT_VERIFIED` (11). A password reset by code verifies the address the code went to, or an admin sets `is_email_verified` or `is_msisdn_verified`.
+- **The stored browser is guarded:** nobody sets their own account's `device_id` through `/managed/request`, and the profile does not change it.
+- **Other sign-in forms.** The MCP and OpenID Connect sign-in forms take a password only, so a web account signs in there only from its trusted browser. Apple's web sign-in always asks for a code, since its callback carries no `SameSite=Lax` cookie. A script or the `dmart` CLI signing in to a web account with a password must keep the cookie and handle the code step; a `bot` account is the type for those.
+- **The built-in `dmart` account** is a web account unless `ADMIN_USER_TYPE=admin`, so give it a verified email or phone the server can send to before turning this on. `WEB_DEVICE_OTP=false` and a restart is the way back in.
 
 **Locked to a device.** `locked_to_device` works on an account of any type, and on password, code and Google, Facebook and Apple sign-in alike. The first sign-in that sends a `device_id` claims the device. After that, a sign-in with no `device_id`, or with another one, is refused with `USER_ACCOUNT_LOCKED` (110); unlike a `mobile` account's new device, it is not offered a code. A user who replaces the phone needs an admin to clear the account's `device_id` with a user update.
 

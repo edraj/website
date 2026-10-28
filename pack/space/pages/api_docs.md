@@ -8,7 +8,7 @@ Most endpoints require authentication with a JWT bearer token (HS256), supplied 
 
 **Header** `Authorization: Bearer <your_token>`
 
-**Cookie** `auth_token=<your_token>` — set by every sign-in as `HttpOnly; SameSite=Lax; Path=/` (plus `Secure` over HTTPS), with a `Max-Age` of `JWT_ACCESS_EXPIRES`. It is accepted only on same-site requests (judged by the browser's `Sec-Fetch-Site`) or with an `X-Requested-With` header, unless `CSRF_PROTECT_COOKIE_AUTH=false`.
+**Cookie** `auth_token=<your_token>` — set by every sign-in as `HttpOnly; SameSite=Lax; Path=/` (plus `Secure` over HTTPS), with a `Max-Age` of `JWT_ACCESS_EXPIRES`. With `WEB_DEVICE_OTP` on, a sign-in by code to a web account also sets `dmart_device`, the browser's trusted-device token, the same way for 400 days (see [Trusted Browser](/access-control#trusted-browser-web_device_otp)). The auth cookie is accepted only on same-site requests (judged by the browser's `Sec-Fetch-Site`) or with an `X-Requested-With` header, unless `CSRF_PROTECT_COOKIE_AUTH=false`.
 
 **A browser front end must be on its backend's site**, the same registrable domain (`cat.example.com` and `api.example.com` are one site; `example.com` and `example.org` are two), because a browser sends a `SameSite=Lax` cookie only there. cxb and catalog authenticate by the cookie alone, so the `backend` in their `config.json` (see [Settings](/settings#loading-order)) must be blank (the page's own origin), a path such as `/dmart` (the API under the page's own origin), or a sibling subdomain, with the page's origin listed in `ALLOWED_CORS_ORIGINS`. A catalog on another site signs in, then is anonymous on every later call. A client on another site sends a bearer token instead.
 
@@ -231,11 +231,11 @@ Sign-in and tokens:
 | `code` | Name | HTTP | When |
 |---|---|---|---|
 | 10 | `INVALID_USERNAME_AND_PASS` | 401 | Unknown user, wrong password, or a soft-deleted account. Also a wrong code at a code sign-in that would register the address (`ENABLE_OTP_IMPLICIT_REGISTRATION`). |
-| 11 | `USER_ISNT_VERIFIED` | 401 | Sign-in by an email or phone that is not verified. |
+| 11 | `USER_ISNT_VERIFIED` | 401 | Sign-in by an email or phone that is not verified. With `WEB_DEVICE_OTP` on, any sign-in to a web account with neither email nor phone verified. |
 | 13 | `PASSWORD_NOT_VALIDATED` | 401 | A code sign-in with a wrong password, or an admin's code without one. |
 | 100 | `OTP_ISSUE` | 401 | A code sign-in naming no identifier or more than one; an admin with no phone or email to send a code to. |
 | 110 | `USER_ACCOUNT_LOCKED` | 401 | The account is deactivated, locked by failed attempts, or locked to another device (`locked_to_device`). |
-| 115 | `OTP_NEEDED` | 401 | The sign-in needs a one-time code: an admin's right password (the code is sent), a `mobile` account on a new device, or an admin through a social provider. |
+| 115 | `OTP_NEEDED` | 401 | The sign-in needs a one-time code: an admin's right password (the code is sent), a `mobile` account on a device it does not trust yet (its first included), a web account outside its trusted browser under `WEB_DEVICE_OTP`, or an admin through a social provider. |
 | 307 | `OTP_INVALID` | 401 / 400 | A wrong or spent code, one a newer code has replaced, or one out of guesses. `400` outside `/user/login`. |
 | 308 | `OTP_EXPIRED` | 401 / 400 | The code issued, sent after it expired. `400` outside `/user/login`. |
 | 50 | `SESSION` | 401 | `/user/create` refused: registration is off, a field is missing or invalid, or the code is wrong. |
@@ -294,7 +294,7 @@ Or via OTP (requested with `purpose: "login"`):
 }
 ```
 
-A `mobile` account that has signed in from a device must send that device's `device_id`; from another device, or none, the password is answered with `OTP_NEEDED` (115) and the user signs in with a code. An account with `locked_to_device` set signs in, by password or code, only from its stored device, and is refused elsewhere with `USER_ACCOUNT_LOCKED` (110); see [Access Control](/access-control#account-types). Mobile clients may also send a `firebase_token` for the session. It is cleared from the user's other sessions, and with a `device_id` so are that device's older tokens, so a device gets each push once.
+A `mobile` account sends its device's `device_id` on every sign-in, by password, code or provider. One that sends none is refused with `INVALID_DATA` (402): after the password checks out, and on a sign-in by code before the code is checked, so the code is not spent. A password or provider sign-in from a device other than the trusted one, or while none is trusted (the account's very first sign-in included), answers `OTP_NEEDED` (115); the sign-in by code with the same `device_id` then trusts that device. With `WEB_DEVICE_OTP` on, a `web` account's trusted device is its browser, named by the `dmart_device` cookie rather than a `device_id` (see [Trusted Browser](/access-control#trusted-browser-web_device_otp)). An account with `locked_to_device` set signs in, by password or code, only from its stored device, and is refused elsewhere with `USER_ACCOUNT_LOCKED` (110); see [Access Control](/access-control#account-types). Mobile clients may also send a `firebase_token` for the session. It is cleared from the user's other sessions, and with a `device_id` so are that device's older tokens, so a device gets each push once.
 
 Accounts of type `admin` sign in with their password **and** a one-time code. The password alone, once it checks out, sends the code and answers `OTP_NEEDED` (115); the sign-in then completes with `password` and `otp` sent together. `/user/otp-request` sends an admin no login code. Wrong passwords and codes count toward the account lockout (see [Access Control](/access-control#lockout)). An account that failed attempts have locked still signs in with a right code; a wrong one answers `USER_ACCOUNT_LOCKED` (110), and the issued code sent after it expired `OTP_EXPIRED` (308).
 
@@ -352,7 +352,7 @@ Apple OAuth callback (Apple posts the form). Takes a `code`, which DMART exchang
 
 POST `/user/google/mobile-login`, `/user/facebook/mobile-login`, `/user/apple/mobile-login`
 
-Sign in from a mobile app with a token the app got from the provider. Body: `token` (the ID token for Google and Apple, the access token for Facebook) and an optional `device_id`.
+Sign in from a mobile app with a token the app got from the provider. Body: `token` (the ID token for Google and Apple, the access token for Facebook) and `device_id`, which a `mobile` account must send, as on `/user/login`.
 
 A provider sign-in only finds an existing account, by the provider's id or a verified email. It never creates one, and answers `401` when none matches. Accounts of type `admin` cannot sign in this way.
 
@@ -754,11 +754,11 @@ Returns information about active WebSocket connections. Global admins only.
 DMART ships a built-in **MCP server** (Streamable HTTP transport, spec `2025-03-26`) so AI agents can query and mutate entries as tools. It is **off by default** — set `ENABLE_MCP=true` to expose it; otherwise `/mcp` and the OAuth 2.1 endpoints are unmapped and answer `INVALID_ROUTE` (HTTP 422). All requests are authenticated — the caller's JWT flows through to each tool handler. Sessions are tracked via the `Mcp-Session-Id` header. Pair it with the OAuth 2.1 Authorization Server for automatic client onboarding. Its sign-in form takes a password only, so it refuses accounts of type `admin`; an integration signs in as a `bot` account.
 
 - **Discovery.** A request to `/mcp` without a valid token answers `401` with `WWW-Authenticate: Bearer realm="dmart-mcp", resource_metadata="<base>/.well-known/oauth-protected-resource"`, which starts a client's OAuth discovery.
-- **`JWT_ISSUER`.** When it is an absolute `http(s)` URL, it is the base of the `/.well-known/oauth-*` and `/oauth/*` URLs; otherwise they are built from the request's host. Under a path prefix, set it to the public base URL (e.g. `https://host.example/dmart`). Every token carries it as `iss`, so changing it invalidates every token already issued.
+- **`JWT_ISSUER`.** When it is an absolute `http(s)` URL, it is the base of the `/.well-known/oauth-*` and `/oauth/*` URLs; otherwise they are built from the request's host. Under a path prefix, set it to the public base URL (e.g. `https://host.example/dmart`). DMART then answers the discovery documents both at their bare names and where RFC 8414 and RFC 9728 put them for an issuer with a path, and where MCP clients look: `/.well-known/oauth-authorization-server/dmart`, and `/.well-known/oauth-protected-resource/dmart/mcp` (or `/dmart`). Any other path after the name is a 404. Every token carries it as `iss`, so changing it invalidates every token already issued.
 - **Registered clients** (`/oauth/register`) are kept in memory: they are lost on restart and dropped 24 hours after registering, and each may register at most 8 redirect URIs.
 - **Refresh tokens** come only from `/oauth/token`; `/user/login` issues none. Each is single-use: a refresh answers a new access token and a new refresh token. It lasts `JWT_REFRESH_DAYS`, and with `SESSION_MAX_LIFETIME_SECONDS` set the chain ends that many seconds after the first sign-in. An admin account's refresh is refused.
 - **Change notices.** Each session gets, on its SSE stream, `notifications/resources/updated` for every create, update, delete and progress-ticket, with the record's `dmart://` URI, the `action`, the `owner` (the user who made the change) and the `resource_type`. A session hears only of the records its user may read when the notice is sent, and of an attachment only when the user may also read the record the attachment hangs off.
-- **Behind a proxy**, the SSE stream must not be buffered. DMART sends `X-Accel-Buffering: no`, which nginx honours; Caddy needs `flush_interval -1`.
+- **Behind a proxy**, `/.well-known/*` must reach DMART as well as its prefix, and the SSE stream must not be buffered. DMART sends `X-Accel-Buffering: no`, which nginx honours; Caddy needs `flush_interval -1`.
 
 POST `/mcp`
 
