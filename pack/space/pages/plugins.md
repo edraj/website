@@ -12,7 +12,7 @@ These managed plugins are compiled into the single self-contained binary and reg
 
 **mcp_sse_bridge** Sends each MCP session a `notifications/resources/updated` message for every entry created, updated or deleted that its user may read, judged as `realtime_updates_notifier` judges it. It does nothing while `ENABLE_MCP` is off; the MCP server itself is described in the [API reference](/api-docs). Hook
 
-**resource_folders_creation** Creates a new user's `personal/people/<shortname>` folder with its five sub-folders, and a new space's `/schema` folder. It runs in the background, so the create can answer before the folders exist; `"concurrent": false` in its `config.json` makes user and space creates wait for their folders. Hook
+**resource_folders_creation** Creates a new user's `personal/people/<shortname>` folder with its five sub-folders (`notifications`, `private`, `protected`, `public` and `inbox`), and a new space's `/schema` folder. It runs in the background, so the create can answer before the folders exist; `"concurrent": false` in its `config.json` makes user and space creates wait for their folders. Hook
 
 **admin_notification_sender** Registered no-op stub. The Python original pushed admin notifications through an SMS/push gateway (Firebase/SMS); that gateway is out of scope for the port, so `HookAsync` only logs today. Hook Stub
 
