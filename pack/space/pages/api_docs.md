@@ -231,9 +231,9 @@ Sign-in and tokens:
 | `code` | Name | HTTP | When |
 |---|---|---|---|
 | 10 | `INVALID_USERNAME_AND_PASS` | 401 | Unknown user, wrong password, or a soft-deleted account. Also a wrong code at a code sign-in that would register the address (`ENABLE_OTP_IMPLICIT_REGISTRATION`). |
-| 11 | `USER_ISNT_VERIFIED` | 401 | Sign-in by an email or phone that is not verified. With `WEB_DEVICE_OTP` on, any sign-in to a web account with neither email nor phone verified. |
-| 13 | `PASSWORD_NOT_VALIDATED` | 401 | A code sign-in with a wrong password, or an admin's code without one. |
-| 100 | `OTP_ISSUE` | 401 | A code sign-in naming no identifier or more than one; an admin with no phone or email to send a code to. |
+| 11 | `USER_ISNT_VERIFIED` | 401 | A password sign-in by an email or phone that is not verified (a code sign-in verifies it instead). With `WEB_DEVICE_OTP` on, a password or provider sign-in to a web account with neither email nor phone verified. |
+| 13 | `PASSWORD_NOT_VALIDATED` | 401 | A code sign-in with a wrong password, or an admin's code without the right one (the code is then not checked, so not spent). |
+| 100 | `OTP_ISSUE` | 401 | A code sign-in naming no identifier or more than one, or a shortname while `OTP_SHORTNAME_CHANNELS=none`; an admin with no phone or email to send a code to. |
 | 110 | `USER_ACCOUNT_LOCKED` | 401 | The account is deactivated, locked by failed attempts, or locked to another device (`locked_to_device`). |
 | 115 | `OTP_NEEDED` | 401 | The sign-in needs a one-time code: an admin's right password (the code is sent), a `mobile` account on a device it does not trust yet (its first included), a web account outside its trusted browser under `WEB_DEVICE_OTP`, or an admin through a social provider. |
 | 307 | `OTP_INVALID` | 401 / 400 | A wrong or spent code, one a newer code has replaced, or one out of guesses. `400` outside `/user/login`. |
@@ -276,7 +276,7 @@ Registers a new user and signs them in: the answer carries an `access_token` and
 
 POST `/user/login`
 
-Authenticates a user and returns a token. The identifier is one of `shortname`, `email` or `msisdn`; signing in by email or phone needs that address verified. With a password, `email` may also be the account's hosted `mailbox`, which needs no verification; a one-time code never signs in by mailbox. The answer's record carries `access_token`, `type`, `roles` and `groups`, `displayname` when the account has one, and `"created": true` when this sign-in created the account (`ENABLE_OTP_IMPLICIT_REGISTRATION`). The server also sets the `auth_token` cookie. A refused sign-in answers HTTP `401`.
+Authenticates a user and returns a token. The identifier is one of `shortname`, `email` or `msisdn`. A password sign-in by email or phone needs that address verified; a code sign-in does not, and marks the address its code went to verified. With a password, `email` may also be the account's hosted `mailbox`, which needs no verification; a one-time code never signs in by mailbox. The answer's record carries `access_token`, `type`, `roles` and `groups`, `displayname` when the account has one, and `"created": true` when this sign-in created the account (`ENABLE_OTP_IMPLICIT_REGISTRATION`). The server also sets the `auth_token` cookie. A refused sign-in answers HTTP `401`.
 
 ```json
 {
@@ -294,9 +294,9 @@ Or via OTP (requested with `purpose: "login"`):
 }
 ```
 
-A `mobile` account sends its device's `device_id` on every sign-in, by password, code or provider. One that sends none is refused with `INVALID_DATA` (402): after the password checks out, and on a sign-in by code before the code is checked, so the code is not spent. A password or provider sign-in from a device other than the trusted one, or while none is trusted (the account's very first sign-in included), answers `OTP_NEEDED` (115); the sign-in by code with the same `device_id` then trusts that device. With `WEB_DEVICE_OTP` on, a `web` account's trusted device is its browser, named by the `dmart_device` cookie rather than a `device_id` (see [Trusted Browser](/access-control#trusted-browser-web_device_otp)). An account with `locked_to_device` set signs in, by password or code, only from its stored device, and is refused elsewhere with `USER_ACCOUNT_LOCKED` (110); see [Access Control](/access-control#account-types). Mobile clients may also send a `firebase_token` for the session. It is cleared from the user's other sessions, and with a `device_id` so are that device's older tokens, so a device gets each push once.
+A `mobile` account sends its device's `device_id` on every sign-in, by password, code or provider. On any account, a body without `device_id` may carry it in an `X-DeviceId` header instead; the body's wins when both are sent. One that sends none is refused with `INVALID_DATA` (402): after the password checks out, and on a sign-in by code before the code is checked, so the code is not spent. A password or provider sign-in from a device other than the trusted one, or while none is trusted (the account's very first sign-in included), answers `OTP_NEEDED` (115); the sign-in by code with the same `device_id` then trusts that device. With `WEB_DEVICE_OTP` on, a `web` account's trusted device is its browser, named by the `dmart_device` cookie rather than a `device_id` (see [Trusted Browser](/access-control#trusted-browser-web_device_otp)). An account with `locked_to_device` set signs in, by password or code, only from its stored device, and is refused elsewhere with `USER_ACCOUNT_LOCKED` (110); see [Access Control](/access-control#account-types). Mobile clients may also send a `firebase_token` for the session. It is cleared from the user's other sessions, and with a `device_id` so are that device's older tokens, so a device gets each push once.
 
-Accounts of type `admin` sign in with their password **and** a one-time code. The password alone, once it checks out, sends the code and answers `OTP_NEEDED` (115); the sign-in then completes with `password` and `otp` sent together. `/user/otp-request` sends an admin no login code. Wrong passwords and codes count toward the account lockout (see [Access Control](/access-control#lockout)). An account that failed attempts have locked still signs in with a right code; a wrong one answers `USER_ACCOUNT_LOCKED` (110), and the issued code sent after it expired `OTP_EXPIRED` (308).
+Accounts of type `admin` sign in with their password **and** a one-time code. The password alone, once it checks out, sends the code and answers `OTP_NEEDED` (115); the sign-in then completes with `password` and `otp` sent together. The password is checked first: without the right one the answer is `PASSWORD_NOT_VALIDATED` (13) and the code is not checked, so whoever knows only the username cannot spend it on guesses. For a shortname the code goes to the account's verified phone, else its verified email, else its phone, else its email, whatever `OTP_SHORTNAME_CHANNELS` says. `/user/otp-request` sends an admin no login code. Wrong passwords and codes count toward the account lockout (see [Access Control](/access-control#lockout)). An account that failed attempts have locked still signs in with a right code; a wrong one answers `USER_ACCOUNT_LOCKED` (110), and the issued code sent after it expired `OTP_EXPIRED` (308).
 
 The access token has no `kid` header. Its claims are `sub` (the shortname), `iss` (`JWT_ISSUER`), `aud` (`JWT_AUDIENCE`), `iat`, `exp`, `token_use` (`access`), `jti`, `roles`, `data` (`shortname`, `type`) and `expires`. `/user/login` issues no refresh token.
 
@@ -322,11 +322,11 @@ Deletes the current user's account as `USER_DELETION_MODE` says (`soft` by defau
 
 POST `/user/otp-request`
 
-Sends a one-time code. Body: one of `email`, `msisdn` or `shortname`, and a `purpose`: `login`, `reset`, `register` (for `/user/create`) or `verify-contact` (signed in only). A code works only for the purpose it was issued for. A code asked for by shortname goes to the account's phone, else its email. A `reset` may also name the account by its hosted mailbox in `email`; that code goes to the phone, else the contact email, never to the mailbox, and `/user/password-reset-confirm` takes the same mailbox. Every well-formed request answers `200`, whether or not a code went out, so the answer says nothing about which addresses have accounts; a resend within `ALLOW_OTP_RESEND_AFTER`, or past `MAX_OTP_REQUESTS_PER_DAY`, sends nothing. An admin gets a `reset` code only while another admin has set `force_password_change` on the account; otherwise its own phone or email gets a notice saying so.
+Sends a one-time code. Body: one of `email`, `msisdn` or `shortname`, and a `purpose`: `login`, `reset`, `register` (for `/user/create`) or `verify-contact` (signed in only). A code works only for the purpose it was issued for. A code asked for by shortname goes to the account's first verified contact among the channels `OTP_SHORTNAME_CHANNELS` lists, else its first contact among them: by default its verified phone, else its verified email, else its phone, else its email. With `OTP_SHORTNAME_CHANNELS=none` a shortname is refused with `EMAIL_OR_MSISDN_REQUIRED` (207), and the caller names the phone or email. A `reset` may also name the account by its hosted mailbox in `email`; that code goes where a shortname's goes (in the default order under `none`), never to the mailbox, and `/user/password-reset-confirm` takes the same mailbox. Every well-formed request answers `200`, whether or not a code went out, so the answer says nothing about which addresses have accounts; a resend within `ALLOW_OTP_RESEND_AFTER`, or past `MAX_OTP_REQUESTS_PER_DAY`, sends nothing. An admin gets a `reset` code only while another admin has set `force_password_change` on the account; otherwise its own phone or email gets a notice saying so.
 
 POST `/user/password-reset-confirm`
 
-Sets a new password with a `reset` code. Body: the same identifier, `otp` and `password`, which must meet the password rule. A right code works on an account that failed attempts have locked, and clears its count. A wrong code answers `OTP_INVALID` and counts toward the lockout; the issued code sent after it expired answers `OTP_EXPIRED`, and counts too. With `LOGOUT_ON_PWD_CHANGE` (on by default) the reset ends the account's sessions.
+Sets a new password with a `reset` code. Body: the same identifier, `otp` and `password`, which must meet the password rule. A shortname while `OTP_SHORTNAME_CHANNELS=none` answers `MISSING_DATA`. The reset marks the address the code went to verified. A right code works on an account that failed attempts have locked, and clears its count. A wrong code answers `OTP_INVALID` and counts toward the lockout; the issued code sent after it expired answers `OTP_EXPIRED`, and counts too. With `LOGOUT_ON_PWD_CHANGE` (on by default) the reset ends the account's sessions.
 
 POST `/user/verify-contact`
 
@@ -352,7 +352,7 @@ Apple OAuth callback (Apple posts the form). Takes a `code`, which DMART exchang
 
 POST `/user/google/mobile-login`, `/user/facebook/mobile-login`, `/user/apple/mobile-login`
 
-Sign in from a mobile app with a token the app got from the provider. Body: `token` (the ID token for Google and Apple, the access token for Facebook) and `device_id`, which a `mobile` account must send, as on `/user/login`.
+Sign in from a mobile app with a token the app got from the provider. Body: `token` (the ID token for Google and Apple, the access token for Facebook) and `device_id`, which a `mobile` account must send, in the body or an `X-DeviceId` header, as on `/user/login`.
 
 A provider sign-in only finds an existing account, by the provider's id or a verified email. It never creates one, and answers `401` when none matches. Accounts of type `admin` cannot sign in this way.
 
@@ -780,7 +780,7 @@ The MCP server exposes these tools to agents. Every tool runs under the caller's
 |---|---|
 | `dmart_me` | Return the authenticated caller's profile. |
 | `dmart_spaces` | List the spaces in which the caller holds a `view` or `query` grant, as `type: spaces` does on `/managed/query`. |
-| `dmart_query` | Search / list entries. Results are hard-capped at **50** records per call; without a `limit` it returns `DEFAULT_QUERY_LIMIT`. |
+| `dmart_query` | Search / list entries. Results are hard-capped at **50** records per call; without a `limit` it returns `DEFAULT_QUERY_LIMIT`. Page past them with `offset` (the next page starts at `offset` + `limit`), giving a `sort_by` and `sort_type` so pages don't overlap. `retrieve_json_payload: true` adds each entry's payload body (off by default; bodies can be large), and `exact_subpath: true` leaves out the subpath's subfolders. |
 | `dmart_read` | Read a single entry (metadata + payload). |
 | `dmart_schema` | Fetch a schema definition for a space/subpath. |
 | `dmart_create` | Create a new entry. `resource_type` must be an entry type: a space, user, role, group, permission or attachment type is refused. |

@@ -16,7 +16,7 @@ This file has the rules and recipes that get most tasks done. The `references/` 
 | Way | Use it when | Notes |
 |---|---|---|
 | **REST API** | Default. Anything scripted or repeatable. | Base URL is the server, e.g. `http://localhost:8282`; behind a proxy it is often `https://<host>/dmart`. JSON over HTTP with a bearer token. |
-| **MCP tools** (`dmart_query`, `dmart_read`, `dmart_create`, `dmart_update`, `dmart_delete`, `dmart_schema`, `dmart_history`, …) | The dmart MCP server is already connected to your client. | Only when the server runs with `ENABLE_MCP=true`. A query returns at most 50 records per call. Its sign-in refuses `admin` accounts; integrations use a `bot` account. |
+| **MCP tools** (`dmart_query`, `dmart_read`, `dmart_create`, `dmart_update`, `dmart_delete`, `dmart_schema`, `dmart_history`, …) | The dmart MCP server is already connected to your client. | Only when the server runs with `ENABLE_MCP=true`. A query returns at most 50 records per call: page with `offset` and a `sort_by`, and add `retrieve_json_payload: true` for the bodies. Its sign-in refuses `admin` accounts; integrations use a `bot` account. |
 | **`dmart cli`** | You have a shell on the server host. | `dmart cli c <space> /<subpath> <command>` (e.g. `ls`, `cat <name>`). On the server host it signs in without a password. Operator commands (`dmart export`, `import`, `check`, `selfcheck`) also need that shell. |
 
 ## Sign in
