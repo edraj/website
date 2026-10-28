@@ -75,7 +75,7 @@ The C# models are sealed records (`Entry`, `Attachment`, `User`, `Space`, `Role`
 
 - **Attachment:** a resource bound to a parent entry, stored in its own table: media, comment, reaction, relationship, and more.
 
-- **DataAsset:** an attachment holding a tabular or binary data file — supported content types are **CSV**, **JSONL**, **SQLite**, and **Parquet**. Here `sqlite` is a content type, not to be confused with the SQLite database backend.
+- **DataAsset:** an attachment (`data_asset`) holding a data file, with content type **CSV**, **JSONL**, **SQLite** or **Parquet**. DMART stores and serves the file's bytes and does not read them. Here `sqlite` is a content type, not to be confused with the SQLite database backend.
 
 - **Ticket:** an entry with workflow state, a reporter, and collaborators.
 
@@ -103,7 +103,7 @@ The `/query` endpoint supports a rich query language that is compiled to SQL. On
 
 Security enforced via a comprehensive `AccessControl` module (see [Access Control](/access-control)):
 
-- **Permission Scope:** Action type, subpath, resource type, conditions, field-level restrictions, and row filters that narrow a grant to matching records — applied to listings and to reads by name alike.
+- **Permission Scope:** Action type, subpath, resource type, conditions, field-level restrictions, and row filters that narrow a grant to matching records — applied to listings, reads by name and writes alike. A write through a filtered grant reaches only the records its filter covers, and may not leave a record outside it.
 
 - **ACLs:** Per-instance access overrides on individual entries. A deny hides the record from listings, counts and exports, not only from a direct read.
 
@@ -197,22 +197,63 @@ REST-like and resource-oriented. Key routers:
 
 ## 6. Data Asset Management
 
-DMART natively handles analytical data files:
+DMART stores data files, and moves its own data in and out in tabular formats. It does not read, query or convert the contents of a stored file.
 
-- **SQLite** files can be stored as data-asset attachments. Note that `sqlite` here is a content type, not to be confused with the SQLite database backend.
+- **Data-asset attachments:** a `data_asset` attachment, uploaded through `/managed/resource_with_payload`, holds a CSV, JSONL, SQLite or Parquet file. Its content type comes from the upload's MIME type or file extension (`csv`; `jsonl` or `ndjson`; `sqlite` or `db`; `parquet`). DMART stores the bytes as they are and serves them back. `sqlite` here is a content type, not the SQLite database backend.
 
-- **Parquet**, **JSONL**, and **CSV** are treated as first-class data citizens.
+- **The `csv`, `jsonl`, `sqlite` and `parquet` resource types** cannot hold such a file: an upload for any of them must be JSON, and anything else is refused with `INVALID_DATA`. Use a `data_asset` attachment.
+
+- **Entries as data:** entries go out as CSV (`/managed/csv`, `dmart cli export csv`) and come back from CSV (`/managed/resources_from_csv`), and whole spaces go out and back as Parquet archives (`dmart export --parquet`, `dmart import --parquet`). See [4.5 Data Import/Export](#45-data-importexport).
 
 ## 7. Deployment
 
 - **Single Binary:** Native-AOT publish produces one self-contained `dmart` executable (about 70 MB; 77 MB for the fully static build). The static musl build has no runtime dependency at all — copy and run; the glibc tarballs ship `libe_sqlite3.so` and `libargon2.so.1` beside it. The embedded admin UIs and sample seed data ship inside it, and the same binary doubles as the [CLI](/cli) (`seed`, `import`, `export`, `migrate`, `check`, `selfcheck`, and an interactive client).
 
-- **Packages:** RPM (Fedora and RHEL 9), DEB and APK (Alpine) packages from signed package repositories, plus tarballs for Linux on x86-64 and arm64 (glibc, and fully static musl). Release files are checksummed and signed.
+- **Packages:** RPM (Fedora and RHEL 9), DEB and APK (Alpine) packages from signed package repositories, plus tarballs for Linux on x86-64 and arm64 (glibc, and fully static musl). Zips for Windows x64 and macOS arm64 are built only while the csdmart repository is public. The tarballs and zips are on the repository's releases page, which is not public for now; see [Installation](/installation). Every release file is checksummed, signed and carries build provenance; see [Verifying a release](/installation#verifying-a-release).
 
-- **Containerized:** a single-process Alpine image (`ghcr.io/edraj/csdmart`), on SQLite by default; point it at an external PostgreSQL for the full tier.
+- **Containerized:** a single-process Alpine image (`ghcr.io/edraj/csdmart`) that listens on port 8000, on SQLite by default; point it at an external PostgreSQL for the full tier. See [The container](/installation#the-container).
 
 - **Config:** Environment variables / `config.env`, bound and validated once at startup (strict unknown-key rejection, no hot reload).
 
 - **External dependency:** none on SQLite (the default for the RPM, DEB and APK packages and the container); a PostgreSQL instance for the full tier — no Redis, no separate search cluster required.
 
-- **Health & Operations:** `/health/live` and `/health/ready` for load balancers and orchestrators. `dmart selfcheck` smoke-tests a running server (readiness, sign-in, CRUD, query), and `dmart selfcheck --ready-only --wait <seconds>` waits for a restarted node before you move on to the next. `dmart check` finds stored content the server cannot read or serve: orphaned attachments, unknown content types, media whose bytes do not match their type, missing folders, payloads that break their schema. On the server's own host, `dmart cli` signs in without a password, from the server's configuration.
+- **Health & Operations:** `/health/live` and `/health/ready` for load balancers and orchestrators. `dmart selfcheck` smoke-tests a running server (readiness, sign-in, CRUD, query), and `dmart selfcheck --ready-only --wait <seconds>` waits for a restarted node before you move on to the next. `dmart check` finds stored content the server cannot read or serve: orphaned attachments, unknown content types, media whose bytes do not match their type, missing folders, payloads that break their schema. On the server's own host, `dmart cli` signs in without a password, from the server's configuration, and sends the token it mints only to that host's own server.
+
+### Installing and upgrading
+
+How to install dmart from the package repositories, the container image, a release file or source, and how to verify a release, is on [Installation](/installation). What to do for a new release, including the notes for each one, is on [Upgrading](/upgrading).
+
+### Running several nodes
+
+Several dmart processes may share one PostgreSQL database, for example behind a load balancer. SQLite is single-node.
+
+- **Taking turns:** PostgreSQL advisory locks let one process at a time run schema initialization, the search-text fill and the `query_policies` rewrite after an upgrade. A node that starts while another is initializing waits, and logs `waiting for another dmart to finish schema initialization` once a minute; `dmart migrate` waits the same way.
+- **Upgrades:** upgrade every node that shares the database together. A node of an earlier release does not take its turn, and runs the search-text fill alongside the others.
+- **Startup:** a database that cannot be reached yet is retried for about a minute (after 1, 2, 4 and 8 seconds, then every 10). If schema initialization still fails, dmart stops. The packaged unit restarts it; a unit or supervisor of your own needs `Restart=on-failure` too.
+- **After a rollback:** after rolling back and upgrading again, or restoring a database taken before the upgrade, delete the `query_policies_v2` row from `maintenance_runs`, or run [`dmart update_query_policies --all-tables`](/cli#12-update_query_policies).
+
+Each process keeps some state to itself:
+
+| State | What it means behind a load balancer |
+|---|---|
+| WebSocket connections | a notification reaches only the clients connected to the node that handled the write |
+| MCP sessions, and MCP OAuth client registrations and codes | keep each MCP client on one node: sticky sessions for `/mcp` and `/oauth/*` |
+| OIDC authorization codes (60 seconds) | route `/oidc/*` to one node |
+| rate limiters | each node counts only its own requests |
+| sign-in and permission caches | a change made through another node applies here within `AUTH_CACHE_TTL` (5 s) and `AUTHZ_CACHE_TTL` (60 s); see [Settings](/settings) |
+
+### Small devices and diagnostics
+
+On a small board, set two .NET runtime variables in the process's environment (for the packaged service, `Environment=` lines in a `systemctl edit dmart` drop-in), not in `config.env`:
+
+```bash
+DOTNET_gcServer=0                # workstation GC: server GC sizes its heaps per core
+DOTNET_GCHeapHardLimit=8000000   # 128 MiB, in bare hex
+```
+
+- **Bare hex:** a `0x`-prefixed `DOTNET_GCHeapHardLimit` is ignored without a word. Check `gc_heap_hard_limit_bytes` in `GET /info/metrics`, where 0 means no limit.
+- **What the limit bounds:** the managed heap only. Argon2 password hashing allocates native memory, which `PASSWORD_HASH_MEMORY_BUDGET_MB` bounds instead (see [Settings](/settings)).
+- **Where memory goes:** `GET /info/metrics` (admin only; `?format=prometheus` for a scraper) reports both `gc_heap_bytes` and `process_working_set_bytes`. A working set that grows while the heap stays flat is native memory; a heap that grows with it is managed.
+- **Startup log:** the first lines name the dmart version and the database driver, and say whether the driver was set or inferred, e.g. `database driver: sqlite (inferred — no PostgreSQL connection configured)`.
+- **Port in use:** dmart prints `Error: Port <port> is already in use.` and exits with status 1.
+- **Permissions after an import:** a `dmart import` or a direct SQL edit of users, roles or permissions does not clear the running server's permission cache, which then serves the old grants for up to `AUTHZ_CACHE_TTL` seconds. `GET /managed/reload-security-data` (global admin) clears it at once.

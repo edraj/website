@@ -8,6 +8,8 @@ DMART treats data as a first-class citizen, moving beyond traditional database c
 
 **Structured & Unstructured** Seamlessly handle JSON data alongside text, markdown, and binary files (images, PDFs, videos).
 
+**Diagrams in Markdown** A fenced code block marked `mermaid` in Markdown content is drawn as a diagram in CXB and the catalog.
+
 **Attachments** Associate any number of files (documents, media) directly with an entry, keeping related information together.
 
 **Hierarchical** Organize data into intuitive Spaces and Subpaths, similar to a file system.
@@ -42,18 +44,20 @@ Built-in tools to manage processes and teamwork.
 ```mermaid
 stateDiagram-v2
     [*] --> Open
-    Open --> InProgress: Assign to User
-    InProgress --> Review: Work Completed
-    Review --> Resolved: Approved
-    Review --> InProgress: Request Changes
+    Open --> InProgress: start
+    InProgress --> Review: submit
+    Review --> Resolved: approve
+    Review --> InProgress: request_changes
     Resolved --> [*]
 ```
 
-- **Ticketing System:** Track work as tickets that move through states (e.g., "Open," "In Progress," "Resolved").
+- **Ticketing System:** Track work as tickets that move through states (e.g., "Open," "In Progress," "Resolved"). Each arrow above is a workflow action, and a ticket changes state when one is applied with `progress-ticket` (see [Tickets & Workflows](/tickets)).
 
-- **Custom Workflows:** Define custom state transitions and rules to match your specific business processes.
+- **Custom Workflows:** Define custom state transitions and rules to match your specific business processes. Each transition can be limited to roles or require a resolution, and a state can be closed yet keep a reopen transition, so a delivered ticket reads closed until someone with the right role reopens it.
 
-- **Assignments:** Hand an entry or ticket over to another user, who becomes its owner, and name its collaborators.
+- **Assignments:** Hand an entry or ticket over to another user, who becomes its owner. Assigning changes only the owner, and leaves a ticket's state as it is.
+
+- **Collaborators & Locks:** Name the people working on an entry in its collaborators, and lock a ticket while you work it, which records you as its `processed_by` and holds off other editors.
 
 - **Comments & Reactions:** Collaborate directly on data entries with threaded comments and emoji reactions.
 
@@ -65,7 +69,7 @@ Security is granular and configurable to match organizational needs.
 
 - **Role-Based Access Control (RBAC):** Define roles (e.g., Admin, Editor, Viewer) with specific permissions.
 
-- **Granular Permissions:** Control access at the folder or even individual entry level (Create, Read, Update, Delete), down to individual fields, and limit a role to the records that match a filter.
+- **Granular Permissions:** Control access at the folder or even individual entry level (Create, Read, Update, Delete), down to individual fields, and limit what a role reads and writes to the records that match a filter.
 
 - **Protected Administrator Sign-In:** Administrator accounts sign in with a password and a one-time code, and self-registration stays off until an instance turns it on.
 
@@ -92,6 +96,8 @@ sequenceDiagram
 - **RESTful API:** A comprehensive, documented API for interacting with every aspect of the platform.
 
 - **Plugin Architecture:** Extend functionality with custom plugins for logic, validation, or external integrations.
+
+- **Solution Packs:** csdmart's source repository carries ready-made applications defined as data, in `packs/`: `org`, `catalogue`, `assets`, `servicedesk`, `approvals`, `kb`, `datamart` and the optional `comms`. Each is a space with its folders and schemas, plus the roles and permissions that make it usable. `packs/install.sh` installs every pack but `comms`, or `--packs a,b` with their dependencies; `--public` opens a pack's public roles to anonymous users, `--plugins` deploys its plugins, `--dry-run` prints the plan, and `--force` allows a downgrade. `packs/reset.sh` removes a pack. Each install leaves a receipt at `management/packs/<name>`, so a later update never overwrites or deletes an entry you changed; a pack's spaces, roles and permissions always follow the pack.
 
 - **AI Agents (MCP):** An optional MCP server lets AI agents query, read and write entries as a signed-in DMART user, within that user's permissions.
 

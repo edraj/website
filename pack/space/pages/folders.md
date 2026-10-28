@@ -16,7 +16,7 @@ graph TD
     B --> BE["Backend reads it → enforces what may be created here"]
 ```
 
-The folder does not store its children. It stores _the rules and the view_ for its children. The children are ordinary entries that happen to share its subpath.
+The folder does not store its children. It stores _the rules and the view_ for its children. The children are ordinary entries that happen to share its subpath. Moving a folder takes its whole subtree with it, deleting one that is not empty needs `force`, and a folder cannot be moved into itself or a folder beneath it (see [Moving and renaming](/entity-lifecycle#moving-and-renaming)).
 
 ## 2. Anatomy: where the config actually lives
 
@@ -212,11 +212,15 @@ Semantics that matter in practice:
 
 - A field is `payload.body.<path>` for a body field, or one of `shortname`, `slug`, `owner_shortname`, `tags`, `displayname.<lang>` and `description.<lang>`. In a folder of users, roles or permissions it names the record's own attribute, such as `email` or `msisdn`.
 
-- A list value counts each of its elements, and `[]` reaches into a list of objects: `payload.body.variants[].sku`.
+- A list value counts each of its elements, and `[]` reaches into a list of objects: `payload.body.variants[].sku`. Only one `[]` per path is supported: a path with two, such as `a[].b[].c`, is not enforced, and the server only logs a warning.
 
-- Values are compared exactly as written, against every record in the folder, whether or not the writer can read it.
+- Values are compared exactly as written, except a user's `email`, which matches in any case. They are compared against every record in the folder, whether or not the writer can read it, so a write can be refused over a record the writer cannot see.
 
-- A user is always held unique by `email` and `msisdn`, whatever the folder declares.
+- A user is always held unique by `email` and `msisdn`, whatever the folder declares. An update that keeps the account's own email, in any case, is not checked for it.
+
+- A compound with list values runs one search per combination of them. A write that would need more than `UNIQUENESS_MAX_PROBES` searches (default `1000`, see [Settings](/settings)) is refused with `INVALID_DATA`.
+
+- Uniqueness fails closed, unlike the content policy: when the check cannot run (the folder cannot be read, or a search fails), the write is refused with "uniqueness could not be verified" (`SOMETHING_WRONG`).
 
 ## 11. Default values
 

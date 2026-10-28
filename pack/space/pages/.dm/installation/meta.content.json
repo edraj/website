@@ -1,0 +1,22 @@
+{
+  "uuid": "52098a95-83b8-40a8-a430-724f301ebd25",
+  "shortname": "installation",
+  "is_active": true,
+  "slug": "installation",
+  "displayname": {
+    "en": "Installation"
+  },
+  "description": {
+    "en": "Install dmart from the signed package repositories, the container image, a release file or source; start it, set the admin password and check it works."
+  },
+  "tags": [
+    "docs"
+  ],
+  "created_at": "2026-10-28T00:00:00",
+  "updated_at": "2026-10-28T00:00:00",
+  "owner_shortname": "dmart",
+  "payload": {
+    "content_type": "markdown",
+    "body": "installation.md"
+  }
+}

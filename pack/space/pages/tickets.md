@@ -7,13 +7,13 @@ A ticket is an entry whose `resource_type` is `ticket` (one of the 30 resource t
 | Field | Type | Meaning |
 |---|---|---|
 | `state` | `string?` | The current workflow state (e.g. `pending`, `approved`). Set to the workflow's `initial_state` at creation. |
-| `is_open` | `bool?` | Whether the ticket is still active. `true` while the current state has outgoing transitions; `false` once it lands on a terminal (closed) state. |
+| `is_open` | `bool?` | Whether the ticket is still active. Each transition sets it from the state it lands on: `true` while that state has outgoing transitions, `false` once it lands on a terminal state or on one that declares `"is_open": false`. A new ticket starts `true`. |
 | `workflow_shortname` | `string?` | Which workflow definition governs this ticket. Looked up when a transition is attempted. |
 | `reporter` | `Reporter?` | Provenance for externally-submitted tickets (channel, distributor, etc.). See below. |
-| `collaborators` | `Dictionary<string, string>?` | Named collaborator slots (e.g. `{"assignee": "alice"}`). Set via the `assign` request. |
+| `collaborators` | `Dictionary<string, string>?` | Named collaborator slots (e.g. `{"assignee": "alice"}`), string values only. Set by `create`, replaced whole by an `update` or `patch` (see [What an update changes](/entity-lifecycle#what-an-update-changes)), and given `processed_by` by a lock. `assign` does not write it. It grants no access of its own. |
 | `resolution_reason` | `string?` | Why the ticket was closed / rejected. Required by transitions that declare `resolution_required`. |
 
-A ticket is created with the normal [`create` request](/entity-lifecycle) — you supply `workflow_shortname` and the engine sets the initial state: a `state` you send is replaced by the workflow's `initial_state`, and `is_open` is set to `true`. If the workflow cannot be found in the ticket's space, the ticket keeps the `state` it was sent. Example create record:
+A ticket is created with the normal [`create` request](/entity-lifecycle) — you supply `workflow_shortname` and the engine sets the initial state: a `state` you send is replaced by the workflow's `initial_state`, and `is_open` is set to `true`, whatever the initial state declares. If the workflow cannot be found in the ticket's space, the ticket keeps the `state` it was sent. Example create record:
 
 ```http
 POST /managed/request
@@ -49,13 +49,13 @@ A ticket can also be filed without signing in, through `POST /public/submit/{spa
 
 ## Workflows Are Data
 
-A workflow is _not_ code. It is a `content` entry (resource type `content`) stored under a `/workflows` folder in the **same space as the ticket**. Its `payload.body` holds the state-machine definition. At transition time `WorkflowEngine` loads that entry — trying subpaths `/workflows`, `/workflow`, then `/` — deserialises the body, and evaluates the requested action against it.
+A workflow is _not_ code. It is a `content` entry (resource type `content`) stored under a `/workflows` folder in the **same space as the ticket**. Its `payload.body` holds the state-machine definition. At transition time `WorkflowEngine` loads that entry — trying subpaths `/workflows`, `/workflow`, then `/` — deserialises the body, and evaluates the requested action against it. The entry's `is_active` is not consulted: an inactive workflow still governs its tickets, and the seeded `channel` workflow is inactive.
 
 ### Anatomy of a workflow body
 
-**initial_state** The state a new ticket starts in. May be a plain string, or an array of `{name, roles}` objects — in the array form the engine prefers the entry whose `roles` contains `"default"`, falling back to the first named entry.
+**initial_state** The state a new ticket starts in. May be a plain string, or an array of `{name, roles}` objects — in the array form the engine prefers the entry whose `roles` contains `"default"`, falling back to the first named entry. The seeded `workflow` schema, in `management`, takes only the array form, and no top-level keys besides `name`, `illustration`, `initial_state` and `states`; a workflow there whose payload names that schema is checked against it.
 
-**states[]** The list of states. Each has a machine `state` key, an optional display `name`, and a `next` array of outgoing transitions. A state with _no_ `next` is terminal (closed).
+**states[]** The list of states. Each has a machine `state` key, an optional display `name`, an optional `is_open`, and a `next` array of outgoing transitions. A state with _no_ `next` is terminal (closed). A state with `"is_open": false` is closed too, though its transitions can still move a ticket on (see [Reopening a closed ticket](#reopening-a-closed-ticket)).
 
 **next[] transition** An `action` (the verb the caller invokes), a target `state` (the engine also accepts `to` for back-compat), an optional `roles` gate, and an optional `resolution_required` flag.
 
@@ -118,7 +118,7 @@ This is the shape of a real seeded workflow (`management/workflows/channel`), tr
 }
 ```
 
-**Open vs. closed is derived, not stored on the workflow.** The engine's `CheckOpenState` looks up the target state in `states[]` and reports it _open_ if it has a `next` field, _closed_ if it does not. That result becomes the ticket's `is_open` after the transition — so landing on `failed` above sets `is_open = false`, while landing on `pending` keeps it `true`.
+**Open vs. closed comes from the target state.** The engine's `CheckOpenState` looks up the target state in `states[]` and reports it _closed_ if it says `"is_open": false`; otherwise _open_ if it has a `next` field, _closed_ if it does not. Only `false` counts: `"is_open": true` on a state without transitions would leave a ticket open that nothing could move on, so it and any other value are ignored. That result becomes the ticket's `is_open` after the transition — so landing on `failed` above sets `is_open = false`, while landing on `pending` keeps it `true`.
 
 ## The State Machine
 
@@ -137,7 +137,24 @@ stateDiagram-v2
     failed --> [*]
 ```
 
-Because `rejected` and `completed` still have outgoing transitions, they are _open_ states even though they read like end states — a rejected ticket can be re-submitted, a completed one re-opened. Only `failed` has no `next`, so it is the sole closed state here.
+Because `rejected` and `completed` still have outgoing transitions, they are _open_ states even though they read like end states — a rejected ticket can be re-submitted, a completed one re-opened. Only `failed` has no `next`, so it is the sole closed state here. To have `completed` read closed and keep its `update` transition, mark it `"is_open": false`.
+
+### Reopening a closed ticket
+
+A state that says `"is_open": false` keeps a ticket entering it closed although transitions lead out of it, so a delivered or cancelled ticket reads closed and can still be reopened:
+
+```json
+{ "name": "Delivered", "state": "delivered", "is_open": false,
+  "next": [{ "action": "reopen", "state": "pending", "roles": ["order_recovery"] }] }
+```
+
+A reopen is a transition like any other: `PUT /managed/progress-ticket/{space}/{subpath}/{shortname}/reopen` moves a delivered ticket back to `pending`, open again, for a caller holding `progress_ticket` on it and the role `order_recovery`. A caller without the role is refused with `INVALID_TICKET_STATUS` (300); one that may see the ticket but lacks `progress_ticket` on it gets `NOT_ALLOWED`. The ticket keeps its `resolution_reason` unless the call sends one.
+
+- **A new ticket starts open,** whatever its initial state declares.
+- **Tickets already in a state** when it is marked `"is_open": false` keep the `is_open` they have until they next move; nothing rewrites them.
+- **The seeded `workflow` schema** in `management` declares `is_open` on a state. So does the one catalog creates for a new space, which also allows `roles` and `resolution_required` on a transition and `resolutions` on a state. A space catalog set up earlier keeps its older schema, which refuses these keys: add them to that copy before using them there.
+- **cxb's ticket form** offers a closed ticket's transitions to a user who may take one of them, above a note that the ticket is closed; anyone else sees it closed. Its choices are listed by action, so two transitions to the same state are told apart, and Submit waits for a choice. cxb's workflow editor has a "Closed" checkbox per state, and its diagram ends a closed state's path.
+- **Catalog's reports page** shows a closed state that can be reopened as closed.
 
 ## Advancing a Ticket: `progress-ticket`
 
@@ -157,7 +174,11 @@ PUT /managed/progress-ticket/applications/api/v1/tickets/TCK_1042/reject
 
 The body accepts `resolution` _or_ `resolution_reason` (both map to the ticket's `resolution_reason` column), plus an optional `comment`. A missing/empty body is allowed for transitions that do not require a resolution.
 
+The [CLI](/cli)'s `progress <subpath> <shortname> <action>` progresses a ticket in its current space, but sends no body, so it cannot take a transition with `resolution_required`; use the endpoint for those.
+
 The workflow is the only way to move a ticket. On a ticket whose workflow exists, an `update` (or `patch`, an MCP update, or an alteration) that changes `state`, `is_open`, `resolution_reason` or `workflow_shortname` is refused with `INVALID_TICKET_STATUS` (300), naming this endpoint; `workflow_shortname` counts too, so a ticket cannot be pointed at a missing workflow to have its state written directly. An update that sends those fields back unchanged, as a front end saving the whole record does, passes. A global admin may still write them, to repair a stuck ticket, and a ticket whose workflow is not found behaves as any other entry.
+
+**A ticket put on a workflow starts at its beginning.** An update that sets `workflow_shortname` on a ticket whose stored workflow is unset or not found, to a workflow that exists, puts the ticket at that workflow's `initial_state` with `is_open: true`, as a new ticket starts; any `state`, `is_open` or `resolution_reason` in the same update is not written, whoever sends it. A workflow with no `initial_state` leaves the update as sent. Workflows resolve per space, so a `move` can do the same: a ticket moved to another space where its `workflow_shortname` resolves, from one where it did not, arrives at the workflow's `initial_state`, open, and so does every such ticket beneath a moved folder; the move's history row records the new `state` and `is_open`. A move within a space, or between two spaces where the name resolves in both, keeps the state. From then on the ticket moves through progress-ticket.
 
 ### What the engine enforces
 
@@ -167,7 +188,7 @@ The workflow is the only way to move a ticket. On a ticket whose workflow exists
 
 **2 · Workflow exists** The ticket must carry a non-empty `workflow_shortname`, and that workflow entry must load and contain a `states` array.
 
-**3 · Current state is known** The ticket's `state` must match a state in the workflow, and that state must have a `next` array (not terminal).
+**3 · Current state is known** The ticket's `state` must match a state in the workflow, and that state must have a `next` array (not terminal). A state marked `"is_open": false` with a `next` array passes, which is how a closed ticket is reopened.
 
 **4 · Action is a valid transition** Some entry in `next` must have `action` equal to the URL's action, with a non-empty target `state`.
 
@@ -175,7 +196,7 @@ The workflow is the only way to move a ticket. On a ticket whose workflow exists
 
 **6 · Resolution when required** If the transition sets `resolution_required: true`, a `resolution_reason` must be present in the body — else the request fails with `MISSING_DATA`.
 
-When all checks pass, the service builds a patch — `state` = the new state, `is_open` = whether that state is open, and `resolution_reason` if supplied — and applies it through `EntryService.UpdateAsync` with the action override `progress_ticket` (so the permission walk gates on the `progress_ticket` action, not `update`). A non-empty `comment` is then stored as a `comment` attachment under the ticket, carrying the new state. [Plugins](/plugins) hear of the transition as an `update` event. The success envelope echoes the outcome:
+When all checks pass, the service builds a patch — `state` = the new state, `is_open` = whether that state is open, and `resolution_reason` if supplied (otherwise the ticket keeps the one it has) — and applies it through `EntryService.UpdateAsync` with the action override `progress_ticket` (so the permission walk gates on the `progress_ticket` action, not `update`). A non-empty `comment` is then stored as a `comment` attachment under the ticket, carrying the new state. The comment is written best effort, after the transition: if it fails, the transition stands and the request still succeeds, and it fires no plugin event of its own. [Plugins](/plugins) hear of the transition as an `update` event whose `attributes` carry the new `state` and a `history_diff` of what changed. The success envelope echoes the outcome:
 
 ```json
 {
@@ -203,7 +224,7 @@ The rejections are explicit. A few representative errors (all returned as `statu
 
 ## Assigning: the `assign` Request
 
-Handing a ticket to a new owner or collaborator is a first-class operation, distinct from a normal update. It goes through the standard `/managed/request` envelope with `request_type: "assign"` (one of the 7 request types) and is dispatched by `DispatchAssignAsync`:
+Handing a ticket to a new owner is a first-class operation, distinct from a normal update. It goes through the standard `/managed/request` envelope with `request_type: "assign"` (one of the 7 request types) and is dispatched by `DispatchAssignAsync`:
 
 ```http
 POST /managed/request
@@ -216,8 +237,7 @@ POST /managed/request
       "subpath": "api/v1/tickets",
       "shortname": "TCK_1042",
       "attributes": {
-        "owner_shortname": "backoffice_agent_7",
-        "collaborators": { "assignee": "backoffice_agent_7" }
+        "owner_shortname": "backoffice_agent_7"
       }
     }
   ]
@@ -230,9 +250,11 @@ The dispatcher's contract:
 
 **owner_shortname required** Absent or empty → `MISSING_DATA` ("The owner_shortname is required").
 
+**The record answers first** The caller's `assign` on the ticket is checked before the new owner is looked up, so a caller without it gets `NOT_ALLOWED` whether or not the ticket or the new owner exists (see [Row filters](/access-control#row-filters)).
+
 **Target must exist** The new owner must be a real user in `management/users` → otherwise `OBJECT_NOT_FOUND`.
 
-**Only ownership + collaborators change** The patch mutates `owner_shortname` plus optional `collaborators`; all other restricted fields stay untouched.
+**Only ownership changes** The patch stores `owner_shortname` alone. Any other attribute in the record, `collaborators` included, is ignored, and every other field stays untouched; `collaborators` changes through an `update`.
 
 ## Reporter & Provenance
 
@@ -264,7 +286,7 @@ All reporter fields are optional strings (plus the `channel_address` map). The s
 
 ## Locking Tickets
 
-An agent working a ticket can place an entry lock so nobody else edits it underneath them. Locking is generic to all entries but is especially useful for tickets. Taking a lock needs the `lock` or the `update` action on the entry. The holder releases their own lock without any further grant; releasing someone else's lock needs `unlock`:
+An agent working a ticket can place an entry lock so nobody else edits it underneath them. Locking is generic to all entries but is especially useful for tickets. Taking a lock needs the `lock` or the `update` action on the entry. The holder releases their own lock without any further grant. Anyone else needs `lock`, `update` or `unlock` on the entry to hear anything about its lock (without one, the answer is `NOT_ALLOWED` whether the entry is locked, unlocked or missing), and `unlock` to release another user's lock:
 
 ```
 # take the lock
@@ -274,7 +296,7 @@ PUT    /managed/lock/ticket/applications/api/v1/tickets/TCK_1042
 DELETE /managed/lock/applications/api/v1/tickets/TCK_1042
 ```
 
-A lock lasts `LOCK_PERIOD` seconds (300 by default); the holder locking again extends it, and anyone else gets `LOCKED_ENTRY`, naming the holder. Locking a ticket also records the agent in its `collaborators` as `processed_by`.
+A lock lasts `LOCK_PERIOD` seconds (300 by default); the holder locking again extends it, and anyone else gets `LOCKED_ENTRY`, naming the holder. Locking a ticket also sets `collaborators.processed_by` to the agent, keeping the ticket's other collaborators. When that changes the map (the first lock by a new agent), it is an update of the ticket, gated on `lock`: the history records `collaborators.processed_by`, and hooks hear an `update`. Every lock also writes a history row of its own (`lock_type`: `lock` or `extend`).
 
 While a lock is held, a plain `update`, a `delete` or a `move` by anyone other than the lock holder is blocked. The permission gate runs first, so an unauthorized caller still gets a "not allowed" answer rather than a hint that the entry is merely locked.
 

@@ -1,0 +1,22 @@
+{
+  "uuid": "ee321386-74cb-468d-b712-c6dc833e0fb5",
+  "shortname": "upgrading",
+  "is_active": true,
+  "slug": "upgrading",
+  "displayname": {
+    "en": "Upgrading"
+  },
+  "description": {
+    "en": "Upgrade dmart to a new release, and what each release asks you to check or change."
+  },
+  "tags": [
+    "docs"
+  ],
+  "created_at": "2026-10-28T00:00:00",
+  "updated_at": "2026-10-28T00:00:00",
+  "owner_shortname": "dmart",
+  "payload": {
+    "content_type": "markdown",
+    "body": "upgrading.md"
+  }
+}
