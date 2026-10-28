@@ -7,7 +7,7 @@
     "en": "Upgrading"
   },
   "description": {
-    "en": "Upgrade dmart to a new release, and what each release asks you to check or change."
+    "en": "Upgrade dmart to a new release: back up, upgrade the package or image, restart, and what the first start does."
   },
   "tags": [
     "docs"

@@ -246,4 +246,4 @@ Open the page that matches the task; each is the dmart.cc documentation page of 
 | `references/drivers.md` | Client libraries (Python, TypeScript, Dart, C#) |
 | `references/technical.md` | Architecture overview |
 | `references/installation.md` | Installing dmart: package repositories, container, release files, source; first start and the admin password |
-| `references/upgrading.md` | Upgrading to a new release, and what each release asks you to check or change |
+| `references/upgrading.md` | Upgrading to a new release: backing up, upgrading, restarting, what the first start does |
