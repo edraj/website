@@ -31,9 +31,23 @@ The `search` field is **ignored** for `type` = `spaces` and `history`. For `even
 
 In the `management` space, a query at `/users`, `/roles`, `/groups` or `/permissions` (or below) runs on that table, so a selector names that table's columns: `email`, `msisdn`, `roles` and `groups` are columns of users, not of entries.
 
-The query's other filters are ANDed with the search: `filter_types`, `filter_shortnames`, `filter_schema_names`, `filter_tags` (any of the listed tags), and `from_date` / `to_date`, which bound `created_at`.
+The query's other filters are ANDed with the search: `filter_types`, `filter_shortnames`, `filter_schema_names`, `filter_tags` (any of the listed tags), and `from_date` / `to_date`, which bound `created_at`. `filter_schema_names` defaults to `["meta"]`, which filters nothing: the name `meta` is dropped from the list.
 
-**Permissions narrow every search.** A query returns only rows the caller may list. A permission's row filter (`filter_fields_values`) is ANDed onto the search, and parsed on its own, so nothing in the search (an `or`, an unbalanced quote or paren) can loosen it. A record whose ACL denies the caller `query` or `view` is left out of pages, totals, counters, tags and aggregations, unless the caller is a global admin. Attachments and history are listed only where the record they hang off would be. See [access control](/access-control).
+**Permissions narrow every search.** A query returns only rows the caller may list: a row is listed through a grant whose resource types and conditions admit it, or an ACL that grants the caller `query`. Owning a row does not list it on its own; an `own` grant lists the caller's rows. A grant reaches a listing at its own subpath and every folder below it, and a grant on a space's root reaches every listing in the space. A permission's row filter (`filter_fields_values`), with `__current_user__` and `__current_user__owner__` replaced by the caller's own values, is ANDed onto the search, and parsed on its own, so nothing in the search (an `or`, an unbalanced quote or paren) can loosen it. A record whose ACL denies the caller `query` or `view` is left out of pages, totals, counters, tags and aggregations, unless the caller is a global admin. Attachments and history are listed only where the record they hang off would be. See [access control](/access-control#row-filters).
+
+## Query types other than `search`
+
+`type` decides what a query reads and what it answers. `search`, `subpath` and `reports` list records. The others:
+
+| `type` | Answers |
+|---|---|
+| `spaces` | One record per space where one of the caller's grants that holds `view` or `query` reaches something, by the space's name or `__all_spaces__`, and whose ACL does not deny the caller `view` or `query`; a grant to `create` alone lists no space. It needs `space_name: "management"` and `subpath: "/"`; anything else is `INVALID_DATA`. |
+| `attachments` | One record per attachment below `subpath` that the caller may read, body included. |
+| `tags` | One record, with shortname `tags`. Its `attributes.tags` lists the matching entries' tags, most used first, and `attributes.tag_counts` maps each tag to its count. `limit` and `offset` page over the tags, so `total` is the number of tags in this page. |
+| `counters` | No records. `total` is the number of matching rows, and `returned` the number a listing with the same `limit` and `offset` would return. |
+| `random` | The matching rows in random order; `sort_by` is ignored. |
+| `aggregation`, `attachments_aggregation` | Grouped counts and sums: see [Aggregation](#aggregation-typeaggregation). |
+| `history`, `events` | Change logs: see [`history` & `events` queries](#history--events-queries). |
 
 ## Kinds of token
 
@@ -78,6 +92,8 @@ A word with a digit (`x200`), a single letter, or a fragment of more than 200 of
 
 A word that starts with `-` is not an exclusion: it and the words typed next to it are matched as plain substrings. So is every plain word with `ENABLE_SMART_SEARCH=false`, and on every table but entries (users, roles, groups, permissions, attachments): a case-insensitive substring of the shortname, payload, display names, descriptions and tags, read as JSON text, key names included.
 
+A bare `*` is not a wildcard. As a plain word it is matched as a substring, so `"search": "*"` finds only records whose values hold an asterisk. To list everything, leave `search` out.
+
 ```
 hello                  ⇒ entries whose values contain "hello" as a word, part of a word, or a near spelling
 foo bar                ⇒ entries matching "foo" AND "bar"
@@ -103,15 +119,23 @@ The behaviour depends on which **category** `field` falls into:
 |---|---|---|
 | Plain text column | `shortname`, `subpath`, `slug`, `space_name`, `owner_shortname`, `state` | Exact `=` match; `*` in value falls back to `ILIKE` glob. |
 | Folder subtree | `@subpath:/a/*` | Every row below the folder `/a`, matched exactly and case-sensitively; `_` and `%` in the name match only themselves. `@subpath:/a\|/a/*` takes `/a` too. |
-| Owner contact | `email`, `msisdn` | On any table but users, matched through the owner's user record, and only for a caller who may list every user (a global admin, or a grant on `management/users` with no condition and no row filter); anyone else gets a `400`. On users they are the user's own columns. Whole values only. |
+| Owner contact | `email`, `msisdn` | On any table but users, matched through the owner's user record, and only for a caller who may list every user (a global admin, or a grant on `management/users` with no condition and no row filter); anyone else gets a `400`. Whole values only. On users they are the user's own columns. `@email` ignores case on both: see [`@email` and `@msisdn`](#email-and-msisdn). |
 | Boolean column | `is_active`, `is_open` | Cast to boolean before compare. |
 | JSONB array column | `tags`; on users also `roles`, `groups`, `services`, `mail_aliases` | `@>` containment (does the array contain this value?). |
 | TEXT array column | `query_policies` | `unnest()`, with `ILIKE` when the value holds `*`. |
-| Timestamp column | `created_at`, `updated_at`, `timestamp` | Numeric values are treated as Unix milliseconds; ISO strings cast to `timestamptz`. |
+| Timestamp column | `created_at`, `updated_at`, `timestamp` | Stored as the server's local wall-clock time, with no time zone. A number is Unix milliseconds, converted to the server's local time; an ISO date without an offset is read as the server's local time. |
 | Other JSON column path | `displayname.en`, `description.ar` | The text at that key, compared like a plain text column; `@displayname.*:v` is a substring of the whole column. |
 | `payload.…` jsonb path | `payload.body.x`, `payload.body.config.db.host` | The value held there, or as an element of an array there, by the value's type (below). On PostgreSQL an equality is one jsonpath test, `payload @? …`, which the payload's GIN index serves. |
 | `payload.…*` wildcard | `payload.body.*`, `payload.*` | `ILIKE` over the cast-to-text subtree. |
 | `payload.…[]` array iteration | `payload.body.tags[]`, `payload.body.items[].sku` | `EXISTS (… jsonb_array_elements …)` over each element. |
+
+`relationships` and `acl` hold JSON arrays, so a dotted path into them, such as `@relationships.attributes.relation:x`, parses but never matches. `[]` iteration works only under `payload.`: `@relationships[].attributes.relation:x` is a `400`. To search them, use `@relationships.*:v`, a substring of the whole column.
+
+### `@email` and `@msisdn`
+
+`@email:<value>` matches an address whatever its case, on the users table and through a row's owner on any other table: `@email:Ali@Example.org` finds `ali@example.org`. It compares as sign-in and the users table's unique email index do, `LOWER(email) = LOWER(value)`, so it is a lookup in that index on both engines. A user create's or update's uniqueness check on `email` searches the same way. `-@email:v` and `@email:!v` exclude the same way, without the index.
+
+On the users table a glob (`@email:*@example.org`) is a pattern, in any case, and a range or comparison (`@email:[a m]`) compares the text as stored. Through a row's owner a value is always whole: a `*` is a character, and a range or comparison is a `400`. Case is folded by the database's `lower()`: PostgreSQL's folds any letter, SQLite's only ASCII, as at sign-in. `@msisdn` compares the number as stored.
 
 ## Array iteration in payload paths
 
@@ -316,9 +340,9 @@ Examples:
 
 On a payload path, every negated test (string, number, boolean, range, glob, comparison or `[]`) also matches rows where the field is missing or JSON `null`. A value of another type, such as a string under `-@payload.body.n:[1 10]`, is still left out.
 
-A glob on a plain column negates as a glob: `-@shortname:web*` excludes every shortname that starts with `web`, in any case (`NOT ILIKE` on PostgreSQL). `!` (`@shortname:!web*`) and a `Literal()` value still compare the text as written. On a plain column, a negation leaves out rows where the column is NULL, as `!=` does.
+A glob on a plain column negates as a glob: `-@shortname:web*` excludes every shortname that starts with `web`, in any case (`NOT ILIKE` on PostgreSQL). `!` (`@shortname:!web*`) still compares the text as written. On a plain column, a negation leaves out rows where the column is NULL, as `!=` does.
 
-Permission row filters (`filter_fields_values`) use this same parser, so these rules decide which records a filtered permission covers.
+Permission row filters (`filter_fields_values`) use this same parser, so these rules decide which records a filtered permission covers, for listings, reads by name and writes alike.
 
 Besides the `-@` prefix, a value can start with `!` for not-equal (`@field:!v`, see above).
 
@@ -336,7 +360,7 @@ Whitespace means AND, between paren groups too. OR comes only from the `or` keyw
                                               (payload.body.k = v)
 ```
 
-Up to mid-2026, whitespace between paren groups meant OR. It now means AND; write `or` where you meant OR.
+Whitespace between paren groups means AND; write `or` for OR.
 
 ## Repeated selectors
 
@@ -501,6 +525,13 @@ web01 nginx
 ```
 @query_policies:test:api:content:true:*
                 ⇒ at least one element of query_policies ILIKE 'test:api:content:true:%'
+```
+
+A row carries `space:subpath:resource_type:is_active` for its folder and each folder above it, each also followed by `:<owner>`. A row with an owner group also carries each followed by `:@<group>`:
+
+```
+@query_policies:X:a:content:true:@editors
+                ⇒ active content in X, at /a or below, whose owner group is "editors"
 ```
 
 ### OR-list
@@ -687,14 +718,15 @@ web01 @payload.body.dc:us-east
 (@is_active:true @tags:featured) @payload.body.published:true -@tags:archived @updated_at:>1735689600000
                 ⇒ active entries tagged "featured" with published=true,
                   not tagged "archived",
-                  updated since 2025-01-01 UTC
+                  updated after Unix ms 1735689600000 (2025-01-01 00:00 UTC),
+                  which dmart converts to the server's local time to compare
 ```
 
 ## Sorting, paging and totals
 
 These fields of the `Query` body shape every listing, whatever its `search`.
 
-- **`sort_by`** — a column such as `shortname`, `created_at`, `updated_at`, `slug`, `is_active`, `resource_type` or `owner_shortname` (on entries also `state` and `schema_shortname`), or a dotted path (`payload.body.rank`; `body.rank` is shorthand, and a leading `@` or `attributes.` is dropped). Numbers at a path sort as numbers (2 before 10). Comma-separated keys sort in turn. A key that cannot be used, a hidden column included, is dropped; with none left, rows sort by `updated_at`. Without `sort_by`, rows sort by `updated_at`, except an entries search with plain words, which comes back best match first. `random` ignores it.
+- **`sort_by`** — a column such as `shortname`, `created_at`, `updated_at`, `slug`, `is_active`, `resource_type` or `owner_shortname` (on entries also `state`), or a dotted path (`payload.body.rank`; `body.rank` is shorthand, and a leading `@` or `attributes.` is dropped). `schema_shortname` is shorthand for `payload.schema_shortname`, on every table and engine, attachments included. No table has a `payload_content_type` column; sort by the content type with `payload.content_type`. Numbers at a path sort as numbers (2 before 10). Comma-separated keys sort in turn. A key that cannot be used, a hidden column included, is dropped; with none left, rows sort by `updated_at`. Without `sort_by`, rows sort by `updated_at`, except an entries search with plain words, which comes back best match first. `random` ignores it.
 
 - **`sort_type`** — `descending` (the default) or `ascending`, for every key. Rows without the key come first when descending and last when ascending, on both engines.
 
@@ -704,9 +736,23 @@ These fields of the `Query` body shape every listing, whatever its `search`.
 
 - **`total`** and **`returned`** come back in `attributes`. `/managed/query` counts unless the body says `retrieve_total: false` (an omitted field follows `RETRIEVE_TOTAL_DEFAULT`, true by default). `/public/query` counts only when the body says `retrieve_total: true`, and its GET form never does. A skipped count reports `total` as `-1`. Above `QUERY_TOTAL_CAP` (default 100000) the count stops: `total` is the cap and `total_is_lower_bound` is `true`.
 
+### Shaping the records
+
+These fields of the `Query` body decide what each record carries.
+
+- **`retrieve_json_payload`** — false by default, so a record from an entries query carries its `payload` without `body`. Set it to `true` for the body. Records from every other table (spaces, users, roles, groups, permissions, attachments) always carry their body.
+
+- **`retrieve_attachments`** — `true` adds an `attachments` object to each record of an entries query, beside `attributes`: each attachment type maps to a list of records, as in `{"comment": [ … ], "media": [ … ]}`. It lists only the attachments the caller may read, and a record with none has no `attachments` key. Each embedded attachment reports its parent's subpath, and carries no `acl` or `relationships`.
+
+- **`retrieve_lock_status`** — `true` adds `attributes.locked.owner_shortname` to each record of an entries query that someone holds a live lock on.
+
+- **`include_fields`, `exclude_fields` and `highlight_fields`** — accepted, and ignored.
+
 ### CSV export
 
-`POST /managed/csv` takes the same body and answers a CSV file, sized by the same `limit` rule: one file holds at most `MAX_QUERY_LIMIT` rows, a body without `limit` gets `DEFAULT_QUERY_LIMIT` rows, and `-1` asks for as many as the server allows. A folder that names its `csv_columns` is exported as those columns.
+`POST /managed/csv` takes the same body and answers a CSV file, sized by the same `limit` rule: one file holds at most `MAX_QUERY_LIMIT` rows, a body without `limit` gets `DEFAULT_QUERY_LIMIT` rows, and `-1` asks for as many as the server allows.
+
+When the query's `subpath` is a folder that names its `csv_columns` (see [folders](/folders)), the file holds exactly those columns, each headed by its `name`. Otherwise the columns are `resource_type`, `shortname`, `subpath` and `uuid`, then the records' attributes in alphabetical order: `displayname` and `description` split by language (`displayname.en`), lists of text joined with `|`, and `payload` as one JSON cell. That cell holds an entry's body only when the request sets `retrieve_json_payload: true`. A saved query exported through `/managed/csv/{space}` always takes this second form. To load a CSV back, see `resources_from_csv` in the [API reference](/api-docs).
 
 The file cannot say that it stopped short, so `POST /managed/csv?preview=1` answers, in `attributes`, what the CSV for the same body would hold: `exported`, `total`, `limit`, `truncated`, the `reason` it stops short (`max_query_limit`, `default_query_limit` or `limit`) and a `message`. `/managed/csv/{space}`, which also runs a saved query, takes `?preview=1` too.
 
@@ -936,7 +982,9 @@ Reads the per-entry change log from the `histories` table. A request with no cal
 }
 ```
 
-Each record carries `owner_shortname` (who made the change), `timestamp`, `diff` (each changed field's old and new value, passwords masked) and `last_checksum_history`.
+Each record has `resource_type: history` and the changed record's `shortname` and `subpath`, and carries in `attributes` `owner_shortname` (who made the change), `timestamp`, `diff` and `last_checksum_history`. It carries no request headers.
+
+`diff` maps each changed field to its `old` and `new` value. Its keys are dotted paths: `is_active`, `displayname.en`, `payload.body.title`. An array is stored and compared whole, so a change to one element shows the whole old and new array. A `password` key, or one ending in `.password`, reads `********` on both sides. The row an entry's create writes lists the fields it set, each with `old: null`, without the body; a CSV import writes none.
 
 ### `events`
 

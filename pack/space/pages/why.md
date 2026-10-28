@@ -23,7 +23,7 @@ graph TD
     end
 ```
 
-**Ownership** Your data lives in a standard PostgreSQL or SQLite database you control, and can be exported in full to plain JSON files at any time — no proprietary lock-in.
+**Ownership** Your data lives in a standard PostgreSQL or SQLite database you control, and can be exported in full to plain JSON files at any time — no proprietary lock-in. DMART itself is free software, licensed under the GNU AGPL-3.0.
 
 **Accessibility** A unified, standardized API layer means any application or microservice can access your data securely through one consistent interface.
 

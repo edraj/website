@@ -204,7 +204,7 @@
       "actions": [
         {
           "label": "Get Started",
-          "href": "/features",
+          "href": "/installation",
           "style": "primary"
         },
         {

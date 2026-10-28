@@ -26,7 +26,7 @@ dmart serve --cxb-config my_cxb_config.json
 
 ### 2. migrate
 
-Creates or updates the database schema, on PostgreSQL or SQLite, without starting the server. It also moves every schema kept outside a space's `/schema` folder into it (one whose name `/schema` already holds is left in place and reported), and adds the `meta_schema` and `folder_rendering` schemas if they are missing. Idempotent — safe to run repeatedly. `-q` / `--quiet` prints only the summary.
+Creates or updates the database schema, on PostgreSQL or SQLite, without starting the server. It creates what the server creates at every start, where missing: the `dmart` admin, the `management` space with its `users`, `roles`, `groups`, `permissions` and `schema` folders, and the built-in roles and permissions. It also moves every schema kept outside a space's `/schema` folder into it (one whose name `/schema` already holds is left in place and reported), and adds the `meta_schema` and `folder_rendering` schemas if they are missing. Idempotent — safe to run repeatedly. `-q` / `--quiet` prints only the summary.
 
 ```
 dmart migrate
@@ -120,6 +120,8 @@ Exports a space to a zip archive in the DMART on-disk layout (`spaces/` + `.dm/m
 
 - `--no-verify`: with `--all --parquet`, skip re-reading every file and rehashing every attachment after the export.
 
+A zip holds a media attachment's bytes only when its `payload.body` names the attachment's own file, `<shortname>.<ext>`, the name DMART gives an upload. For any other attachment with bytes, the zip carries the metadata alone and the export logs a warning; `--parquet` keeps the bytes whatever the name.
+
 The files an export writes are readable by their owner only. An export that misses entries says so and exits with status 1.
 
 ```
@@ -131,11 +133,25 @@ dmart export --all --parquet --output backups/
 
 ### 6. preflight
 
-Scans a legacy filesystem export for integrity issues (duplicate UUIDs, missing owners, schema-noncompliant payloads) and auto-fixes them before `dmart import`.
+Checks a legacy filesystem export (a folder of spaces) before `dmart import`, and by default rewrites the files in place to fix what it can. It needs no database and no server.
+
+- **Duplicate UUIDs:** fixed. The first meta file in sorted path order keeps its UUID; the others get new ones.
+- **Unknown owners:** fixed. An `owner_shortname` that names no user in the export becomes `dmart`.
+- **Schema violations:** reported, not fixed. Each payload that breaks the schema it names (as found in the export) is listed in `schema-violations.jsonl`.
+
+**Options:**
+
+- `--dry-run`: report only, change nothing.
+- `--output-dir <dir>`: where the reports go (`summary.json`, and `schema-violations.jsonl` when there are any); default `./preflight-<timestamp>`.
+- `--workers <N>`: files parsed in parallel; default one per CPU.
+- `--sample <N>`: sample paths per issue in the summary; default 20.
+- `-v`: more logging.
+
+It exits with status 0 when the export is clean or every issue was fixed, 1 when issues remain (anything found under `--dry-run`, or schema violations), and 2 on a tool error such as an unreadable path.
 
 ```
-dmart preflight ./spaces
-dmart preflight --dry-run --workers 4 ./spaces
+dmart preflight ./spaces --dry-run
+dmart preflight --workers 4 --output-dir /tmp/pf ./spaces
 ```
 
 ### 7. settings
@@ -150,9 +166,15 @@ dmart settings
 
 Sets the password for a user (Argon2-hashed), held to the same password rule as every other way of setting one (`regex.json`). The shortname may be passed positionally; the password is read from a prompt, never the command line. It also reactivates and unlocks the account (`is_active` true, `attempt_count` 0) and ends all of its sessions.
 
+It sets the password of an account that exists, and exits with status 1 when there is none:
+
+- **Before the server's first start**, which creates the database and the `dmart` admin, it says to start the server once and run it again. It creates no database file and applies no schema.
+- **On a server that has started**, an unknown name is `User <name> not found`.
+- **Where no `config.env` could be read** (a packaged `/etc/dmart/config.env` is readable by root and the `dmart` group only), it has looked at the built-in defaults rather than the server's database, and its refusal says so: run it with `sudo`, or point `BACKEND_ENV` at the server's `config.env`.
+
 ```
 dmart passwd
-dmart passwd dmart
+sudo dmart passwd dmart
 ```
 
 ### 9. check
@@ -168,13 +190,13 @@ dmart check school hard
 
 Smoke-tests a running server over HTTP. It asks `/health/ready` first, and stops there with the server's reason (`database unreachable`, a directory replica not synced yet) when the server is not ready. Then it signs in, reads `/info/manifest` and prints the server's version, lists spaces, creates, queries, updates and deletes a test entry, and signs out. It signs in as `--admin` (default `ADMIN_SHORTNAME`, else `dmart`), which must be a global admin.
 
-Given no password (`--password`, `--password-stdin` or `DMART_PWD`), it signs in without one, as `dmart cli` does: a token minted from `JWT_SECRET` in config.env, with a session row it removes when it exits. That needs read access to config.env and the database, PostgreSQL or SQLite.
+Given no password (`--password`, `--password-stdin` or `DMART_PWD`), it signs in without one, as `dmart cli` does: a token minted from `JWT_SECRET` in config.env, with a session row it removes when it exits. That needs read access to config.env and the database, PostgreSQL or SQLite. The token goes only to this host's own dmart: a `--url` (or `DMART_URL`) that is not a loopback address (`localhost`, `127.0.0.0/8`, `::1`) or the configuration's `LISTENING_HOST`:`LISTENING_PORT` is refused, with status 1, before any token is minted. Check another server with a password.
 
 - `--ready-only`: only the readiness check — no sign-in, and no database access from this host.
 
 - `--wait <seconds>`: ask `/health/ready` again every 2 seconds until the server is ready or the time is up.
 
-- `--url <url>`: the server (default `http://<LISTENING_HOST>:<LISTENING_PORT>`, with 127.0.0.1 for a wildcard host such as `0.0.0.0`).
+- `--url <url>`: the server (default `DMART_URL`, else `http://<LISTENING_HOST>:<LISTENING_PORT>`, with 127.0.0.1 for a wildcard host such as `0.0.0.0`).
 
 - `--space`, `--subpath`: where to create the test entry; `--keep` leaves it there; `-v` shows more detail.
 
@@ -198,6 +220,8 @@ dmart fix-folder-rendering school --apply
 ### 12. update_query_policies
 
 Recomputes `query_policies` and updates rows whose stored value drifted (e.g. owner / is_active changed outside the write path). Entries only, unless `--all-tables` is given. With `--all-tables` it also marks as done the rewrite the server otherwise runs in the background after an upgrade that changes these values, so a large instance can do that work in a maintenance window instead.
+
+That record is a `query_policies_v2` row in the `maintenance_runs` table. After rolling back and upgrading again, or restoring a database taken before the upgrade, it no longer holds: delete that row so the next start redoes the rewrite, or run `dmart update_query_policies --all-tables`.
 
 ```
 dmart update_query_policies
@@ -236,7 +260,9 @@ dmart import-ldif directory.ldif --apply
 
 ### 16. prune-empty-histories
 
-Deletes history rows that record no change, written by older releases. The deletions are recorded, so incremental exports stay consistent.
+Deletes history rows that record no change (an empty or NULL `diff`), written by older releases. `--space <name>` limits it to one space. Each deleted row gets a tombstone, so incremental Parquet exports learn of the deletion; a large prune therefore adds as many rows to the deletions table as it removes.
+
+Nothing runs it for you. Run it once after upgrading, and again after importing an old archive.
 
 ```
 dmart prune-empty-histories --dry-run
@@ -245,7 +271,11 @@ dmart prune-empty-histories --space school
 
 ### 17. prune-tombstones
 
-Deletes the records of deletions older than a window, so that table stops growing. Pick a window longer than your incremental export interval.
+Deletes the records of deletions (tombstones) older than `--older-than <days>`, so that table stops growing. The window has no default. Nothing runs the command for you.
+
+It also raises the retention floor to the same cutoff. An incremental Parquet export (`--since`) whose previous export is older than the floor then warns `DELETIONS MAY HAVE BEEN LOST`; take a full export to resynchronize. Pick a window longer than your incremental export interval.
+
+When you run both prune commands, prune the empty histories first, let your incremental exports carry the tombstones that writes, then prune the tombstones.
 
 ```
 dmart prune-tombstones --older-than 90 --dry-run
@@ -255,6 +285,9 @@ dmart prune-tombstones --older-than 90 --dry-run
 
 Initializes `~/.dmart`: a `config.env` with a fresh random `JWT_SECRET`, the `config.json` the web UIs read, and a `cli.ini` pointing at the configured port. `config.env` and `cli.ini` are readable by their owner only; a file that is already there is left as it is.
 
+- **`config.env`** is a copy of `config.env.sample` when that file sits beside the binary, as in the tarballs. Otherwise (the packages keep the sample in `/usr/share/dmart/`) it is a short file of PostgreSQL connection settings. Either way it selects PostgreSQL. The sample's values are not all the built-in defaults: among others it sets `JWT_ACCESS_EXPIRES=3600` (built in: 30 days), `DATABASE_DRIVER="postgresql"` (built in: inferred) and `ADMIN_EMAIL="admin@example.com"` (built in: none).
+- **`cli.ini`** holds no password: a commented `# password=` line says where one goes. Without one (or `DMART_PASSWORD`), `dmart cli` signs in from the server's configuration, which works on the server's own host.
+
 ```
 dmart init
 ```
@@ -263,7 +296,7 @@ dmart init
 
 Interactive CLI client for talking to a running DMART server: a REPL, a single command, or a script.
 
-It reads `cli.ini` (the first of `$DMART_CLI_CONFIG`, `./cli.ini` and `~/.dmart/cli.ini`, refused unless only its owner has access, as with mode 0600), overridden by `DMART_URL`, `DMART_SHORTNAME` and `DMART_PASSWORD`. With no password from either, it signs in where the server runs: it mints a token from `JWT_SECRET` in the server's config.env, with a session row in the database that it removes when it exits, and, given no URL, talks to that configuration's own server (`LISTENING_HOST`:`LISTENING_PORT`, a wildcard host read as 127.0.0.1). That needs read access to config.env and the database, which can already sign any token.
+It reads `cli.ini` (the first of `$DMART_CLI_CONFIG`, `./cli.ini` and `~/.dmart/cli.ini`, refused unless only its owner has access, as with mode 0600), overridden by `DMART_URL`, `DMART_SHORTNAME` and `DMART_PASSWORD`. With no password from either, it signs in where the server runs: it mints a token from `JWT_SECRET` in the server's config.env, with a session row in the database that it removes when it exits, and, given no URL, talks to that configuration's own server (`LISTENING_HOST`:`LISTENING_PORT`, a wildcard host read as 127.0.0.1). That needs read access to config.env and the database, which can already sign any token. A URL it is given (`URL` in `cli.ini`, or `DMART_URL`) must be that server too: a loopback address (`localhost`, `127.0.0.0/8`, `::1`) or that listen address. Any other is refused, with why and status 1, before a token is minted; sign in there with a password.
 
 `dmart cli c <space> [/subpath] <command>` runs the command in that folder, as if you had switched and `cd`'d there. A space is named exactly, or by a prefix only one space has; an unknown or ambiguous name exits with status 1 and runs nothing. `switch`, `cd @space` and `ls @space` likewise refuse such a name rather than carry on in the current space. `ls` lists the folder's own entries (up to `QUERY_LIMIT` from `cli.ini`, 100 by default), not those of the folders below, and `cd`, `cat`, `print` and `rm` look names up in that listing. `--json` prints data only.
 
@@ -273,6 +306,54 @@ dmart cli c myspace /folder ls
 dmart cli c management create space website
 dmart cli s ./script.txt
 ```
+
+**`cli.ini` keys** (`key=value`, one per line):
+
+| Key | Meaning | Default |
+|---|---|---|
+| `URL` | the server | `http://localhost:8282` |
+| `SHORTNAME` | the user to sign in as | `dmart` |
+| `PASSWORD` | that user's password; empty or absent, the CLI signs in from the server's configuration, as above | none |
+| `DEFAULT_SPACE` | the space a session starts in | `management` |
+| `QUERY_LIMIT` | entries `ls` loads, and results `find` returns | `100` |
+| `PAGINATION` | rows per page of `ls` output | `50` |
+| `RETRIEVE_JSON_PAYLOAD` | whether `ls` and `find` load each entry's body, which `cat` prints. `true` or `1` loads it; any other value lists meta only, and `cat` then prints no body | `true` |
+
+Keys are matched whatever their case, and a line starting with `#` is a comment.
+
+**Commands:**
+
+| Command | What it does |
+|---|---|
+| `ls [path] [page]` | list the folder's own entries, `page` rows at a time |
+| `cd <folder>`, `cd ..`, `cd @space/sub` | move to a folder, up one, or to another space |
+| `switch <space>` (`s`), `pwd` | change space; print the current space and folder |
+| `whoami`, `version` | user, server and location; the CLI build and the server's version |
+| `print <name>` (`p`) | an entry's metadata |
+| `cat <name>`, `cat path/name`, `cat *` (`c`) | an entry as listed, one in another folder, or the whole listing |
+| `find <pattern> [--type <rt>] [--limit N]` | search the current space from the current folder down |
+| `mkdir <name>` | create a folder here |
+| `create <name> <type>` | create an entry of that resource type here |
+| `create space <name>` | create a space (run it in `management`) |
+| `move <type> <src> <dst>` (`mv`) | move or rename; a path without a leading `/` is in the current folder |
+| `rm [--dry-run] [-f] <name>`, `rm *`, `rm space <name>` | delete an entry, every listed entry, or a space |
+| `attach <sn> <entry> <type> <file>` | upload a file as attachment `<sn>` of `<entry>`, of resource type `<type>` (`media`, `json`, …); `--name-en`, `--name-ar`, `--name-ku` set its display name and `--desc-en`, `--desc-ar`, `--desc-ku` its description |
+| `attach --batch <entry> <type> <glob>` | upload every matching file, each named after its file |
+| `upload schema <name> <file>` | add a JSON schema to the space's `/schema` folder |
+| `upload csv <type> <subpath> <schema> <file> [--update] [--start-row N]` | create entries from a CSV, or update them with `--update` |
+| `request <json_file>` | send the file to `/managed/request` as it is |
+| `progress <subpath> <shortname> <action>` | apply a workflow action to a ticket |
+| `import <zip>` | load a zip through `/managed/import` |
+| `export [csv] <query.json>` | export what a saved query matches, to a zip or with `csv` to a CSV |
+| `export [csv] --space S [--subpath P] [--type T] [--limit N] [--from D] [--to D] [--search Q] [--all] [--include-self] [--out P]` | the same, with the query built from flags |
+| `help [command]` | the command list, or one command's usage |
+
+- **Deleting:** `rm` asks before it deletes a folder, every listed entry (`rm *`) or a space, and deletes any other entry without asking; `-f` skips the question, and `--dry-run` (`-n`) prints what would go. Where there is no one to ask (a script, redirected input or `--json`), those deletions are refused without `-f`.
+- **CSV uploads:** when `REQUEST_TIMEOUT` stops an upload part-way, the CLI sends the rest from the row the server names, until the whole file is in, and prints one summary. A failed run names the row to resume from with `--start-row`.
+- **Tickets:** `progress` sends no body, so it cannot take a transition marked `resolution_required`, which needs a `resolution_reason`; send that one to `PUT /managed/progress-ticket` directly (see [Tickets & Workflows](/tickets)).
+- **Exports:** a flag-built export covers the current space from `/` (up to 10,000 entries unless `--limit` or `--all` says otherwise). `--include-self` adds the `--subpath` folder's own record to a zip. Without `--out`, the file goes to `~/Downloads/<space>.zip` (or `.csv`).
+- **Scripts:** `VAR <name> <value>` declares a variable and `${name}` uses it; `#` and `//` lines and `/* … */` blocks are comments. A script runs every line and exits 0 even when commands fail, unless `--strict` (`dmart cli --strict s <file>`) stops it at the first failure with status 1.
+- **Session:** a 401 in the middle of a session signs in again and retries once, without a word. The REPL keeps 1,000 lines of history in `~/.dmart/cli_history`.
 
 ### 20. version
 
