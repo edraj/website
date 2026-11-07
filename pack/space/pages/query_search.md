@@ -29,7 +29,7 @@ The `search` field is consulted when `type` is one of:
 
 The `search` field is **ignored** for `type` = `spaces` and `history`. For `events` it is a plain, case-sensitive substring matched against each raw event line.
 
-In the `management` space, a query at `/users`, `/roles`, `/groups` or `/permissions` (or below) runs on that table, so a selector names that table's columns: `email`, `msisdn`, `roles` and `groups` are columns of users, not of entries. A grant on those four counts only for accounts of type `admin`, the built-in `dmart` and the exemptions an instance sets, apart from one on the caller's own user record (see [The Management Space](/access-control#the-management-space)).
+In the `management` space, a query at `/users`, `/roles`, `/groups` or `/permissions` (or below) runs on that table, so a selector names that table's columns: `email`, `msisdn`, `roles` and `groups` are columns of users, not of entries. A grant on those four counts only for accounts of type `admin`, the built-in `dmart` and the exemptions an instance sets (see [The Management Space](/access-control#the-management-space)).
 
 The query's other filters are ANDed with the search: `filter_types`, `filter_shortnames`, `filter_schema_names`, `filter_tags` (any of the listed tags), and `from_date` / `to_date`, which bound `created_at`. `filter_schema_names` defaults to `["meta"]`, which filters nothing: the name `meta` is dropped from the list.
 

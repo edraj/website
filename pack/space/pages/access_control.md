@@ -280,7 +280,7 @@ The management space holds the accounts and the rows that grant access, so the s
 
 - **A grant on one's own record** works for any account type: a row filter `@shortname:__current_user__` on `user` records at `management:/users` lets the caller read or write its own record by name, and a subpath `users/__current_user__` reaches that record's attachments.
 
-- **Self-service needs no grant**, so it is unaffected: sign-in, `/user/profile`, password reset, codes and registration. So are the directory replica's feed, LDAP service accounts, the OpenID Connect provider, and the commands run on the host, such as `dmart check`, `dmart passwd` and `dmart import-ldif`.
+- **Self-service needs no grant**, so it is unaffected: sign-in, `/user/profile`, password reset, codes and registration. So are the directory replica's feed, LDAP service accounts, the OpenID Connect provider, and the commands run on the host, such as `dmart check`, `dmart passwd` and `dmart import-ldif`. `dmart cli` is not one of them: it signs in as a user, and is held to these limits like any other client.
 
 - **What a client is told.** The permissions map `/user/profile` and `/user/permissions` return lists the grants as the roles hold them, without these limits, so a client may offer what the server then refuses.
 
