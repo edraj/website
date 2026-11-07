@@ -72,7 +72,8 @@ The `config.json` file defines the plugin's metadata and behavior.
 | `type` | `hook` — reacts to system events `api` — adds new API endpoints |
 | `listen_time` | `before` — execute before action (can veto it by throwing, but cannot change the entry) `after` — execute after action (logging, notifications). A hook without `listen_time` or `filters` is not loaded |
 | `ordinal` | Execution order relative to other plugins (lower = first; default 9999) |
-| `concurrent` | After-hooks: `true` (the default) runs the hook in the background, so the response does not wait for it; `false` makes the request wait. At shutdown, DMART waits up to 10 seconds for background hooks to finish |
+| `concurrent` | After-hooks: `true` (the default) runs the hook in the background, so the response does not wait for it; `false` makes the request wait for the hook's first delivery (retries run later, in the background). At shutdown, DMART waits up to 10 seconds for background hooks to finish; an entry's delivery cut off there is delivered after the restart |
+| `at_most_once` | Entry after-hooks: `true` records each delivery as done before the hook is called, so a failure is only logged and nothing repeats the call: the hook runs once or not at all. Default `false`, which retries (see [After-Hook Delivery](#after-hook-delivery)) |
 | `workers` | Subprocess plugins: how many processes serve the plugin, each taking one call at a time (default 1, clamped to 1–32) |
 | `filters` | Event filters. `subpaths` is a map of space → subpath patterns (`__all_spaces__` / `__all_subpaths__` match any space / subpath); a pattern also covers the folders below it, and `__current_user__` in one stands for the acting user. For `resource_types`, `schema_shortnames`, and `actions`, an empty array `[]` matches everything. |
 
@@ -84,13 +85,48 @@ Some filters never fire:
 
 - **An empty `subpaths`** (`{}`) matches no event, and a space mapped to `[]` adds nothing. Opt in to everything with `{"__all_spaces__": ["__all_subpaths__"]}`.
 
-- **A non-empty `schema_shortnames`** is checked on every event, whatever its resource type, and passes only events whose record's `payload.schema_shortname` it lists: a folder or a ticket whose payload names a listed schema matches too. A record without a payload schema never matches it. Pair it with `resource_types` to narrow it to one kind.
+- **A non-empty `schema_shortnames`** is checked on every event, whatever its resource type, and passes only events whose record's `payload.schema_shortname` it lists: a folder or a ticket whose payload names a listed schema matches too, and so does a user, role, group, permission or space whose stored payload does. For those, a before-hook's event names the schema of the record about to be written, and an after-hook's the record as written, or for a delete as it was found. A record without a payload schema never matches it. Pair it with `resource_types` to narrow it to one kind.
 
 - **A flat `subpaths` array**, the legacy `["__ALL__"]` shape, is refused at load with `PLUGIN_ERROR`, and the plugin does not load.
 
 API plugins ignore `filters`: their routes are mounted whenever `is_active` is true.
 
 These codes in the log mark a plugin that did not load or run: `PLUGIN_INVALID` (a hook without `filters` or `listen_time`), `PLUGIN_UNKNOWN` (a config with no plugin behind it), `PLUGIN_ERROR` (a config that does not parse, or a hook that failed), `NATIVE_PLUGIN_LOAD_FAILED` (a subprocess plugin that did not start) and `SUBPROCESS_PLUGIN_TIMEOUT` (a plugin silent for 30 seconds).
+
+### After-Hook Delivery
+
+The after-hooks of an entry's `create`, `update`, `move` and `delete`, a ticket's transitions included, are delivered **at least once**, through the `event_outbox` table:
+
+- **Queued with the write.** Each matching after-hook gets a row in `event_outbox`, written in the same transaction as the entry and its history. A write that rolls back queues nothing, and a committed one keeps its hooks through a crash.
+- **Delivered by the request.** Right after the commit, the writing request delivers its rows in `ordinal` order. A `concurrent: false` hook finishes before the next one and before the response; a `concurrent: true` hook starts in the background.
+- **Retried by a worker.** What fails, or is cut off by a restart or a client that went away, a background worker delivers later. A failure (an exception, an `{"status":"error"}` answer, the deadline) is retried after 30 seconds, the wait doubling each time up to an hour. The 12th failed attempt, about five hours after the first, parks the delivery: it is kept with its last error, logged at error level, and never retried on its own. Retries are counted in the `dmart.outbox.retries` metric and parked deliveries in `dmart.outbox.parked`.
+- **A 60-second deadline.** Each call gets a cancellation token that fires after 60 seconds, and a call cancelled that way counts as failed. A hook that ignores the token keeps its slot until it returns, and one still running when the delivery's two-minute lease runs out may be called again by another worker.
+- **Lanes.** Each hook takes at most 8 deliveries at once per process, so a slow hook delays only itself. A node claims only deliveries for the hooks it runs. Every 10 minutes each node logs a warning naming any hook whose deliveries have waited over 10 minutes unclaimed, which usually means a hook was disabled or removed while it had deliveries pending.
+- **Deduplicate.** A hook that returns successfully is called once per event. It is called again for the same event only after a failure, or after a crash between its call and the server recording it. Make the hook idempotent, or deduplicate on the event's id plus the hook's own name: `EventId` in C#, `event_id` in a subprocess plugin's event. Where neither is possible, set `"at_most_once": true`.
+
+The after-hooks of users, roles, groups, permissions and spaces, and of `lock` and `unlock`, are not queued: each is called once, directly, and a failure is only logged. Their events carry no `event_id`.
+
+Keep `event_outbox` in database backups: its rows are deliveries still to make, not a cache. `target` names the hook, times are Unix epoch milliseconds, `available_epoch_ms` is when a row is next due, and `body` holds the event. These statements work on PostgreSQL and SQLite alike:
+
+```sql
+-- Waiting and parked deliveries per hook
+SELECT target, parked_epoch_ms IS NOT NULL AS parked, COUNT(*) AS rows,
+       MAX(attempts) AS most_attempts, MIN(available_epoch_ms) AS next_due
+FROM event_outbox GROUP BY target, parked_epoch_ms IS NOT NULL;
+
+-- Parked deliveries and why they failed
+SELECT id, event_id, target, attempts, last_error, parked_epoch_ms
+FROM event_outbox WHERE parked_epoch_ms IS NOT NULL ORDER BY parked_epoch_ms;
+
+-- Requeue a hook's parked deliveries, once what it calls is back:
+-- they are due at once, with a full set of attempts.
+UPDATE event_outbox
+SET parked_epoch_ms = NULL, attempts = 0, available_epoch_ms = 0, lease_token = NULL
+WHERE parked_epoch_ms IS NOT NULL AND target = 'semantic_indexer';
+
+-- Discard the deliveries of a hook removed for good.
+DELETE FROM event_outbox WHERE target = 'old_hook';
+```
 
 ## Implementation
 
@@ -115,7 +151,7 @@ public sealed class MyHookPlugin : IHookPlugin
 }
 ```
 
-The `Event` carries details about the action: `SpaceName`, `Subpath`, `Shortname`, `ResourceType`, `SchemaShortname`, `ActionType`, `UserShortname`, and `Attributes`. Throwing from a `before` hook aborts the action; an `after` hook that throws is logged but does not fail the request.
+The `Event` carries details about the action: `EventId` (on an entry's after event), `SpaceName`, `Subpath`, `Shortname`, `ResourceType`, `SchemaShortname`, `ActionType`, `UserShortname`, and `Attributes`. Throwing from a `before` hook aborts the action; an `after` hook that throws is logged but does not fail the request, and on an entry's event it is called again later (see [After-Hook Delivery](#after-hook-delivery)). A redelivered event is rebuilt from its stored copy: its attribute values come back as strings, `long` or `double`, `bool`, `null` and nested `Dictionary<string, object>`, and arrays as `JsonElement`.
 
 A managed plugin that creates an entry through `EntryService.CreateAsync` is judged as the actor it passes, as a request is: its `create` grants and their row filters, and the owner group the entry names, which must be one the actor belongs to unless a grant without a row filter gives it `assign` at the entry's address.
 
@@ -142,11 +178,11 @@ Endpoints are served under `/{shortname}/...` and require authentication — the
 
 ### Subprocess Plugins (runtime-loadable)
 
-To extend a deployment without recompiling the binary, drop a plugin into `~/.dmart/plugins/<name>/` and restart the server: a standalone executable in any language, next to its `config.json`. DMART runs the file named after the directory, or else another executable file in it; a `config.json` with no executable beside it is a load failure, logged as `NATIVE_PLUGIN_LOAD_FAILED` and listed on `GET /info/plugins`. The process starts in its own directory, and what it writes to stderr goes to DMART's log, prefixed `[<name>]`.
+To extend a deployment without recompiling the binary, drop a plugin into `~/.dmart/plugins/<name>/` and restart the server: a standalone executable in any language, next to its `config.json`. DMART runs the file named after the directory, or else another executable file in it; a `config.json` with no executable beside it is a load failure, logged as `NATIVE_PLUGIN_LOAD_FAILED` and listed on `GET /info/plugins`. The process starts in its own directory, and what it writes to stderr goes to DMART's log, prefixed `[<name>]`. It does not inherit the server's secrets: DMART leaves `JWT_SECRET`, `POSTGRES_CONNECTION`, the database, admin, mail, SMS, embedding and social sign-in secrets, and every `Dmart__…` variable whose name holds `SECRET`, `PASSWORD`, `KEY`, `TOKEN`, `CREDENTIAL` or `CONNECTION` out of its environment. A plugin that needs a secret of its own reads it from its own configuration.
 
 DMART speaks JSON-lines over stdin/stdout; if the process crashes it is respawned on the next event, so it can never take the server down. A process that dies during a call is restarted and sent that call once more, but only if it has made no callback yet; after one, the call fails, so a write is never repeated. A plugin that stays silent for 30 seconds is stopped, and that call fails. With `workers` above 1, each worker is its own process, so state the plugin keeps in memory exists once per worker, and consecutive calls need not reach the same one.
 
-In-process shared-library plugins (`.so` / `.dylib` / `.dll`) have been removed: a crash in them took the server down, and they cannot load in the static build. A directory that still holds one is reported as a load failure that says so.
+DMART loads no in-process shared-library plugins (`.so` / `.dylib` / `.dll`): a crash in one would take the server down, and they cannot load in the static build. A directory that holds one is reported as a load failure that says so.
 
 The subprocess protocol is a simple request/response over JSON lines:
 
@@ -159,7 +195,7 @@ The subprocess protocol is a simple request/response over JSON lines:
 
 The `version` in the `info` answer shows on `GET /info/plugins`, and defaults to `0.0.0`. A hook answers `{"status":"error","message":"..."}` to fail; from a `before` hook, that refuses the action. An API plugin's `info` answer also lists its `routes`, each a `method` and a `path`, mounted under `/{shortname}`; a method other than `GET`, `POST`, `PUT` or `DELETE` is mounted as `GET`.
 
-**The hook event** is snake_case JSON: `space_name`, `subpath`, `shortname`, `action_type`, `resource_type`, `schema_shortname`, `user_shortname` and `attributes`, plus the record's `uuid`, `displayname`, `description` and `tags`. A field without a value is left out. The event carries no payload body; read the record with `load_entry`. In `attributes`:
+**The hook event** is snake_case JSON: `space_name`, `subpath`, `shortname`, `action_type`, `resource_type`, `schema_shortname`, `user_shortname` and `attributes`, plus the record's `uuid`, `displayname`, `description` and `tags`, and on an entry's after event its `event_id`, the same on every delivery of that event. A field without a value is left out. The event carries no payload body; read the record with `load_entry`. In `attributes`:
 
 - `state` — a ticket's state, after the action.
 - `history_diff` — on an update's after event, the `{path: {old, new}}` diff its history row stores (see [history queries](/query-search#history)).
@@ -185,10 +221,10 @@ The `version` in the `info` answer shows on `GET /info/plugins`, and defaults to
 
 After a push, pass the tokens FCM rejected (`UNREGISTERED`, `INVALID_ARGUMENT`) to `invalidate_firebase_tokens`. It clears them from every session that holds them, so the next `get_session_firebase_tokens` leaves them out.
 
-- **Reads and writes skip DMART's checks.** `load_entry`, `load_user`, `save_entry` and `update_user` go straight to the database: no permission check, schema validation, folder content policy or hooks. `save_entry` and `update_user` write a history row only when they change an existing record, attributed to the user whose action started the exchange, with `x-source: plugin` and `x-plugin: <name>` in its stored headers; a create writes none. A write that must pass those checks goes through the REST API, signed in as the plugin's own account.
+- **Reads and writes skip DMART's checks.** `load_entry`, `load_user`, `save_entry` and `update_user` go straight to the database: no permission check, schema validation, folder content policy or hooks. `save_entry` and `update_user` write a history row only when they change an existing record, attributed to the user whose action started the exchange, with `x-source: plugin` and `x-plugin: <name>` in its stored headers; a create writes none. `save_entry` writes the entry and its history row in one transaction, gives a JSON body its checksum, and raises the entry's revision as any change does, so an update, move or delete that read the entry before the save answers `CONFLICT`. It carries no revision of its own: the last save wins, and a save can recreate an entry deleted since the plugin read it. A write that must pass those checks goes through the REST API, signed in as the plugin's own account.
 
 - **A `query` runs as the user whose action started the exchange**: the hook's `user_shortname`, or the API request's `user`. `"as_actor": "<user>"` in the query runs it as that user instead. `"as_actor": null` runs it as the anonymous user, never as the system: on every table (entries, attachments, users, roles, groups, permissions, spaces) it returns what an anonymous caller may list, under anonymous's grants, ACLs and row filters. A `history` query with it is refused.
 
 - **More than 256 callbacks** in one exchange kills the process, and the call fails.
 
-Two working samples in Python, a hook and an API plugin, live in the `custom_plugins_sdk/` directory of the repository, with a README that covers the protocol.
+Two working samples in Python, a hook and an API plugin, live in the `custom_plugins_sdk/` directory of the repository, with a README that covers the protocol. The SDK, guide and samples alike, is licensed LGPL-3.0-or-later, with an added permission under section 7 of the GPL: code from the samples may be copied into a plugin of your own and distributed under any terms, so a proprietary plugin can start from one. A plugin is its own program, talking to DMART over JSON lines, so it may carry any license.

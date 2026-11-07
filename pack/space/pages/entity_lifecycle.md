@@ -105,6 +105,8 @@ An `update` changes only what it names, and `patch` is handled exactly the same 
 
 An attachment's update differs. A `payload` it sends replaces the whole stored payload. It accepts `acl`, which may hold only actions the writer holds itself. It changes `owner_group_shortname` when the caller also holds `assign` on the attachment.
 
+A user's, role's, group's, permission's or space's update deep-merges a `payload` it sends into the stored one, as an entry's does, and checks the result against its schema before writing it. In a `/managed/request` create or update, a `payload` sent as a JSON string is read as the object it holds before any check, so the grant's field limits judge what is stored; a string that holds no object is refused (`INVALID_DATA`).
+
 #### What a write goes through
 
 Every create or update of an entry passes the same gates, in this order; the first that fails refuses the record:
@@ -125,7 +127,11 @@ Every create or update of an entry passes the same gates, in this order; the fir
 
 8. **Plugins** — before-hooks run and may veto the write.
 
+An update, move or delete of an entry is written only if the row is still as it was read and authorized. When another write got there first, it is refused with `CONFLICT` (409, "entry changed; reload before retrying") and changes nothing, so read the entry again and resend. A stale update cannot bring back an entry deleted in the meantime, and of two transitions of a ticket at once, one wins.
+
 The row is then written (a new ticket starting in its workflow's initial state), a history row records what changed, and the after-hooks run: live notifications go over the WebSocket to subscribers who may read the record, and, when `SPACES_FOLDER` is set, the action is appended to the space's event log, which the `events` query type reads, showing each caller only the events of records it could list. Users, roles, groups, permissions and spaces fire the same hooks; for them too, the before-hook runs only once every other check has passed, so a write refused by a check never reaches a plugin. See [Plugins](/plugins).
+
+**Reading history.** A history query takes `history` in the resource types of a grant at the record's folder, on top of the read itself; without it the answer is empty (see [Access Control](/access-control)). In a diff, a field whose name holds a secret word reads `********`, at any depth, inside arrays and sub-objects too. The words include `password`, `passwd`, `passphrase`, `secret`, `token`, `jwt`, `otp`, `pin`, `credential`, `api_key`, `private_key` and `authorization`, matched in any case, joined by `_`, `-` or camelCase, numbered or plural (`smtp_password`, `authToken`, `otp2`, `client_secret`); `token`, `otp` and `pin` count only as whole words, so `shipping` is shown. A change whose values are only booleans, such as `force_password_change`, keeps them.
 
 A write the caller may not make is refused in the same words whether or not its record exists. On a record that is not there, an update, patch, assign, update_acl, move or delete is judged on the address alone: a caller the address refuses gets `NOT_ALLOWED` ("no update access", "no move access", …), one it admits hears that the record is missing (`OBJECT_NOT_FOUND`, `SHORTNAME_DOES_NOT_EXIST`, or an empty success for a delete). A record refused for what is stored rather than for its address (hidden by the caller's row filters, denied to the caller by its ACL, or refused on its real type when the request names another) gets that same answer wherever the address alone would admit the write, if the caller cannot read the record; a caller that can read it is refused `NOT_ALLOWED`. Nothing of it changes either way. See [What a Refusal Says](/access-control#what-a-refusal-says).
 
@@ -195,15 +201,16 @@ Each deleted record comes back annotated with an `affected` total plus a per-cat
 }
 ```
 
-A single entry's delete takes with it, in one transaction, its attachments, the history rows of the entry and of those attachments, and a lock at its address; an attachment's delete takes its own history rows and a lock at its address. A record created later at the same address starts with no history and no lock. The entries, attachments and history rows removed are recorded as deletions for incremental exports (`--since`), and the report counts each kind, locks included, on a dry run too. A lock held by another user blocks a delete as it blocks an update. Deleting an entry that other entries still link to through `relationships` is refused (`CANNT_DELETE`), naming the first one to a caller that may read it; any other caller hears "entry has incoming relationships from another record". Deleting a space removes everything in it, `force` or not; the `management` space cannot be deleted. Before and after a real delete, the plugins' hooks run as for any write, and a before-hook may veto it. A delete that removes nothing (the record is not there, or is hidden from the caller) fires no after-hook, so the audit log, the events feed and realtime listeners hear of no deletion.
+A single entry's delete takes with it, in one transaction, its attachments, the history rows of the entry and of those attachments, and a lock at its address; an attachment's delete takes its own history rows and a lock at its address. A record created later at the same address starts with no history and no lock. The entries, attachments and history rows removed are recorded as deletions for incremental exports (`--since`), and the report counts each kind, locks included, on a dry run too. A lock held by another user blocks a delete as it blocks an update. Deleting an entry that other entries still link to through `relationships` is refused (`CANNT_DELETE`), naming the first one to a caller that may read it; any other caller hears "entry has incoming relationships from another record". Deleting a space removes everything in it, `force` or not; the `management` space cannot be deleted. Before and after a real delete, the plugins' hooks run as for any write, and a before-hook may veto it. A folder path with no folder row of its own is not there to delete: deleting it removes nothing beneath it, `force` or not, so delete those records directly. A delete that removes nothing (the record is not there, or is hidden from the caller) fires no after-hook, so the audit log, the events feed and realtime listeners hear of no deletion.
 
 #### Deleting a user
 
 How a user is deleted depends on `USER_DELETION_MODE` (see [Settings](/settings)). In the default `soft` mode the user row is kept, marked deleted and stripped of its contacts and password, and nothing the user owns is touched, so `force` has no effect. A soft delete cannot be undone:
 
 - **The account is closed.** It cannot sign in (it gets the same `INVALID_USERNAME_AND_PASS`, code 10, as an unknown name), refresh a token, or be edited or renamed. Its sessions end at once.
-- **It leaves the user listings and counts,** but exports and uniqueness checks still see the row.
-- **Its mailbox and aliases are freed** for other accounts, as its email and phone number are.
+- **It leaves the user listings and counts,** and a read by name answers not found, but exports and uniqueness checks still see the row.
+- **Its mailbox and aliases are freed** for other accounts, as its email and phone number are. The history row of the delete records only `is_deleted`, not the email and phone number it cleared.
+- **Deleting it again changes nothing** and fires no hooks, so the events feed and realtime listeners hear of one deletion. In `hard` mode, an account left soft-deleted (see the self-delete below) is removed like any other.
 - **A create under the same shortname makes a new account,** with a new uuid and only what that create gives it. Records the old account owned still name that shortname, so they belong to the new account.
 
 In `hard` mode the user row is removed, with records the user owns, as below. A user who owns the `management` space cannot be hard-deleted at all (`CANNT_DELETE`).
@@ -315,6 +322,8 @@ spaces/
 
 **Files in a zip.** A zip export stores an attachment's file only when its `payload.body` is the attachment's own file name, `<shortname>.<ext>`, as an upload sets it. Otherwise the zip carries the attachment's metadata without the bytes, and the export logs a warning that names it and suggests `--parquet`. A Parquet export stores every attachment's bytes, by hash.
 
+**Limits on an import.** A zip, through `dmart import` or `/managed/import`, is refused when it declares more than `IMPORT_MAX_ENTRIES` entries or more than `IMPORT_MAX_UNCOMPRESSED_BYTES` unpacked (2 GiB by default). What it actually unpacks counts too: once that passes the limit the import stops with an error, so a zip whose entries expand past their stated size gets no further. A folder import from a work-list (`--from-list`) takes only paths inside the folder (see [CLI](/cli#4-import)).
+
 **Parquet.** For large installations, `dmart export <space> --parquet [--subpath <path>]` writes a columnar archive directory instead of a zip: the space's (or folder's) entries, attachments and history, plus spaces, users, groups, roles and permissions when the space is `management`. `dmart export --all --parquet` is the full backup — every space, plus users, groups, roles and permissions — and re-reads what it wrote to verify it. `dmart import <dir> --parquet` restores either. A space or folder archive carries no space record, so it restores only where its space exists: rows of a missing space are refused, and the command exits 1.
 
 ```
@@ -349,7 +358,7 @@ The full list of 30 is in the [Data Model](/data-model) catalog.
 
 ## Management Space
 
-The `management` space is reserved for system-critical entities. Security primitives are stored in specific subpaths; an export of the management space writes users, groups, roles and permissions at these paths:
+The `management` space is reserved for system-critical entities. Its users, roles, permissions and groups are open only to accounts of type `admin`, the built-in `dmart` and the exemptions an instance names, apart from an account's grants on its own user record; see [The Management Space](/access-control#the-management-space). Security primitives are stored in specific subpaths; an export of the management space writes users, groups, roles and permissions at these paths:
 
 | Entity | Path |
 |---|---|

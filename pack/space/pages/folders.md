@@ -16,7 +16,7 @@ graph TD
     B --> BE["Backend reads it → enforces what may be created here"]
 ```
 
-The folder does not store its children. It stores _the rules and the view_ for its children. The children are ordinary entries that happen to share its subpath. Moving a folder takes its whole subtree with it, deleting one that is not empty needs `force`, and a folder cannot be moved into itself or a folder beneath it (see [Moving and renaming](/entity-lifecycle#moving-and-renaming)).
+The folder does not store its children. It stores _the rules and the view_ for its children. The children are ordinary entries that happen to share its subpath. Moving a folder takes its whole subtree with it, deleting one that is not empty needs `force`, and a folder cannot be moved into itself or a folder beneath it (see [Moving and renaming](/entity-lifecycle#moving-and-renaming)). A delete of an address where nothing is stored deletes nothing. For a subpath with no folder entry, that holds even with `force`: the records beneath the path stay, to be deleted directly.
 
 ## 2. Anatomy: where the config actually lives
 
@@ -78,7 +78,7 @@ Of these, the bundled admin UIs (cxb and catalog) act on `index_attributes` and 
 
 ## 5. Props — what may live here (server-enforced)
 
-These four are not just UI hints — the **backend** enforces them on the folder's direct children: all four whenever a record is created in the folder or an entry in it is updated, and the three content arrays also when an entry is moved into it. An empty (or absent) array means "no restriction". See §10 for the enforcement details.
+These four are not just UI hints — the **backend** enforces them on the folder's direct children: all four whenever a record is created in the folder, an entry in it is updated, or an entry is moved into it. An empty (or absent) array means "no restriction". See §10 for the enforcement details.
 
 | Property | Type | What it restricts |
 |---|---|---|
@@ -182,7 +182,7 @@ sequenceDiagram
 
 5. **Toolbar**: in catalog, CSV download appears only if `allow_csv`, and CSV upload only if `allow_upload_csv`.
 
-6. **Create form**: driven by `content_schema_shortnames` — _zero_ schemas → a free-form entry; _one_ → that schema's form is auto-loaded and rendered; _many_ → the user picks which schema first. cxb's create dialog offers only the resource types and schemas the folder lists, when it lists any.
+6. **Create form**: driven by `content_schema_shortnames` — _zero_ schemas → a free-form entry; _one_ → that schema's form is auto-loaded and rendered; _many_ → the user picks which schema first. cxb's create dialog offers only the resource types and schemas the folder lists, when it lists any. Catalog's Create New Item offers only the folder's own schemas, and in a folder that lists none it creates plain content with no schema.
 
 ## 10. Content policy is enforced on the server
 
@@ -204,13 +204,21 @@ Semantics that matter in practice:
 
 **Fails open** If the parent folder can't be read, enforcement is skipped rather than blocking the write.
 
+**Checked at commit** An entry's write reads its folder again inside its transaction, and one whose folder changed since its rules were read answers `CONFLICT` (HTTP 409), to be retried.
+
 **Toggleable** Global enforcement is controlled by `ENFORCE_FOLDER_CONTENT_POLICY` (default `true`). Set to `false`, a violation is logged and the write goes through; either way `dmart check` lists content that breaks its folder's policy (`folder_content_violations`).
 
 ### Uniqueness
 
-`unique_fields` is checked on every create and update in the folder. Each inner list is a compound key: a write is refused (`DATA_SHOULD_BE_UNIQUE`) when another record in the folder already holds the same values for every field of it.
+`unique_fields` is checked on every create and update in the folder, and on a move into it. Each inner list is a compound key: a write is refused (`DATA_SHOULD_BE_UNIQUE`) when another record in the folder already holds the same values for every field of it.
 
-- A field is `payload.body.<path>` for a body field, or one of `shortname`, `slug`, `owner_shortname`, `tags`, `displayname.<lang>` and `description.<lang>`. In a folder of users, roles or permissions it names the record's own attribute, such as `email` or `msisdn`.
+- A field is `payload.body.<path>` for a body field, or one of `shortname`, `slug`, `owner_shortname`, `tags`, `displayname.<lang>` and `description.<lang>`. In a folder of users, roles, groups or permissions it names the record's own attribute, such as `email` or `msisdn`.
+
+- An update is checked for a compound when it changes any of its fields, and then against the record as it will be: a field a partial update leaves out counts with its stored value. An update that changes none of a compound's fields is not checked for it.
+
+- An entry's check runs inside the write's transaction, and writes into a folder with `unique_fields` take their turn, so two writes racing to the same values cannot both pass.
+
+- A folder save that changes its body checks the entries already in the folder against its `unique_fields`, and is refused (`DATA_SHOULD_BE_UNIQUE`) when two of them collide.
 
 - A list value counts each of its elements, and `[]` reaches into a list of objects: `payload.body.variants[].sku`. Only one `[]` per path is supported: a path with two, such as `a[].b[].c`, is not enforced, and the server only logs a warning.
 
@@ -233,6 +241,8 @@ When a property is absent, the admin UI applies these defaults (a stored value o
 | `index_attributes`, `content_schema_shortnames`, `content_resource_types`, `*_columns`, `workflow_shortnames`, `enable_pdf_schema_shortnames` | `[]` |
 | `query` | `{ type: "", search: "", filter_types: [] }` |
 | `icon`, `icon_opened`, `icon_closed`, `shortname_title`, `sort_by`, `sort_type` | `""` |
+
+The empty `query.type` and `sort_type` are the forms' placeholders, not values a body may store: `folder_rendering` takes only `subpath` or `search` as `query.type` and `ascending` or `descending` as `sort_type`. When cxb and catalog save a folder, they leave out an empty `sort_type`, and a `query` with no type: dropped when it holds nothing, saved as a `search` when it has a search or filter types. They write none of the entry's own fields, such as `tags` or `is_active`, into the body.
 
 ## 12. Worked examples (real seed folders)
 
