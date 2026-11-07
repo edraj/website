@@ -43,6 +43,10 @@ So between installing the package and restarting:
 
 For the container, run the check from the new image against the same volume, before replacing the container: `podman run --rm -v dmart-data:/root/.dmart ghcr.io/edraj/csdmart:latest dmart check management hard`. Add the settings to the volume's `config.env`. For a tarball, run the new binary's `dmart check management hard` before restarting.
 
+**Clients are told the grants without these limits.** The permissions map an app reads at sign-in (`/user/profile`, `/user/permissions`) lists grants as the roles hold them, so an app may offer a user-management screen that the server then refuses (see [The Management Space](/access-control#the-management-space)).
+
+**Rolling back** to an earlier release: first take `MANAGEMENT_EXEMPT_ROLES` and `MANAGEMENT_EXEMPT_ACCOUNTS` out of `config.env`. An older release refuses to start with keys it does not know.
+
 **Catalog's polls** read their schema from the `poll` space's `/schema` folder. If yours is only in management, copy it there.
 
 **A container first started by an older image** keeps its `config.env`, which lacks `MOCK_SMPP_LOG_OTP=true`, so its log shows each mocked SMS code as `[redacted]`. Add that line to the volume's `config.env` and restart the container.
