@@ -90,7 +90,7 @@ podman exec -it dmart dmart passwd dmart   # once it is up: its first start crea
 
 - **Port:** 8000, not 8282.
 - **Storage:** `config.env`, the `dmart.db` database, the UIs' `config.json` and the first-run marker all live in `/root/.dmart`. Mount a volume there, or a new container starts empty.
-- **First run:** writes a random `JWT_SECRET`, `DATABASE_DRIVER=sqlite` and `SQLITE_PATH=/root/.dmart/dmart.db`. It also sets `IS_SMPP_ENABLED=true` and `MOCK_SMPP_API=true`: SMS codes are not sent, and each appears only in `podman logs <container>`. For real delivery, set `SEND_SMS_OTP_API` and `SMPP_AUTH_KEY` and turn the mock off (`MOCK_SMPP_API=false`).
+- **First run:** writes a random `JWT_SECRET`, `DATABASE_DRIVER=sqlite` and `SQLITE_PATH=/root/.dmart/dmart.db`. It also sets `IS_SMPP_ENABLED=true`, `MOCK_SMPP_API=true` and `MOCK_SMPP_LOG_OTP=true`: SMS codes are not sent, and each appears only in `podman logs <container>`. For real delivery, set `SEND_SMS_OTP_API` and `SMPP_AUTH_KEY` and turn the mock off (`MOCK_SMPP_API=false`).
 - **Admin password:** the `dmart` admin has none until you run `dmart passwd dmart` in the container, as above. Do it before the container is reachable.
 - **PostgreSQL:** `config.env` pins the driver, so to move to PostgreSQL change the `DATABASE_DRIVER` line to `postgresql` as well as adding `DATABASE_HOST`, `DATABASE_NAME`, `DATABASE_USERNAME` and `DATABASE_PASSWORD`.
 - **Tags:** `latest` and `<version>` cover amd64 and arm64; `<version>-amd64` and `<version>-arm64` name one architecture.

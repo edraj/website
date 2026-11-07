@@ -87,7 +87,7 @@ Data is stored in normalized SQL tables, on PostgreSQL or SQLite, ensuring ACID 
 
 ### 4.2 Advanced Search & Querying
 
-The `/query` endpoint supports a rich query language that is compiled to SQL. On PostgreSQL, search uses trigram indexes (`pg_trgm` + GIN on jsonb) and full-text indexes, with optional **pgvector** semantic search for cosine-similarity matching (given an embedding API); on SQLite, FTS5 indexes. See [Query & Search](/query-search).
+The `/query` endpoint supports a rich query language that is compiled to SQL. On PostgreSQL, search uses trigram indexes (`pg_trgm` + GIN on jsonb) and full-text indexes, with optional **pgvector** semantic search for cosine-similarity matching (given an embedding API); on SQLite, FTS5 indexes. See [Query & Search](/query-search). On SQLite, triggers on `entries` keep its FTS5 indexes in step, and each update trigger fires only when the column its index reads changes. A start that finds one of them out of date replaces it; when that is the plain-word index's trigger, it also checks `entries_search` against every entry, and rebuilds the index if they differ.
 
 - **Filtering:** By space, subpath, resource type, schema, and specific shortnames.
 
@@ -150,14 +150,16 @@ sequenceDiagram
         PluginManager->>PluginManager: Run IHookPlugin handlers (may veto)
 
         Router->>SqlAdapter: Perform Action (CRUD)
-        SqlAdapter->>SqlAdapter: Persist to the database & index
+        SqlAdapter->>SqlAdapter: Check the revision, persist & index, queue after-hook deliveries (one transaction)
 
         Router->>PluginManager: Trigger After Hooks
-        PluginManager->>PluginManager: Run after hooks (concurrent ones in the background)
+        PluginManager->>PluginManager: Deliver after hooks (concurrent ones in the background), retry failures from the outbox
 
         Router-->>Client: HTTP Response
     end
 ```
+
+**Entry writes** follow that flow with two guarantees. Each entry carries a `revision` the database keeps, and an update, move or delete commits only against the revision the request read and authorized, so a change made meanwhile answers `CONFLICT` (409) instead of being written over; of two competing ticket transitions, one wins. Unique-field checks and folder rules run inside the same transaction. The write also queues one delivery per matching after-hook in the `event_outbox` table, so a committed write never loses its hooks and a rolled-back one never fires them. The request delivers them once the write commits, and a background worker retries any that fail or that a restart cut off, so entry after-hooks run at least once. Writes of users, roles, groups, permissions and spaces call their hooks directly, and attachment writes call none. See [Hook Plugins](/plugins#hook-plugins).
 
 ## 5. API Structure
 
@@ -183,7 +185,7 @@ REST-like and resource-oriented. Key routers:
 
 - **`/qr`**: QR code endpoints (mapped, not implemented yet; they answer 501).
 
-- **`/info`**: System information, manifest and metrics, for global admins (except `/info/me`).
+- **`/info`**: System information, manifest, metrics and the access report (`/info/access`, see [Checking What an Instance Grants](/access-control#checking-what-an-instance-grants)), for global admins (except `/info/me`).
 
 - **`/health/live`**, **`/health/ready`**: Liveness and readiness probes. Readiness checks the database and, on a directory replica, that its copy is synced.
 
@@ -215,6 +217,8 @@ DMART stores data files, and moves its own data in and out in tabular formats. I
 
 - **Config:** Environment variables / `config.env`, bound and validated once at startup (strict unknown-key rejection, no hot reload).
 
+- **Licenses:** the server is AGPL-3.0. The .NET SDKs (`Dmart.Client`, `Dmart.Models`, `Dmart.QueryGrammar`, `Dmart.SqlAdapter`; see [Drivers](/drivers)) and the plugin SDK (the guide and sample plugins in `custom_plugins_sdk/`) are LGPL-3.0-or-later, so an application built on the SDKs, or a plugin, may be under any license; the LGPL covers changes to the SDKs themselves. The plugin SDK adds a permission under section 7 of the GPL: code from its sample plugins may be copied into a plugin and distributed under any terms, so a proprietary plugin can start from a sample.
+
 - **External dependency:** none on SQLite (the default for the RPM, DEB and APK packages and the container); a PostgreSQL instance for the full tier — no Redis, no separate search cluster required.
 
 - **Health & Operations:** `/health/live` and `/health/ready` for load balancers and orchestrators. `dmart selfcheck` smoke-tests a running server (readiness, sign-in, CRUD, query), and `dmart selfcheck --ready-only --wait <seconds>` waits for a restarted node before you move on to the next. `dmart check` finds stored content the server cannot read or serve: orphaned attachments, unknown content types, media whose bytes do not match their type, missing folders, payloads that break their schema. On the server's own host, `dmart cli` signs in without a password, from the server's configuration, and sends the token it mints only to that host's own server.
@@ -230,6 +234,8 @@ Several dmart processes may share one PostgreSQL database, for example behind a 
 - **Taking turns:** PostgreSQL advisory locks let one process at a time run schema initialization, the search-text fill and the `query_policies` rewrite after an upgrade. A node that starts while another is initializing waits, and logs `waiting for another dmart to finish schema initialization` once a minute; `dmart migrate` waits the same way.
 - **Upgrades:** upgrade every node that shares the database together. A node of an earlier release does not take its turn, and runs the search-text fill alongside the others.
 - **Startup:** a database that cannot be reached yet is retried for about a minute (after 1, 2, 4 and 8 seconds, then every 10). If schema initialization still fails, dmart stops. The packaged unit restarts it; a unit or supervisor of your own needs `Restart=on-failure` too.
+- **Schema steps that block no one:** on PostgreSQL, schema initialization builds a missing index `CONCURRENTLY`, and adds a missing `query_policies` check constraint without scanning the table, then validates it, so neither blocks reads or writes. Adding the constraint takes a brief lock that gives up after 2 seconds and leaves the constraint to the next start. Both run before the node starts serving, and on a large `entries` table they take a while. An index build that fails leaves the node working without that index, and the next start builds it again.
+- **Telling nodes apart:** each node names its database sessions `dmart@<host>`, the `application_name` in `pg_stat_activity` (see [Session name](/settings#postgresql-connection)).
 - **After a rollback:** after rolling back and upgrading again, or restoring a database taken before the upgrade, delete the `query_policies_v2` row from `maintenance_runs`, or run [`dmart update_query_policies --all-tables`](/cli#12-update_query_policies).
 
 Each process keeps some state to itself:
@@ -254,6 +260,7 @@ DOTNET_GCHeapHardLimit=8000000   # 128 MiB, in bare hex
 - **Bare hex:** a `0x`-prefixed `DOTNET_GCHeapHardLimit` is ignored without a word. Check `gc_heap_hard_limit_bytes` in `GET /info/metrics`, where 0 means no limit.
 - **What the limit bounds:** the managed heap only. Argon2 password hashing allocates native memory, which `PASSWORD_HASH_MEMORY_BUDGET_MB` bounds instead (see [Settings](/settings)).
 - **Where memory goes:** `GET /info/metrics` (admin only; `?format=prometheus` for a scraper) reports both `gc_heap_bytes` and `process_working_set_bytes`. A working set that grows while the heap stays flat is native memory; a heap that grows with it is managed.
+- **OpenTelemetry:** with `OTLP_ENDPOINT` set, dmart exports the ASP.NET Core, Kestrel, HTTP client and Npgsql meters, and its own `Dmart.Consistency` meter: revision and uniqueness conflicts (`dmart.mutation.conflicts`, `dmart.uniqueness.conflicts`), after-hook retries and parked deliveries (`dmart.outbox.retries`, `dmart.outbox.parked`), schema compilations (`dmart.schema.compilations`), semantic-search candidates the caller could not see and searches that ran out of reads (`dmart.semantic.rejected`, `dmart.semantic.truncated`), and open and replaced MCP event streams (`dmart.mcp.readers`, `dmart.mcp.readers_replaced`). No label names a record, an actor or a value.
 - **Startup log:** the first lines name the dmart version and the database driver, and say whether the driver was set or inferred, e.g. `database driver: sqlite (inferred — no PostgreSQL connection configured)`.
 - **Port in use:** dmart prints `Error: Port <port> is already in use.` and exits with status 1.
 - **Permissions after an import:** a `dmart import` or a direct SQL edit of users, roles or permissions does not clear the running server's permission cache, which then serves the old grants for up to `AUTHZ_CACHE_TTL` seconds. `GET /managed/reload-security-data` (global admin) clears it at once.

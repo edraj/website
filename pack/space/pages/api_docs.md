@@ -133,6 +133,8 @@ A query that leaves out `limit` gets `DEFAULT_QUERY_LIMIT` rows (10 by default).
 - **`retrieve_attachments: true`** adds the attachments the caller may read to each record, as `attachments: {<resource_type>: [records]}`.
 - **`retrieve_lock_status: true`** adds `attributes.locked: {"owner_shortname": …}` to each record someone holds a lock on.
 - **`include_fields`, `exclude_fields` and `highlight_fields`** are accepted and ignored.
+- **`type: history`** returns rows only to a caller with `view` or `query` on the `history` resource type at the query's subpath, through a grant there or on a folder above it. Without one the answer is empty, with no error. The `events` feed still lists a change without that grant, but leaves out its old and new values, and only a global admin sees an event's request headers. See [Query & Search](/query-search#history--events-queries).
+- **Secrets in a diff** read `********` on both sides, at any depth, inside arrays and sub-objects, in `history` rows and `events` alike. That covers any field whose name contains `password`, `passphrase`, `secret`, `credential`, `api_key` or `private_key`, however it is written (`smtpPassword`, `apiKey`), and any with `token`, `otp`, `pin`, `jwt`, `pwd` or `authorization` as a word of its name (`access_token`, `otpCode`, `pins`, `token2`). A change whose two sides are only booleans, such as `force_password_change`, keeps its values.
 
 ## Enums & Possible Values
 
@@ -169,7 +171,7 @@ The following values are string **conventions** — they are validated/handled a
 
 The `/managed`, `/public`, and `/user` endpoints return the same envelope, except where they hand back a record or a file itself: a read of one record (`/entry`, `byuuid`, `byslug`) returns that record's own JSON, and the payload, CSV and export routes return the file. A success carries `records` and an `attributes` block (with `total` / `returned` counts on queries); a failure carries a single `error` object, sometimes with an `info` list of details. `error.code` is DMART's own error code, not the HTTP status (see [Error codes](#error-codes)).
 
-**Empty values are left out.** In a JSON response of 1 MB or less, every object property whose value is `null`, `""`, `[]` or `{}` is removed, at any depth, `payload.body` included. The `payload` and `relationships` keys are kept even when empty, what a `failed` field holds is left as it is, and elements of a list are never removed. A larger response is sent as built and can carry empty values. A client treats an absent field and an empty one as the same.
+**Empty metadata values are left out.** In a JSON response of 1 MB or less, every object property whose value is `null`, `""`, `[]` or `{}` is removed, at any depth, except inside `payload`, `relationships` and a history row's `diff`: those come back as stored, empty and `null` values included, and the keys stay even when empty. What a `failed` field holds is left as it is, and elements of a list are never removed. A larger response is sent as built and can carry empty values. The payload routes send a payload as stored, with nothing removed. A client treats an absent metadata field and an empty one as the same.
 
 **Headers.** Every response carries `x-server-time`, the server's local time in ISO 8601, which a browser client on another origin may read. `X-Correlation-ID` echoes the request's own, or is a new id when the request sent none; the access log records it, and a `500` names it in its message as `Reference: <id>`.
 
@@ -194,7 +196,7 @@ On queries, `total` is `-1` when the count was skipped (`retrieve_total: false`;
 }
 ```
 
-As a rule the HTTP status follows `error.code`: `401` for authentication and permission refusals, `404` for a record that is not there, `409` for a name or unique value already taken, `403` for a refused password change, `423` for an entry someone else has locked, `503` while the password-hashing budget is full, and `400` for anything else. The tables below give each code's status. `/user/login` and the social sign-in routes answer every refusal with HTTP `401`, whatever its code.
+As a rule the HTTP status follows `error.code`: `401` for authentication and permission refusals, `404` for a record that is not there, `409` for a name or unique value already taken or a record that changed under the request, `403` for a refused password change, `423` for an entry someone else has locked, `503` while the password-hashing budget is full or `jq` is busy or missing, and `400` for anything else. The tables below give each code's status. `/user/login` and the social sign-in routes answer every refusal with HTTP `401`, whatever its code. `POST /managed/query` and `POST /public/query` answer some failures, such as a missing `space_name` or a malformed `join`, with HTTP `200` and the `failed` envelope, so a client reads `status` there. A failed `jq_filter` on them answers `400`, or `503` when jq is busy or missing.
 
 **A refused write answers as a missing record would, to a caller that cannot read the record.** Update, patch, assign, update_acl, move, delete, lock and unlock are judged first on the address, as if nothing were stored there. A caller the address refuses gets `NOT_ALLOWED`, whether or not the record exists. A caller the address admits, but refused for what is stored (the record's ACL denies it the action, an entry is stored as another type than the request names, or a [row filter](/access-control#row-filters) of its grants leaves the record out), gets what a missing record at that address gets (`OBJECT_NOT_FOUND`, `SHORTNAME_DOES_NOT_EXIST`, or a success that removes nothing) when it cannot read the record, and `NOT_ALLOWED` when it can; nothing is written either way. A user, role, group or permission is judged in its folder of the management space (`management:/users`, `/roles`, `/groups`, `/permissions`), its create included, and a space at its own root, whatever coordinates the request names. A refusal by a condition (`own`, `is_active`) or a field limit stays `NOT_ALLOWED`, as it is for a missing record. Reads by name work the same way: a record the caller may not read answers `404`.
 
@@ -219,10 +221,10 @@ Some codes look like HTTP statuses and are not: `400` is a name already taken (H
 | 203 | `INVALID_SPACE_NAME` | 400 | A missing or malformed space name. |
 | 205 | `ALREADY_EXIST_SPACE_NAME` | 409 | Creating a space that exists. |
 | 213 | `MISSING_DESTINATION_OR_SHORTNAME` | 400 | A `move` without `dest_subpath` and `dest_shortname`. |
-| 409 | `CONFLICT` | 409 | A user account changed while the request ran; send it again. |
+| 409 | `CONFLICT` | 409 | An update, move or delete found the entry changed since it was read and authorized, or the folder whose rules a write is checked against changed; or a user account changed while the request ran. Nothing is written: read the record again and resend. In `/managed/request` it is the failed record's `error_code`. |
 | 430 | `SOMETHING_WRONG` | 400 / 500 | `400`: a `/managed/request` batch in which some records failed, or a check the server could not complete (uniqueness, the embedding provider). `500`: a server or database fault. |
-| 120 | `JQ_TIMEOUT` | 400 | A `jq_filter` ran too long, or every jq slot was busy. |
-| 121 | `JQ_ERROR` | 400 | A `jq_filter` that is invalid or fails, or no `jq` on the server. |
+| 120 | `JQ_TIMEOUT` | 400 / 503 | `400`: a `jq_filter` ran too long. `503`: every jq slot was busy. |
+| 121 | `JQ_ERROR` | 400 / 503 | `400`: a `jq_filter` that is invalid or fails. `503`: no `jq` on the server. |
 | 230 | `INVALID_ROUTE` | 422 / 405 | No such route, or a method the route does not take. |
 | 504 | `REQUEST_TIMEOUT` | 504 | The request ran past `REQUEST_TIMEOUT`. |
 
@@ -255,16 +257,20 @@ Sign-in and tokens:
 
 GET `/user/check-existing`
 
-Checks if a user with specific fields already exists. Open without a session, and rate-limited per address. Answers `attributes.unique`, and when something is taken, `attributes.field` names the first one found.
+Checks if a user with specific fields already exists. Open without a session, and rate-limited per address. Answers `attributes.unique`, and when something is taken, `attributes.field` names the first one found. A `shortname` that the username rule refuses (see `/user/create`) answers `unique: false` with `field: "shortname"` and a `message`, the rule's `username_hint` when one is set, so a sign-up form can say so before a code is sent.
 
 **Query Params:** `shortname`, `msisdn`, `email` (all optional)
 
 POST `/user/create`
 
-Registers a new user and signs them in: the answer carries an `access_token` and sets the `auth_token` cookie. Self-registration is off unless `IS_REGISTRABLE=true`, and takes only the channels in `REGISTRATION_ENABLED_CHANNELS`. The server assigns the shortname, and ignores roles and groups in the body (`USER_CREATE_DEFAULT_ROLE` / `USER_CREATE_DEFAULT_GROUP` apply instead). With the default `IS_OTP_FOR_CREATE_REQUIRED=true`, first request a code with `/user/otp-request` and `purpose: "register"`, and send it as `email_otp` (or `msisdn_otp`); a wrong code answers `SESSION` (50), and the issued one sent after it expired `OTP_EXPIRED` (308). A password must meet the password rule (see [Access Control](/access-control)).
+Registers a new user and signs them in: the answer carries an `access_token` and sets the `auth_token` cookie. Self-registration is off unless `IS_REGISTRABLE=true`, and takes only the channels in `REGISTRATION_ENABLED_CHANNELS`. The server ignores roles and groups in the body (`USER_CREATE_DEFAULT_ROLE` / `USER_CREATE_DEFAULT_GROUP` apply instead). With the default `IS_OTP_FOR_CREATE_REQUIRED=true`, first request a code with `/user/otp-request` and `purpose: "register"`, and send it as `email_otp` (or `msisdn_otp`); a wrong code answers `SESSION` (50), and the issued one sent after it expired `OTP_EXPIRED` (308). A password must meet the password rule (see [Access Control](/access-control)).
+
+- **Username.** A top-level `shortname` is the username the registrant chooses. Without one, or with `"auto"`, the server makes an 8-character one. A chosen name must be free and meet the shortname rule (letters, digits and `_`, up to 64 characters) and, when the regex file (`REGEX_CONFIG_PATH`) sets one, its `username` rule, which can only narrow it. A name the rule refuses answers `SESSION`, with the file's `username_hint` as the message when it sets one, and a taken one `SHORTNAME_ALREADY_EXIST` (HTTP `409`, "This username is taken"), both before the code is spent. An admin's create through `/managed/request` is held to the same rule (`INVALID_DATA`); a name the server makes is not.
+- **Email domain.** With `REGISTRATION_EMAIL_DOMAINS` set, the email must be at one of those domains, subdomains not included; any other answers `SESSION` with the list (see [Email Domains and Contact-Only Emails](#email-domains-and-contact-only-emails)).
 
 ```json
 {
+  "shortname": "jdoe",
   "attributes": {
     "email": "jdoe@example.com",
     "email_otp": "482913",
@@ -276,7 +282,7 @@ Registers a new user and signs them in: the answer carries an `access_token` and
 
 POST `/user/login`
 
-Authenticates a user and returns a token. The identifier is one of `shortname`, `email` or `msisdn`. A password sign-in by email or phone needs that address verified; a code sign-in does not, and marks the address its code went to verified. With a password, `email` may also be the account's hosted `mailbox`, which needs no verification; a one-time code never signs in by mailbox. The answer's record carries `access_token`, `type`, `roles` and `groups`, `displayname` when the account has one, and `"created": true` when this sign-in created the account (`ENABLE_OTP_IMPLICIT_REGISTRATION`). The server also sets the `auth_token` cookie. A refused sign-in answers HTTP `401`.
+Authenticates a user and returns a token. The identifier is one of `shortname`, `email` or `msisdn`. A password sign-in by email or phone needs that address verified; a code sign-in does not, and marks the address its code went to verified. With a password, `email` may also be the account's hosted `mailbox`, which needs no verification; a one-time code never signs in by mailbox. The answer's record carries `access_token`, `type`, `roles` and `groups`, `displayname` when the account has one, and `"created": true` when this sign-in created the account (`ENABLE_OTP_IMPLICIT_REGISTRATION`, while registration is open for the channel and, under `REGISTRATION_EMAIL_DOMAINS`, for the email's domain). The server also sets the `auth_token` cookie. A refused sign-in answers HTTP `401`.
 
 ```json
 {
@@ -302,11 +308,11 @@ The access token has no `kid` header. Its claims are `sub` (the shortname), `iss
 
 GET `/user/profile`
 
-Retrieves the profile of the currently logged-in user: contact details, `type`, `roles`, `groups`, `payload`, and the avatar attachment when there is one. The profile's `attributes.permissions` is deprecated; read the map from `/user/permissions`.
+Retrieves the profile of the currently logged-in user: contact details, `type`, `roles`, `groups`, `payload`, and the avatar attachment when there is one. The profile's `attributes.permissions` is deprecated; read the map from `/user/permissions`, whose keys it shares.
 
 GET `/user/permissions`
 
-Returns the caller's permission map as `attributes.permissions`, keyed `space:subpath:resource_type`, with `allowed_actions`, `conditions`, `restricted_fields`, `allowed_fields_values` and `filter_fields_values` for each key. It includes the grants of the implicit `logged_in` role. A row filter comes back with the caller's own names in place of `__current_user__` and `__current_user__owner__`. A grant whose filter names one that does not resolve for the caller (`__current_user__owner__` for an account no one created, say) is left out, and so is a space whose subpaths list is empty. The answer carries an `ETag` and `Cache-Control: private, no-cache`, so a client that sends `If-None-Match` gets `304` with no body while the map is unchanged.
+Returns the caller's permission map as `attributes.permissions`, keyed `space:subpath:resource_type`, with `allowed_actions`, `conditions`, `restricted_fields`, `allowed_fields_values` and `filter_fields_values` for each key. A grant that names no resource types covers them all, and is keyed with `*` as its resource type (`data:news:*`). It includes the grants of the implicit `logged_in` role. It lists grants as their permissions state them: it does not apply the limits of [the management space](/access-control#the-management-space), so a key there can promise an account more than the server allows it. A row filter comes back with the caller's own names in place of `__current_user__` and `__current_user__owner__`. A grant whose filter names one that does not resolve for the caller (`__current_user__owner__` for an account no one created, say) is left out, and so is a space whose subpaths list is empty. The answer carries an `ETag` and `Cache-Control: private, no-cache`, so a client that sends `If-None-Match` gets `304` with no body while the map is unchanged.
 
 POST `/user/profile`
 
@@ -322,7 +328,7 @@ Deletes the current user's account as `USER_DELETION_MODE` says (`soft` by defau
 
 POST `/user/otp-request`
 
-Sends a one-time code. Body: one of `email`, `msisdn` or `shortname`, and a `purpose`: `login`, `reset`, `register` (for `/user/create`) or `verify-contact` (signed in only). A code works only for the purpose it was issued for. A code asked for by shortname goes to the account's first verified contact among the channels `OTP_SHORTNAME_CHANNELS` lists, else its first contact among them: by default its verified phone, else its verified email, else its phone, else its email. With `OTP_SHORTNAME_CHANNELS=none` a shortname is refused with `EMAIL_OR_MSISDN_REQUIRED` (207), and the caller names the phone or email. A `reset` may also name the account by its hosted mailbox in `email`; that code goes where a shortname's goes (in the default order under `none`), never to the mailbox, and `/user/password-reset-confirm` takes the same mailbox. Every well-formed request answers `200`, whether or not a code went out, so the answer says nothing about which addresses have accounts; a resend within `ALLOW_OTP_RESEND_AFTER`, or past `MAX_OTP_REQUESTS_PER_DAY`, sends nothing. An admin gets a `reset` code only while another admin has set `force_password_change` on the account; otherwise its own phone or email gets a notice saying so.
+Sends a one-time code. Body: one of `email`, `msisdn` or `shortname`, and a `purpose`: `login`, `reset`, `register` (for `/user/create`) or `verify-contact` (signed in only). A code works only for the purpose it was issued for. A code asked for by shortname goes to the account's first verified contact among the channels `OTP_SHORTNAME_CHANNELS` lists, else its first contact among them: by default its verified phone, else its verified email, else its phone, else its email. With `OTP_SHORTNAME_CHANNELS=none` a shortname is refused with `EMAIL_OR_MSISDN_REQUIRED` (207), and the caller names the phone or email. A `reset` may also name the account by its hosted mailbox in `email`; that code goes where a shortname's goes (in the default order under `none`), never to the mailbox, and `/user/password-reset-confirm` takes the same mailbox. Every well-formed request answers `200`, whether or not a code went out, so the answer says nothing about which addresses have accounts; a resend within `ALLOW_OTP_RESEND_AFTER`, or past `MAX_OTP_REQUESTS_PER_DAY`, sends nothing. The one exception turns on the address alone: a `register` code, or a `verify-contact` code for a new address, to an email outside `REGISTRATION_EMAIL_DOMAINS` answers `INVALID_DATA` with the allowed domains. An admin gets a `reset` code only while a global admin, or the admin that created the account, has set `force_password_change` on it; otherwise its own phone or email gets a notice saying so, and to ask one of them.
 
 POST `/user/password-reset-confirm`
 
@@ -330,11 +336,18 @@ Sets a new password with a `reset` code. Body: the same identifier, `otp` and `p
 
 POST `/user/verify-contact`
 
-Signed in: proves the caller controls an email or phone with a `verify-contact` code, and makes it theirs, verified. Body: `code` and `email` or `msisdn`. Confirming the address already on the account needs nothing more. Changing to a new one also needs the current `password` (a wrong one counts toward the lockout), or, on an account without a password, `current_code`: a `verify-contact` code sent to the phone or email the account already has. A wrong `code` or `current_code` answers `OTP_INVALID`, and the issued one sent after it expired `OTP_EXPIRED`.
+Signed in: proves the caller controls an email or phone with a `verify-contact` code, and makes it theirs, verified. Body: `code` and `email` or `msisdn`. Confirming the address already on the account needs nothing more. Changing to a new one also needs the current `password` (a wrong one counts toward the lockout), or, on an account without a password, `current_code`: a `verify-contact` code sent to the phone or email the account already has. A wrong `code` or `current_code` answers `OTP_INVALID`, and the issued one sent after it expired `OTP_EXPIRED`. A new email outside `REGISTRATION_EMAIL_DOMAINS` is refused with `INVALID_DATA` before any code is spent.
 
 POST `/user/validate_password`
 
 Checks if the provided password is correct for the current user, answering `attributes.valid`. A wrong one counts toward the lockout.
+
+### Email Domains and Contact-Only Emails
+
+Two settings narrow what an email does on a user's own account (see [Settings](/settings#registration-otp--profiles)).
+
+- **`REGISTRATION_EMAIL_DOMAINS`** (`a.com,b.org`) takes a user's own email only at those domains, subdomains not included: at `/user/create` (`SESSION`, naming the domains), at a sign-in by code that would create the account (refused as an unknown account is, and `/user/otp-request` sends no `login` code for it), and when `/user/verify-contact` changes it (`INVALID_DATA`). An email an account already has keeps working everywhere, and an admin creating or editing users is not limited. Empty allows any domain.
+- **`EMAIL_CONTACT_ONLY_ROLES`** makes the email only for contact on an account that is not an admin, holds a listed role, has a phone and has no password. No sign-in or reset code goes to that email: a request naming it answers `200` and sends nothing, and one by shortname goes to the phone. No social sign-in links through it. `/user/verify-contact` adds or changes it with the new address's code alone, and a code sent to it never proves a change of the phone.
 
 ### Social Login
 
@@ -364,7 +377,9 @@ In a route that ends `{subpath}/{shortname}`, an entry at the root of a space is
 
 POST `/managed/request`
 
-Performs batch operations (create, update, delete, etc.). A `shortname` of `auto` has the server pick one. Update and patch answer with no records; the other request types return the records written. When any record fails, the others are still applied and the request answers `SOMETHING_WRONG` (430). Its `error.info[0]` lists the records that succeeded under the key `successfull` (spelled so), and those that failed under `failed`, each as its `record` (the shortname), `error_code` and `error` (the message).
+Performs batch operations (create, update, delete, etc.). A `shortname` of `auto` has the server pick one. Update and patch answer with no records; the other request types return the records written. When any record fails, the others are still applied and the request answers `SOMETHING_WRONG` (430). Its `error.info[0]` lists the records that succeeded under the key `successfull` (spelled so), and those that failed under `failed`, each as its `record` (the shortname), `error_code` and `error` (the message). An entry update, move or delete that finds the entry changed since the request read and authorized it fails with `CONFLICT` (409) and writes nothing; read it again and resend.
+
+A `payload` sent as a JSON string is read as the object it holds, before any check, so it is stored and judged like one; a string holding no object fails with `INVALID_DATA`. An update's `payload` on a user, role, group, permission or space is deep-merged into the stored one, as an entry's is (a `null` removes its key), and the result is checked against its schema before it is written.
 
 ```json
 {
@@ -422,7 +437,7 @@ Without a `search`, it lists the records under the subpath (and below it, unless
 
 POST `/managed/semantic-search`
 
-Natural-language (vector) search — embeds the query and returns the top-N most similar entries by cosine distance over `entries.embedding`. Requires the pgvector extension _and_ a configured embedding provider (`EMBEDDING_API_URL`); when either is missing it returns a clean `400` failure envelope. Each hit is checked as a read of that entry, and only the hits the caller may read are returned and counted in `matched`; a `space_name` the caller cannot read returns no matches. `limit` is clamped to a max of 100.
+Natural-language (vector) search — embeds the query and returns the top-N most similar entries by cosine distance over `entries.embedding`. Requires the pgvector extension _and_ a configured embedding provider (`EMBEDDING_API_URL`); when either is missing it returns a clean `400` failure envelope. Each hit is checked as a read of that entry, and only the hits the caller may read are returned and counted in `matched`; a `space_name` the caller cannot read returns no matches. `limit` is clamped to a max of 100. Candidates are read nearest first, in at most three reads (three times the page, at least 100, then four times the last read) and 2,000 candidates in all, so a page can come back short when most of the nearest entries are hidden from the caller, and `matched` is a lower bound.
 
 ```
 // request
@@ -488,7 +503,7 @@ Moves a ticket along its workflow: `{action}` names one of the transitions its w
 
 GET `/managed/payload/{resource_type}/{space}/{subpath}/{shortname}.{ext}`
 
-Gets the raw payload of a resource: an entry's payload body as JSON, or an attachment's file. JPEG, PNG, GIF and WebP images, PDF, MP3 and MP4, and plain text, Markdown and CSV are shown inline, and JSON is sent with no disposition. Any other type, SVG and HTML included, is sent as a download, and `?download=1` downloads any of them. Range requests are supported. The file name may also be `{shortname}.{schema}.{ext}`; the schema part is ignored. A payload that is not there and one the caller may not read both answer an empty `404`. An attachment's is refused when the caller may not read the attachment, and also when the record it hangs off denies the caller `view` or `query` in its ACL, or a row filter of the caller's grants leaves that record out.
+Gets the raw payload of a resource: an entry's payload body as JSON, or an attachment's file. JPEG, PNG, GIF and WebP images, PDF, MP3 and MP4, and plain text, Markdown and CSV are shown inline, and JSON is sent with no disposition. Any other type, SVG and HTML included, is sent as a download, and `?download=1` downloads any of them. Range requests are supported. The file name may also be `{shortname}.{schema}.{ext}`; the schema part is ignored. A payload that is not there and one the caller may not read both answer an empty `404`. Fetching an attachment needs `view` on the attachment and `view` on the record it hangs off, under that grant's conditions and row filters; it is refused too when that record's ACL denies the caller `view` or `query`. A reader with `query` on the record and `view` on the attachment sees the attachment listed, and cannot fetch it.
 
 An inline response carries `X-Frame-Options: SAMEORIGIN`; every other response of the API carries `X-Frame-Options: DENY`. Every payload but a PDF also carries a sandboxing `Content-Security-Policy`. So only a page on the API's own origin can frame a payload: a front end on another origin cannot show a PDF or a video from this route in an `<iframe>`.
 
@@ -514,15 +529,15 @@ Creates resources from a CSV file. Body: `multipart/form-data` with `resources_f
 
 GET `/managed/entry/{resource_type}/{space}/{subpath}/{shortname}`
 
-Gets the metadata of a resource: the record's own JSON, not wrapped in the envelope. `?retrieve_json_payload=true` adds the payload body, `?retrieve_attachments=true` the attachments the caller may read (none when the record's ACL denies the caller `query`), and `?retrieve_lock_status=true` the lock holder. `resource_type` may also be `space`, `user`, `role` or `permission`. A record that is missing, or that the caller may not read, answers `404`. This route, `byuuid` and `byslug` read entries, not attachments: read an attachment through its parent's `retrieve_attachments`, a query of `type` `attachments`, or the payload route.
+Gets the metadata of a resource: the record's own JSON, not wrapped in the envelope. `?retrieve_json_payload=true` adds the payload body, `?retrieve_attachments=true` the attachments the caller may read (none when the record's ACL denies the caller `query`), and `?retrieve_lock_status=true` the lock holder. `resource_type` may also be `space`, `user`, `role` or `permission`. A record that is missing, or that the caller may not read, answers `404`. A user read this way leaves out `last_login`, `last_failed_login`, `is_deleted` and `deleted_at`, as a listing does, and a soft-deleted account answers `404`. This route, `byuuid` and `byslug` read entries, not attachments: read an attachment through its parent's `retrieve_attachments`, a query of `type` `attachments`, or the payload route.
 
 GET `/managed/byuuid/{uuid}`
 
-Gets an entry by UUID, as its own JSON, or `404`.
+Gets an entry by UUID, as its own JSON, or `404`. It answers as `/managed/entry` does, and also carries `space_name`, `subpath` and `resource_type`; the payload body comes only with `?retrieve_json_payload=true`.
 
 GET `/managed/byslug/{slug}`
 
-Gets an entry by slug, as its own JSON, or `404`. Slugs are neither unique nor checked for format. The route reads the first entry with that slug in any space, in no set order, and answers `404` when the caller may not read that one, even if another entry it may read has the same slug. A folder's `unique_fields` can hold `slug` unique within the folder (see [Folders](/folders#uniqueness)).
+Gets an entry by slug, answered as `byuuid` answers, or `404`. Slugs are neither unique nor checked for format. The route reads the first entry with that slug in any space, in no set order, and answers `404` when the caller may not read that one, even if another entry it may read has the same slug. A folder's `unique_fields` can hold `slug` unique within the folder (see [Folders](/folders#uniqueness)).
 
 GET `/managed/health/{health_type}/{space}`
 
@@ -560,7 +575,7 @@ Runs a saved alteration: the entry `{alteration_name}` in the space's `/alterati
 
 GET `/managed/shortening/{space}/{**rest}`
 
-**Creates** a short link to an entry and returns a random `token` and its `short_url`. The link points at the entry's `/managed/entry/content/…` URL under `APP_URL`, and the token expires after `URL_SHORTER_EXPIRES` seconds (an hour by default).
+**Creates** a short link to an entry and returns a random `token` and its `short_url`. The caller must be able to read the entry, its ACL and the grant's conditions included: one that is missing or hidden answers `OBJECT_NOT_FOUND` (404). The link points at the entry's `/managed/entry/content/…` URL under `APP_URL` (a path on the API's own host when `APP_URL` is empty), and the token expires after `URL_SHORTER_EXPIRES` seconds (an hour by default).
 
 ```
 // -> attributes: { "token": "9f86d081884c7d659a2feaa0c55ad015",
@@ -573,7 +588,7 @@ On a directory primary: the user and group feed a replica pulls, password hashes
 
 GET `/managed/s/{token}`
 
-Resolves a short token and issues a `302` redirect to its original URL (anonymous-accessible, rate-limited).
+Resolves a short token and issues a `302` redirect to its original URL (anonymous-accessible, rate-limited). It redirects only to a `/managed/entry/` URL under `APP_URL`, which then judges whoever follows it as any read is judged; an unknown or expired token answers `404`.
 
 ## Public Access `/public`
 
@@ -609,19 +624,25 @@ Anonymous variant of `/managed/resource_with_payload`. Like `/public/submit`, it
 
 POST `/public/excute/{task_type}/{space}`
 
-Runs a saved query task (see `/managed/execute`) as the anonymous user.
+Runs a saved query task (see `/managed/execute`) as the anonymous user, who only fills in the stored search's values:
+
+- **A `$parameter` value** may hold only letters, digits, `_`, `-` and `.`, with `|` between several values (`open|closed`). Any other character, such as a space, `@`, `:`, `*` or a bracket, is refused, since it could add search terms or widen the match.
+- **A stored search with parameters** is refused when dropping the ones left unfilled, or filled with an empty value, would leave it with no search at all, which would list the whole folder. A stored search with no parameters runs as it is.
+- **A refused call** answers as a saved query that is not there: `SHORTNAME_DOES_NOT_EXIST` (404), "task not found", as does every other failure to load the task here.
+
+This narrows only the saved query. `/public/query` still lists and searches any folder where the anonymous user holds `query`, so a saved query does not limit what anonymous callers can read.
 
 GET `/public/client-config`
 
-The server's values a frontend needs, for one that DMART does not serve itself: `otp_length`, `otp_resend_after`, `otp_token_ttl`, `max_upload_size_mb`, `default_query_limit`, `max_query_limit`, `ui_list_limit`, `password_rule_custom` and, when one is set, `password_hint`, plus `backend_timeout` in milliseconds (`REQUEST_TIMEOUT` plus 5 s), a floor for the client's own timeout.
+The server's values a frontend needs, for one that DMART does not serve itself: `otp_length`, `otp_resend_after`, `otp_token_ttl`, `max_upload_size_mb`, `default_query_limit`, `max_query_limit`, `ui_list_limit`, `password_rule_custom` and, when one is set, `password_hint`, `username_rule_custom` and, when one is set, `username_hint`, plus `backend_timeout` in milliseconds (`REQUEST_TIMEOUT` plus 5 s), a floor for the client's own timeout.
 
 GET `/public/byuuid/{uuid}`
 
-Gets a public entry by UUID.
+Gets a public entry by UUID, answered as `/managed/byuuid` answers.
 
 GET `/public/byslug/{slug}`
 
-Gets a public entry by slug.
+Gets a public entry by slug, answered as `/managed/byslug` answers.
 
 ## QR Codes `/qr`
 
@@ -647,7 +668,7 @@ Validates a scanned QR code.
 
 ## System Info `/info`
 
-Every `/info` route except `/info/me` is for global admins only (see [Access Control](/access-control): an active permission over all spaces and subpaths with create and update, covering users, roles, permissions and groups, with no conditions, field limits or row filter).
+Every `/info` route except `/info/me` is for global admins only (see [Access Control](/access-control): an active permission over all spaces and subpaths with create and update, covering users, roles, permissions and groups, with no conditions, field limits or row filter). A grant on users, roles, permissions and groups counts only for an account of type `admin`, the built-in `dmart` or an exemption (see [The Management Space](/access-control#the-management-space)), so no other account is a global admin.
 
 GET `/info/me`
 
@@ -656,6 +677,10 @@ Returns the caller's `shortname`. Open to any signed-in user.
 GET `/info/settings`
 
 Gets the effective settings, secrets redacted.
+
+GET `/info/access`
+
+Returns the access report as the running server sees it, as the response's `attributes`: the same JSON `dmart access report` prints, from this node's own settings, so two nodes behind one balancer can be compared by asking each. See [Checking What an Instance Grants](/access-control#checking-what-an-instance-grants).
 
 GET `/info/manifest`
 
@@ -687,9 +712,10 @@ With `OIDC_ISSUER` set, DMART is an OpenID Connect provider: discovery at `{issu
 | `phone` | `phone_number`, `phone_number_verified` |
 | `groups` | `groups`: the user's DMART groups |
 
-The claims are in the ID token as well as at `/oidc/userinfo`.
+The claims are in the ID token as well as at `/oidc/userinfo`, which releases only those of the token's scopes. It answers only while the account is active and not deleted, still holds one of the client's `services`, and has no `force_password_change`, and never for a bot; otherwise it answers `invalid_token` (HTTP `401`). `/oidc/token` is rate-limited per client address, as the sign-in routes are.
 
 - **Single sign-on.** A browser with a live DMART session (the `auth_token` cookie) is not asked again, and a sign-in through the form opens that session. `prompt=login` and `max_age` force a fresh sign-in; `prompt=none` without a session answers `login_required`.
+- **The form** takes a shortname, contact email or hosted mailbox with the password. Under it, "Forgot password?" links to the catalog's reset page (`CAT_URL/reset-password`), and "Create account" to its sign-up page (`CAT_URL/register`), shown only while sign-up is open (`IS_REGISTRABLE` with a channel in `REGISTRATION_ENABLED_CHANNELS`). After either, the person goes back to the application and signs in.
 - **Who may sign in.** A client that lists `services` admits only users who hold one of them. An account with `force_password_change` set gets a page asking it to change its password in DMART first. Bots never sign in, and an admin only by single sign-on, from inside `ADMIN_IP_ALLOWLIST`, since the form takes no code.
 - **One instance.** Authorization codes live 60 seconds in the process's memory, so run the provider on one instance, or route `/oidc/*` to one.
 - **Not supported:** refresh tokens and a logout endpoint (`end_session_endpoint`).
@@ -755,8 +781,11 @@ DMART ships a built-in **MCP server** (Streamable HTTP transport, spec `2025-03-
 
 - **Discovery.** A request to `/mcp` without a valid token answers `401` with `WWW-Authenticate: Bearer realm="dmart-mcp", resource_metadata="<base>/.well-known/oauth-protected-resource"`, which starts a client's OAuth discovery.
 - **`JWT_ISSUER`.** When it is an absolute `http(s)` URL, it is the base of the `/.well-known/oauth-*` and `/oauth/*` URLs; otherwise they are built from the request's host. Under a path prefix, set it to the public base URL (e.g. `https://host.example/dmart`). DMART then answers the discovery documents both at their bare names and where RFC 8414 and RFC 9728 put them for an issuer with a path, and where MCP clients look: `/.well-known/oauth-authorization-server/dmart`, and `/.well-known/oauth-protected-resource/dmart/mcp` (or `/dmart`). Any other path after the name is a 404. Every token carries it as `iss`, so changing it invalidates every token already issued.
-- **Registered clients** (`/oauth/register`) are kept in memory: they are lost on restart and dropped 24 hours after registering, and each may register at most 8 redirect URIs.
+- **Registered clients** (`/oauth/register`) are kept in memory: they are lost on restart and dropped 24 hours after registering, and each may register at most 8 redirect URIs. A redirect URI uses `https`, or `http` on a loopback host (`localhost`, `127.0.0.1`, `::1`). At most 4,096 clients are kept; past that `/oauth/register` answers `503` (`temporarily_unavailable`).
+- **The sign-in form** (`/oauth/authorize`) carries a one-time token that must match a `SameSite=Strict` cookie it sets, so a page on another site cannot post it; a form left open past 15 minutes asks to sign in again. An account with `force_password_change` set is refused there with a page asking it to choose its own password in DMART first, and `/oauth/token` refuses its code and its refresh token alike (`invalid_grant`, "password change required").
 - **Refresh tokens** come only from `/oauth/token`; `/user/login` issues none. Each is single-use: a refresh answers a new access token and a new refresh token. It lasts `JWT_REFRESH_DAYS`, and with `SESSION_MAX_LIFETIME_SECONDS` set the chain ends that many seconds after the first sign-in. An admin account's refresh is refused.
+- **Sessions** live in the process's memory, at most 32 per user and 1,024 in all: an `initialize` past either limit ends the session idle longest, preferring one with no open stream. A session with no open stream and no request for 2 hours is ended too.
+- **One stream per session.** A second `GET /mcp` on a session takes over from its open stream: the newer stream receives everything still queued, including a message the older one had not finished sending, and the older one ends. Ending a session (`DELETE /mcp`, eviction, the idle sweep) ends its stream at once, so the session limits bound the open streams too. A stream whose write is stuck for 10 seconds is ended; what it had not sent waits for the next one.
 - **Change notices.** Each session gets, on its SSE stream, `notifications/resources/updated` for every create, update, delete and progress-ticket, with the record's `dmart://` URI, the `action`, the `owner` (the user who made the change) and the `resource_type`. A session hears only of the records its user may read when the notice is sent, and of an attachment only when the user may also read the record the attachment hangs off.
 - **Behind a proxy**, `/.well-known/*` must reach DMART as well as its prefix, and the SSE stream must not be buffered. DMART sends `X-Accel-Buffering: no`, which nginx honours; Caddy needs `flush_interval -1`.
 
@@ -766,7 +795,7 @@ Sends a JSON-RPC MCP request (initialize, list/call tools, etc.).
 
 GET `/mcp`
 
-Opens the server-sent-events (SSE) stream for the MCP session.
+Opens the server-sent-events (SSE) stream for the MCP session, replacing the one already open.
 
 DELETE `/mcp`
 
@@ -786,7 +815,7 @@ The MCP server exposes these tools to agents. Every tool runs under the caller's
 | `dmart_create` | Create a new entry. `resource_type` must be an entry type: a space, user, role, group, permission or attachment type is refused. |
 | `dmart_update` | Update / patch an existing entry, of an entry type as for `dmart_create`. |
 | `dmart_delete` | Delete an entry. With `confirm: true` it deletes without asking; without it, a client that supports **elicitation** is asked to confirm, and any other client is refused. Folders take an optional `force` flag to cascade-delete non-empty contents. |
-| `dmart_history` | Retrieve the change history of an entry. |
+| `dmart_history` | Retrieve the change history of an entry. It needs `view` or `query` on `history` at the entry's folder, as a `history` query does; without it the tool returns no changes. |
 | `dmart_download` | Download the raw payload / attachment of an entry. An attachment the caller may not read answers the tool error `attachment not found`, as a missing one does. |
 | `dmart_semantic_search` | Natural-language vector search (requires pgvector + an embedding provider, same as `/managed/semantic-search`). |
 

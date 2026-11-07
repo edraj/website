@@ -43,7 +43,7 @@ graph TD
 
 A **Space** is the top-level organizational unit and the unit of isolation. It is itself an entry (`resource_type=space`) and carries configuration: which languages it supports, whether indexing is enabled, whether it is hidden, its display ordinal, and which subfolders to hide. Which plugins run on a space is set by each plugin's own `filters`, not on the space.
 
-**management** Always present. Holds users, groups, roles, permissions and the base schemas (`meta_schema`, `folder_rendering`). Every start creates it, its `users`, `roles`, `permissions`, `groups` and `schema` folders and the two base schemas when they are missing.
+**management** Always present. Holds users, groups, roles, permissions and the three core schemas in `/schema`: `meta_schema`, the JSON Schema draft-07 meta-schema verbatim, which schema entries name as their payload's schema; `folder_rendering`, for folder bodies; and `workflow`, for ticket workflow definitions. Every start creates the space, its `users`, `roles`, `permissions`, `groups` and `schema` folders and the core schemas when they are missing, and leaves a copy an operator edited, or keeps elsewhere in the space, as it is. Every signed-in account can read the three core schemas; who reaches the rest of the space is limited more tightly than elsewhere (see [The Management Space](/access-control#the-management-space)).
 
 **applications** A sample space `dmart seed` brings: app definitions, saved queries, configurations and translations.
 
@@ -68,7 +68,7 @@ A **Space** is the top-level organizational unit and the unit of isolation. It i
 }
 ```
 
-A create takes the space's `displayname`, `description`, `tags`, `slug`, `is_active`, `payload`, `hide_space` and `indexing_enabled`. It sets `languages` to `["english"]`, whatever the request sends. `languages`, `ordinal`, `hide_folders`, `icon`, `mirrors` and `primary_website` take effect only through a later `update`, and an update never changes a space's `payload`.
+A create takes the space's `displayname`, `description`, `tags`, `slug`, `is_active`, `payload`, `hide_space` and `indexing_enabled`. It sets `languages` to `["english"]`, whatever the request sends. `languages`, `ordinal`, `hide_folders`, `icon`, `mirrors` and `primary_website` take effect only through a later `update`. An update deep-merges the `payload` it sends into the stored one and checks the result against its schema, read from the space's own `/schema`, before writing it.
 
 ### Subpath — the folder hierarchy
 
@@ -120,6 +120,8 @@ Regardless of resource type, every entry inherits this common set of fields (the
 
 **Relationships** point at their targets by `related_to`: `type`, `space_name`, `subpath` and `shortname`. On an entry's create, and for each link an update adds, the target must exist and the writer must be able to read it. A target that is missing, and one the writer may not read, are both refused with `INVALID_DATA` and "relationship target not found", so the answer does not say which. An entry target is looked up at its address. A `user`, `role`, `group`, `permission` or `space` target is looked up by its shortname in its own table (a deleted account is not there) and read where it lives, as a read by name reads it. Links the record already had are not checked again. An entry another entry points at cannot be deleted (`CANNT_DELETE`; see [Entity Lifecycle](/entity-lifecycle#cascade-delete-force--dry_run)), so only a caller who can read a record can hold it in place.
 
+**Revision.** Each entry also carries a `revision`, which the database raises whenever one of the entry's fields changes. It is not in API responses or exports. An update, move or delete is written only if the entry is still at the revision it was read and authorized at: one that finds it changed in between, or deleted, answers `CONFLICT` (HTTP 409) instead of overwriting it, and the caller reloads and tries again. Users, groups, roles, permissions, spaces and attachments carry no revision.
+
 **Timestamps** are the server's local wall clock, with no time zone. The API returns them without an offset, such as `2026-07-06T10:00:00`, with fractional seconds when there are any. An imported timestamp that carries `Z` or an offset is converted to the server's local time, which lines it up with the times dmart stamps itself; one without is stored as written. So where a value lands decides what is stored: `2026-01-01T00:00:00Z` becomes `2026-01-01T03:00:00` on a server in Asia/Baghdad (UTC+3) and stays `2026-01-01T00:00:00` on one that runs in UTC. Code that writes to the database directly must write local wall-clock times. On PostgreSQL, dmart sets each session's time zone to the host's unless the connection string names one (see [Settings](/settings)).
 
 ## 5. Payload & type-specific fields
@@ -141,13 +143,19 @@ The **Payload** is where an entry's real content lives. What `body` holds depend
 }
 ```
 
-**A body is stored as sent.** Keys are never rewritten: `myKey` stays `myKey`. snake_case is the convention for payload fields, and a schema can enforce it; the server does not. Numbers keep their form, so `10240.0` comes back as `10240.0`. JSON Schema counts a number with a zero fraction as an integer, so a schema's `"type": "integer"` accepts `10240.0`.
+**A body is stored as sent.** Keys are never rewritten: `myKey` stays `myKey`. snake_case is the convention for payload fields, and a schema can enforce it; the server does not. Numbers keep their form, so `10240.0` comes back as `10240.0`. JSON Schema counts a number with a zero fraction as an integer, so a schema's `"type": "integer"` accepts `10240.0`. Reads return the payload as stored, explicit `null`s and empty values (`""`, `[]`, `{}`) included, and the payload route sends the stored body untouched.
+
+**`checksum` is set by dmart, never by the caller.** On an entry with a JSON body, `payload.checksum` is the SHA-256 (lowercase hex) of the body written as compact JSON. dmart sets it on a create that brings none and recomputes it whenever an update changes the body; an update that leaves the body as it is keeps the stored value. An uploaded file keeps its own SHA-256 until an update changes the body.
+
+**A payload sent as a string.** Through `/managed/request`, a create, update or patch may send `payload` as a JSON string holding the payload object. It is replaced by that object before any check, so it is validated, judged by field limits and stored as the object. A string that holds no object is refused with `INVALID_DATA`.
 
 ### Payload schemas
 
-A schema is an entry of type `schema` in the space's `/schema` folder, and its body is a JSON Schema document in the draft-07 style. dmart checks a schema when it is written and refuses one it cannot evaluate. Keywords the validator does not know are ignored, so a schema can carry hints of its own. Only local `$ref`s (`#/$defs/…`) are followed, so one schema cannot reference another schema entry or a URL.
+A schema is an entry of type `schema` in the space's `/schema` folder, and its body is a JSON Schema document in the draft-07 style. dmart checks a schema when it is written, whether or not it names a schema of its own, and refuses one it cannot evaluate; it does not check it against `meta_schema`. Keywords the validator does not know are ignored, so a schema can carry hints of its own. Only local `$ref`s (`#/$defs/…`) are followed, so one schema cannot reference another schema entry or a URL.
 
-- **A body that fails** is refused with `INVALID_DATA` (402), and an update is checked on the merged body. The message lists every failure: `payload failed schema validation: <pointer>: <keyword>: <message>; …`, the pointer empty for the body as a whole. Through `/managed/request` the request answers `SOMETHING_WRONG` (430), and the record's 402 and that message are in `error.info[0].failed`, as its `error_code` and `error` (see [API](/api-docs#managed-content-managed)). A CSV import's failed row also names the first failing field, as `key` (the dotted path, such as `address.city`) and `value`.
+- **Read on every validation.** Each write reads the schema as stored, so an edit made through any server applies to the next write. A CSV import or a health check reads each schema once for the whole run.
+- **A stored schema that does not compile** refuses every write whose payload names it, with `INVALID_DATA` and "schema '<name>' cannot be evaluated: …", until it is fixed.
+- **A body that fails** is refused with `INVALID_DATA` (402), and an update is checked on the merged body. That holds for a user, role, group, permission or space as for an entry: an update deep-merges the payload it sends into the stored one and checks the result against the schema it names. The message lists every failure: `payload failed schema validation: <pointer>: <keyword>: <message>; …`, the pointer empty for the body as a whole. Through `/managed/request` the request answers `SOMETHING_WRONG` (430), and the record's 402 and that message are in `error.info[0].failed`, as its `error_code` and `error` (see [API](/api-docs#managed-content-managed)). A CSV import's failed row also names the first failing field, as `key` (the dotted path, such as `address.city`) and `value`.
 - **Defaults are not applied.** The server stores the body as sent, and a field the writer leaves out stays absent. cxb's new-entry form starts each field from its `default`, else its `const`, else its first `enum` value, else an empty value of its type.
 
 #### Folder lookups: `x-dmart-lookup`
@@ -176,6 +184,7 @@ A string field, or the items of an array, can hold the shortnames of entries in 
 - **A value is a shortname, not a path.** With `subfolders`, two entries in different folders may share a shortname, and either one satisfies the check. Where a value must name a single entry, keep shortnames unique within the subtree.
 - **In cxb** the field becomes a search-and-pick list of the folder's entries, single or multiple; with `subfolders`, of the entries beneath it, folders left out and each shortname listed once. More than 100 choices are searched on the server as you type.
 - **`$ref`:** the keyword can sit in `$defs`. A local `$ref` to it is followed, by the server and by cxb.
+- **Where the server finds it:** under `properties`, `additionalProperties`, `items` and `prefixItems`, in every part of an `allOf`, in the `anyOf` and `oneOf` branches the value matches, and in the `then` or `else` that applies to it.
 - **What the check reveals:** it reads the folder as the server, not as the writer, so it tells the writer only whether a shortname exists there.
 - **Management folders are not checked.** dmart's own users, roles, groups and permissions are not stored as entries. A lookup into management's `/users`, `/roles`, `/groups` or `/permissions` gets the picker in cxb, but the server does not check it.
 

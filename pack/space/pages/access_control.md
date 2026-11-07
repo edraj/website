@@ -12,11 +12,11 @@ The access control logic is centralized in the `PermissionService` class. Data m
 
 **Group** A named set of users. Groups carry no roles: they matter for shared ownership (an entry's `owner_group_shortname` satisfies the `own` condition for its members), for query policies, and for a group's own `grantable_by`, which lists the groups whose members may add a user to it.
 
-**User** The actor. Holds Roles directly; every signed-in user also gets the implicit `logged_in` role. Its `type` (`web`, `mobile`, `bot` or `admin`) decides how it signs in, not what it may do (see [Accounts and Sign-in](#accounts-and-sign-in)).
+**User** The actor. Holds Roles directly; every signed-in user also gets the implicit `logged_in` role. Its `type` (`web`, `mobile`, `bot` or `admin`) decides how it signs in (see [Accounts and Sign-in](#accounts-and-sign-in)), and whether its grants on users, roles, permissions and groups count (see [The Management Space](#the-management-space)).
 
 **ACL** Optional list embedded in a Resource that grants specific users specific actions, or denies them, before standard RBAC is consulted.
 
-**Global admin** An account holding an active permission over `__all_spaces__` / `__all_subpaths__` that grants `create` and `update` on every resource type (or at least on users, roles, permissions and groups), with no conditions, field limits or row filter. The bootstrapped `super_manager` permission is one. Several rules below leave a decision to a global admin alone.
+**Global admin** An account holding an active permission over `__all_spaces__` / `__all_subpaths__` that grants `create` and `update` on every resource type (or at least on users, roles, permissions and groups), with no conditions, field limits or row filter. The bootstrapped `super_manager` permission is one. Only an account of type `admin`, the built-in `dmart`, an exempt account, or one holding that permission through an exempt role can be a global admin, since nobody else's grants reach users, roles, permissions and groups (see [The Management Space](#the-management-space)). Several rules below leave a decision to a global admin alone.
 
 ## The Authorization Algorithm
 
@@ -69,9 +69,9 @@ Before evaluating roles, the system checks if the specific resource instance has
 
 If no ACL decides, the system compiles the user's effective permissions.
 
-- **Source:** the user's Roles, plus the implicit `logged_in` role for every signed-in user. Inactive roles and permissions are skipped. The anonymous user also gets the `world` permission, once it holds at least one role.
+- **Source:** the user's Roles, plus the implicit `logged_in` role for every signed-in user. Inactive roles and permissions are skipped. The anonymous user also gets the `world` permission, once it holds at least one role. What these reach in the management space is then limited (see [The Management Space](#the-management-space)).
 
-- **Defaults:** A new install creates an empty `logged_in` role (attach a permission to it to grant it to every signed-in user), and an inactive, credential-less `anonymous` user holding a `world` role. Its `world` permission grants nothing until its `subpaths` are filled in; it then lets anonymous callers `view` and `query` active `content`, `folder`, `media`, `json`, `schema` and `comment` records there. Later starts never change these rows once they exist.
+- **Defaults:** A new install creates an empty `logged_in` role (attach a permission to it to grant it to every signed-in user, anywhere but the management space), and an inactive, credential-less `anonymous` user holding a `world` role. Its `world` permission grants nothing until its `subpaths` are filled in; it then lets anonymous callers `view` and `query` active `content`, `folder`, `media`, `json`, `schema` and `comment` records there. Later starts never change these rows once they exist.
 
 - **The sample seed** (`dmart seed`) fills `logged_in` with grants, three of them on each user's own tree in the `personal` space. `access_personal` reaches the records inside the user's `private`, `protected`, `public`, `messages`, `inbox` and `notifications` folders (`personal:/people/<me>/…`): content, folders, media, tickets, comments and the like, but no users, roles, groups or permissions. `own_personal_folders` gives the user its own folder, `people/<me>`, and every folder beneath it: folders only, `query`, `view`, `create`, `update` and `delete`, nothing in another user's tree. `own_personal_root` lists the user's own folder in `personal:/people`: folders only, `query` and `view` under `own`, read-only so that nobody creates folders beside their own. The folders made for a new account belong to the account, whoever created it (see [resource_folders_creation](/plugins)), so `own_personal_root` lists them. Without `--force`, `dmart seed` leaves a role or permission that already exists as it is, so an install seeded before these grants existed adds them to its `logged_in` role by hand.
 
@@ -115,7 +115,7 @@ For a folder record, the folder's own name joins the walk: the `subfolder` recor
 
 - `__current_user__owner__` — Inside a subpath, stands for the shortname of the account that created the caller, its user record's `owner_shortname`. It is one word, never `__current_user__` followed by `owner__`.
 
-The two words are resolved the same way in a subpath and in a [row filter](#naming-the-caller-in-a-filter), for listings, reads and writes by name, and the permissions `/user/profile` reports. A word that stands for no one is not resolved, and a subpath holding one reaches nothing: either word for the anonymous caller, and `__current_user__owner__` for an account no one owns or one whose record names itself as its owner.
+The two words are resolved the same way in a subpath and in a [row filter](#naming-the-caller-in-a-filter), for listings, reads and writes by name, and the permissions `/user/profile` reports. A word that stands for no one is not resolved, and a subpath holding one reaches nothing: either word for the anonymous caller or for a name of the form `__name__`, and `__current_user__owner__` for an account no one owns or one whose record names itself as its owner.
 
 A permission's subpaths are compared without their leading and trailing slashes, and with `//` read as `/`, so `/orders/` and `orders` name the same folder. An empty list (`{"sales": []}`) names no subpath and reaches nothing, for listings as for reads; write `"/"` for the space's root.
 
@@ -166,7 +166,7 @@ These are the values DMART checks for. Other strings in `actions`, `conditions` 
 | `create` | Create a new entry. |
 | `update` | Modify an existing entry's metadata or payload, or set its ACL (`update_acl`). |
 | `delete` | Remove an entry. |
-| `attach` | Not checked by the server. Adding an attachment (comment, media, reaction, relationship) needs `create` on the attachment's own resource type at the entry's path, and reading one needs `view` or `query` on that type (see [Row Filters](#row-filters)). |
+| `attach` | Not checked by the server. Adding an attachment (comment, media, reaction, relationship) needs `create` on the attachment's own resource type at the entry's path. Reading one needs `view` or `query` on that type, and fetching one also needs `view` on the record it hangs off (see [Row Filters](#row-filters)). |
 | `assign` | Change an entry's owner (the `assign` request). Also what changing an attachment's owner group takes, and what a create takes to name an owner group its creator is not in. |
 | `move` | Not checked by the server. A move needs `update` on the source and `create` at the destination. |
 | `progress_ticket` | Advance a ticket through its workflow states. |
@@ -230,6 +230,10 @@ A permission's `filter_fields_values` is a search, written in the [query syntax]
 
 - **An attachment also needs a grant of its own**, on top of that rule. Reading one, through `retrieve_attachments`, an `attachments` listing, `attachments_aggregation` or an attachment's history, takes a grant with `view` or `query` on the attachment's own resource type (`comment`, `media`, `reaction` and so on) at its subpath, held to that grant's `own` and `is_active` conditions. An attachment whose own ACL denies the caller is left out. A `world` grant that names only `content` therefore shows visitors a public entry but none of its comments, reactions or media. A global admin reads every attachment.
 
+- **Fetching an attachment needs `view` on its record**, with that grant's conditions and row filter, whatever the record's type: an entry's media, an attachment of a folder, the avatar on a user record. This holds on the payload routes, in `retrieve_attachments`, in an MCP download and for live notices. A listing asks only `query` on the record, so a reader with `query` on `content` and `view` on `media` sees an entry's media listed, and is answered not found when it fetches one.
+
+- **History needs a `history` grant**, on top of reading the record. A diff holds a record's old values, even ones since removed from it, so a history query and MCP's `dmart_history` take a grant with `view` or `query` on the `history` type at the folder queried or above it; a query at a space's root needs the grant at the root. Without one, the query returns nothing, with no error. The events feed shows an event without one, but not the old and new values of its change, and its search does not reach them.
+
 - **Folders and spaces** are not held to a row filter. A filter narrows the records in a folder, and the folder is their container.
 
 - **An ACL allow** on a record admits it whatever the filters say.
@@ -242,6 +246,7 @@ A filter with a word that cannot be resolved takes the grant away whole: it list
 
 - for the anonymous caller, either word;
 - for an account no one owns, or one whose record names itself as its owner, `__current_user__owner__`;
+- when the name has the form `__name__`, which every magic word and wildcard has;
 - when the name would read as more than one value in the search grammar: one holding a space, `|`, `:`, `*`, `@`, `!`, `<`, `>`, `=`, a bracket, a brace, a quote or a backslash;
 - when the name is one of the grammar's words, in any case: `null`, `true`, `false`, `or`, `and`. A user named `Null` would otherwise match every row without the field.
 
@@ -263,7 +268,64 @@ A write the caller may not make is refused in the same words whether or not its 
 
 - **A refused attachment payload**, on `/managed/payload` and `/public/payload`, is an empty 404, as a missing one is, and MCP `dmart_download` answers a refused attachment with the "attachment not found" error a missing one gets.
 
+## The Management Space
+
+The management space holds the accounts and the rows that grant access, so the server limits what grants reach there. The limits are applied where a caller's permissions are resolved, so every check, listing, search, history read and export follows them. There is no switch to turn them off; an exemption is the way to keep access.
+
+- **What every caller holds reaches nothing in management.** That is whatever the anonymous caller holds (its roles and `world`), and a permission held only through `logged_in` or the sign-up default role (`USER_CREATE_DEFAULT_ROLE`). Through `__all_spaces__` such a grant still reaches every other space. A permission another of the caller's roles also grants counts as that role's. Data that every user reads, and its schemas, belong in a space of their own.
+
+- **Users, roles, permissions and groups are for admins.** A grant on them counts only for an account of type `admin`, for the built-in `dmart` whatever its type, for an account listed in `MANAGEMENT_EXEMPT_ACCOUNTS`, and for the grants that come through a role listed in `MANAGEMENT_EXEMPT_ROLES` (the holder's other roles are not exempted with it). Any other account's grants lose those four types, whatever its roles say: it cannot read, list, search or change those records, nor their attachments and history, which are judged by the record they hang off. The rest of each grant stands. Any other web, mobile or bot account holding `super_admin` still reaches every other record, in management too, but is not a global admin: exports, `/info` and the other decisions this page leaves to a global admin are not its.
+
+- **Every signed-in account reads the core schemas** in `management:/schema`: `meta_schema`, `folder_rendering`, `workflow`, and the schema its own user record names. It reads no other schema there unless a grant says so, and this does not list the management space among its spaces. The sample seed's `view_management_schema`, a `logged_in` grant on the first three, reaches nothing in management like any other `logged_in` grant there, so `dmart check management` names it and removing it changes nothing.
+
+- **A grant on one's own record** works for any account type: a row filter `@shortname:__current_user__` on `user` records at `management:/users` lets the caller read or write its own record by name, and a subpath `users/__current_user__` reaches that record's attachments.
+
+- **Self-service needs no grant**, so it is unaffected: sign-in, `/user/profile`, password reset, codes and registration. So are the directory replica's feed, LDAP service accounts, the OpenID Connect provider, and the commands run on the host, such as `dmart check`, `dmart passwd` and `dmart import-ldif`.
+
+- **What a client is told.** The permissions map `/user/profile` and `/user/permissions` return lists the grants as the roles hold them, without these limits, so a client may offer what the server then refuses.
+
+Both exemptions are comma-separated shortnames in `config.env`, empty by default (see [Settings](/settings#admin-accounts)). An exemption naming what every caller holds, `anonymous` in `MANAGEMENT_EXEMPT_ACCOUNTS` or `world`, `logged_in` or the sign-up default role in `MANAGEMENT_EXEMPT_ROLES`, stops the server from starting. At every start the server logs `MANAGEMENT_ADMIN_ONLY` with the roles whose grants on users, roles, permissions or groups count only for admins, and `dmart check management hard` says how many accounts that are not admins hold each, by type.
+
+### Checking What an Instance Grants
+
+`dmart access report` prints what an instance grants, as JSON with sorted keys and lists, so two reports compare line by line. It only reads, and it reads no user but `anonymous`, whose roles decide what the public reaches. `GET /info/access` (global admins only) returns the same report from the running server. Ask each node when nodes may differ, since a node's settings come from its service environment as well as its `config.env`.
+
+| Section | What it holds |
+|---|---|
+| `settings` | The settings that decide who may sign up or sign in and what the public reaches, such as `sign_up_open` (`IS_REGISTRABLE` with at least one channel), `allowed_submit_models`, `registration_email_domains`, `email_contact_only_roles` and the two exemptions, and whether Google, Facebook and Apple sign-in are set up. No secret is shown. |
+| `public` | The anonymous account's roles, and the permissions anonymous callers reach through them (with `world` once it holds one). |
+| `signed_in` | The permissions every signed-in account reaches through `logged_in`. |
+| `roles`, `permissions`, `groups` | Each row's access fields, with a checksum of them. |
+| `spaces` | Each space, and whether it is active. |
+| `warnings` | What the checks below find, each line led by the check's name. |
+
+A checksum covers the access fields alone, with lists sorted: not the timestamps, uuid, owner or display name. The same grant has the same checksum on every instance.
+
+To catch drift, save a report you have checked and compare later ones with it:
+
+```bash
+dmart access report > access-approved.json
+dmart access report --compare access-approved.json
+```
+
+`--compare` prints a line for each setting that changed and each role, permission, group or space added, removed or changed, naming the fields that changed. It exits 1 if anything changed, 0 if nothing did ("No changes."), and 2 if it cannot read the saved report, so a cron job or a release checklist can run it. Two nodes, or a test instance and production, compare the same way. A saved report is how an admin keeps core roles such as `world` and `logged_in` in check.
+
+`dmart check management`, and `GET /managed/health/{type}/management`, add these checks to the health checks; `hard` and `all` name the rows found:
+
+| Check | Finds |
+|---|---|
+| `everyone_grant_in_management` | A grant anonymous callers, `logged_in` or the sign-up default role hold in management, which reaches nothing there. |
+| `management_admin_only` | A role that is not exempt and reaches users, roles, permissions or groups, which therefore counts there only for admins. `hard` counts its other holders by type. `super_admin` shows here unless it is exempt; the built-in `dmart` keeps its access either way, so the count matters for the other accounts that hold it. |
+| `broad_user_read` | A grant that reads every user record: `query` or `view` on users with no condition, row filter or restricted field. A leak of the user list takes this shape. |
+| `public_broad_grant` | A permission anonymous callers or every signed-in account reach that names `__all_spaces__`, `__all_subpaths__` or a space's root, or the `user`, `role`, `permission`, `group` or `history` type. |
+| `role_missing_permission` | A role naming a permission that does not exist. |
+| `permission_missing_space` | A permission naming a space that does not exist. |
+| `grant_at_space_root` | An active grant at a space's root, which lists the whole space. |
+| `empty_subpaths_grant` | An active grant with an empty subpath list for a space, which reaches nothing. |
+
 ## Permission Examples
+
+The grants below on users count only for accounts of type `admin`, the built-in `dmart` and exemptions (see [The Management Space](#the-management-space)).
 
 ### Super Manager — Full Access
 
@@ -285,7 +347,7 @@ A write the caller may not make is refused in the same words whether or not its 
 }
 ```
 
-Grants **unrestricted access** to all resources in all spaces. No ownership requirement, no field restrictions. Every start creates it when it is missing, held by the `super_admin` role that the built-in `dmart` account holds; it lists every action but `move`, which no request checks.
+Grants **unrestricted access** to all resources in all spaces. No ownership requirement, no field restrictions. Every start creates it when it is missing, held by the `super_admin` role that the built-in `dmart` account holds; it lists every action but `move`, which no request checks. It makes a global admin only of an account of type `admin`, of `dmart`, of an exempt account, and of anyone holding it through an exempt role; any other holder reaches everything but users, roles, permissions and groups.
 
 ### View Users — Read-Only Scope
 
@@ -386,7 +448,7 @@ Lets its holder write reviews whose status is `draft` or `submitted`, never `app
 
 ## Managing User Accounts
 
-Users, roles, groups and permissions are records in the `management` space, under the subpaths `users`, `roles`, `groups` and `permissions`, and are created, updated and deleted through `/managed/request`. Creating a user:
+Users, roles, groups and permissions are records in the `management` space, under the subpaths `users`, `roles`, `groups` and `permissions`, and are created, updated and deleted through `/managed/request`, by admins and exemptions alone (see [The Management Space](#the-management-space)). Creating a user:
 
 ```json
 {
@@ -431,7 +493,7 @@ User managers are also held to these rules there. A global admin is held to none
 
 - **On another account**, the same fields need a global admin when the account holds a role or group the actor could not give. On an admin account they need a global admin, or the admin that owns the account while that owner is an active admin able to give every role and group the account holds.
 
-- **An account an ACL grants an action** (an entry on any record naming it with a non-empty `allowed_actions`) has its sign-in fields, every field above but `is_active`, `roles` and `groups`, changed only by a global admin, since whoever reset it would gain what the ACL opens. A name an ACL grants, a name an account had before, and a directory feed reader's name are given to an account, by a create or a rename, only by a global admin.
+- **An account an ACL grants an action** (an entry on any record naming it with a non-empty `allowed_actions`) has its sign-in fields, every field above but `is_active`, `roles` and `groups`, changed only by a global admin, since whoever reset it would gain what the ACL opens. A name an ACL grants, a name an account had before, and a directory feed reader's name are given to an account, by a create or a rename, only by a global admin. A name of the form `__name__` is given to no account, by a global admin's create or rename included (`NOT_ALLOWED`).
 
 ## Accounts and Sign-in
 
@@ -444,7 +506,7 @@ User managers are also held to these rules there. A global admin is held to none
 | `bot` | For integrations. Never locked by failed attempts and outside the session limit; its token works until it expires or is ended by a sign-out. |
 | `admin` | A password **and** a one-time code, both checked. Never through Google, Facebook, Apple, an LDAP bind, or the MCP and OpenID Connect sign-in forms. With `ADMIN_IP_ALLOWLIST` set, served only from those addresses, at sign-in and on every request. |
 
-The type grants no permissions; roles do. An admin account needs a password and a phone or an email for its code, which `/managed/request` enforces, and making an account an admin ends its sessions. An admin resets its password by code only while another admin has set `force_password_change` on the account; the reset clears it. The built-in `dmart` account is held at every start to `ADMIN_USER_TYPE`: `web` (the default) or `admin`.
+The type grants no permissions; roles do. What it decides is whether grants on users, roles, permissions and groups count: for an `admin` account they do, and for other types only through an exemption, the built-in `dmart` aside (see [The Management Space](#the-management-space)). An admin account needs a password and a phone or an email for its code, which `/managed/request` enforces, and making an account an admin ends its sessions. An admin resets its password by code only while a global admin, or the active admin that owns the account, has set `force_password_change` on it; the reset clears it. The built-in `dmart` account is held at every start to `ADMIN_USER_TYPE`: `web` (the default) or `admin`.
 
 ### Trusted Browser (`WEB_DEVICE_OTP`)
 
@@ -464,18 +526,41 @@ Off by default, for tightly secured instances. With `WEB_DEVICE_OTP=true`, an ac
 
 Every new password must meet one rule: at registration, on `/user/profile`, at password reset, in an admin's create, and in `dmart passwd`. The built-in rule asks for 8–64 characters with at least one digit and one uppercase letter (Latin or Arabic), from a set of allowed symbols. A deployment sets its own with a `password` pattern and a `password_hint`, the message a refused password gets, in the regex file (`REGEX_CONFIG_PATH`, `~/.dmart/regex.json` by default). Existing passwords are never re-checked.
 
-The same file overrides the `email` and `msisdn` formats. The built-in ones are `^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\z` and `^\+?[0-9]{6,15}\z`.
+The same file overrides the `email` and `msisdn` formats, and holds the [username rule](#usernames). The built-in formats are `^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\z` and `^\+?[0-9]{6,15}\z`.
 
 - **End a pattern with `\z`**, not `$`, which also matches before a final newline. The file is JSON, so it writes each backslash twice: `\\z`.
 - **A pattern that does not compile** is logged and its default applies. A file that is not valid JSON is ignored whole, so every default stays.
 - **A match is cut off after 100 ms**, and counts as a refusal.
 - **The file is read at start**, so a change needs a restart.
 
+### Usernames
+
+A user's shortname is its username. Self-registration (`POST /user/create`) takes one as a top-level `shortname`; without one, or with `auto`, the server makes an 8-character name. A chosen name must be free and meet dmart's shortname rule: up to 64 letters, digits and `_`, Arabic ones included. A taken name is refused before any code is spent.
+
+A deployment narrows that with a `username` pattern in the regex file, and a `username_hint`, what a refused name is told. A name must then match both rules. The same rules hold for a name an admin chooses in a create through `/managed/request`, and for the names `dmart import-ldif` brings in, which skips any it refuses. A name the server makes is never held to the narrower rule.
+
+- **Before a code is sent.** `GET /user/check-existing?shortname=` answers `unique: false`, with a `message` (the hint, when one is set), for a name the rules refuse. The client config cxb and catalog read, and `/public/client-config`, carry `username_hint` and `username_rule_custom`, so a sign-up form can show the rule.
+- **Matrix IDs.** Where dmart's names become Matrix IDs (`preferred_username`), use a Matrix-safe rule, such as `^[a-z][a-z0-9_]{2,31}\z`.
+
+### Email Domains and Contact-Only Email
+
+Two settings limit what a user's own email may be and do (see [Settings](/settings#registration-otp--profiles)). Both are empty by default, which limits nothing.
+
+- **`REGISTRATION_EMAIL_DOMAINS`** (`a.com,b.org`) lists the only domains a user may give their own account: at `/user/create`, in the account a sign-in by code creates, and when changing their email on `/user/verify-contact`. A domain matches exactly, so `mail.a.com` must be listed on its own. A code asked for to register, or to verify a new address, at another domain is refused with the list of allowed domains, and none is sent; the account a sign-in by code would create is refused quietly, as the rest of that gate is. Admins creating or editing users are not limited, and an account keeps the email it has: it can still confirm it, and still gets codes there.
+
+- **`EMAIL_CONTACT_ONLY_ROLES`** names roles whose accounts sign in by phone alone. On an account that holds one, has a phone and no password, and is not of type `admin`, the email is for contact only:
+  - no sign-in or reset code goes to it, whether the request names the email or the shortname; a request naming the email answers as usual and sends nothing;
+  - a Google, Facebook or Apple sign-in is never linked to the account through it;
+  - adding or changing it needs only a code sent to the new address, with no `current_code`;
+  - changing the phone still needs a code sent to the current phone, and a code sent to the email does not count.
+
+  Someone who loses the phone then cannot recover the account through the email, so check that nothing signs those accounts in by email before turning it on.
+
 ### Forced Password Change
 
 `force_password_change` marks an account whose password is missing or temporary. It is set on every account created without a password: by an admin's create, by a self-registration with only an email or phone, and by a code sign-in that registers the account (`ENABLE_OTP_IMPLICIT_REGISTRATION`). An admin may also set it. Setting a password on `/user/profile` or through a reset clears it, and `GET /user/profile` returns it.
 
-`/user/login` and the MCP sign-in do not stop on it, so a client reads the flag and asks the user for a new password. The OpenID Connect provider stops such a user with a page asking them to change it first.
+`/user/login` does not stop on it, so a client reads the flag and asks the user for a new password. The MCP and OpenID Connect sign-in forms stop such a user with a page asking them to choose their own password in dmart first, and their token endpoints refuse the account (`invalid_grant`) until then.
 
 ### Lockout
 
@@ -487,7 +572,7 @@ The lock stops guessing at the password. Anyone who knows a username can keep it
 |---|---|
 | Password sign-in: `/user/login` with a password, the MCP and OpenID Connect sign-in forms | Refused before the password is checked, the right one included (`USER_ACCOUNT_LOCKED`, 110, at `/user/login`). The attempt restarts the cool-down. |
 | Code sign-in: `/user/login` with `otp` | A right code signs in and clears the counter. A wrong code answers 110, is not counted again, and restarts the cool-down; the expired code itself answers `OTP_EXPIRED` (308). An admin still needs its password with the code, and a wrong one answers 110. |
-| `/user/otp-request` for `login` or `reset` | The code is sent as for any account; a deactivated or deleted one gets none. An admin gets no `login` code here, since only a password sign-in sends it, so a locked admin waits out the cool-down, or resets while another admin has set `force_password_change`. |
+| `/user/otp-request` for `login` or `reset` | The code is sent as for any account; a deactivated or deleted one gets none. An admin gets no `login` code here, since only a password sign-in sends it, so a locked admin waits out the cool-down, or resets once a global admin or its owner has set `force_password_change`. |
 | `/user/otp-request` for `verify-contact` | Nothing is sent; the answer is the same 200. |
 | `/user/password-reset-confirm` | A right code sets the new password and clears the counter. A wrong code counts and answers `OTP_INVALID` (307); the expired code itself counts and answers `OTP_EXPIRED` (308). |
 | A password a session presents: `/user/validate_password`, `old_password` on `/user/profile`, `password` on `/user/verify-contact` | Refused as locked; the password is not checked. |

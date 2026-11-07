@@ -26,7 +26,7 @@ dmart serve --cxb-config my_cxb_config.json
 
 ### 2. migrate
 
-Creates or updates the database schema, on PostgreSQL or SQLite, without starting the server. It creates what the server creates at every start, where missing: the `dmart` admin, the `management` space with its `users`, `roles`, `groups`, `permissions` and `schema` folders, and the built-in roles and permissions. It also moves every schema kept outside a space's `/schema` folder into it (one whose name `/schema` already holds is left in place and reported), and adds the `meta_schema` and `folder_rendering` schemas if they are missing. Idempotent — safe to run repeatedly. `-q` / `--quiet` prints only the summary.
+Creates or updates the database schema, on PostgreSQL or SQLite, without starting the server. It creates what the server creates at every start, where missing: the `dmart` admin, the `management` space with its `users`, `roles`, `groups`, `permissions` and `schema` folders, and the built-in roles and permissions. It also moves every schema kept outside a space's `/schema` folder into it (one whose name `/schema` already holds is left in place and reported), and adds the `meta_schema`, `folder_rendering` and `workflow` schemas if they are missing. Idempotent — safe to run repeatedly. `-q` / `--quiet` prints only the summary.
 
 ```
 dmart migrate
@@ -79,7 +79,7 @@ Loads a zip or folder export into the database. By default, existing rows are sk
 
 - `--tag=VALUE`: tag every imported entry (repeatable), e.g. to find a migration batch later.
 
-- `--from-list=FILE`, `--save-list=FILE`: import from a saved work-list instead of walking the folder, or save the list elsewhere.
+- `--from-list=FILE`, `--save-list=FILE`: import from a saved work-list instead of walking the folder, or save the list elsewhere. Each line of a work-list must be a path inside the folder: one that climbs out of it (`..`, an absolute path) stops the import, and one through a symbolic link is skipped, as the walk skips links.
 
 - `--drop-indexes`: drop the GIN indexes on entries and attachments for the load and rebuild them after (PostgreSQL only). Much faster on very large loads, but queries are slow until it finishes; use it in a maintenance window, together with `--resume`.
 
@@ -179,11 +179,16 @@ sudo dmart passwd dmart
 
 ### 9. check
 
-Runs the health checks on one space, or on every space when none is named (alias: `health-check`), and prints the number of findings of each check as JSON. They are the checks `GET /managed/health` runs: `orphan_attachments`, `dangling_owner`, `stale_locks`, `missing_payload_body`, `missing_schema_reference`, `misplaced_schema`, `folder_content_violations`, `folder_body_schema_violations`, `payload_schema_violations`, `invalid_content_type`, `content_type_body_mismatch`, `media_bytes_mismatch` and `missing_folder`. `hard` and `all` add sample paths for each finding.
+Runs the health checks on one space, or on every space when none is named (alias: `health-check`), and prints the number of findings of each check as JSON. They are the checks `GET /managed/health` runs: `orphan_attachments`, `dangling_owner`, `stale_locks`, `missing_payload_body`, `missing_schema_reference`, `misplaced_schema`, `folder_content_violations`, `folder_body_schema_violations`, `payload_schema_violations`, `invalid_content_type`, `content_type_body_mismatch`, `media_bytes_mismatch` and `missing_folder`. `hard` and `all` add up to 10 sample paths for each finding.
+
+On the `management` space it also checks the access rows, as `dmart access report` does: `public_broad_grant`, `role_missing_permission`, `permission_missing_space`, `grant_at_space_root`, `empty_subpaths_grant`, `everyone_grant_in_management`, `management_admin_only` and `broad_user_read` (see [Checking What an Instance Grants](/access-control#checking-what-an-instance-grants)). With `hard`, each role `management_admin_only` names also says how many accounts not of type `admin` hold it, by account type: counts, no names.
+
+Each statement runs with no time limit, and rows are checked as they are read, so memory use follows the largest row rather than the size of the space. On a large space the check is still a long read, which on PostgreSQL holds back vacuum, so run it off-peak. `GET /managed/health` runs the same checks within `REQUEST_TIMEOUT`.
 
 ```
 dmart check
 dmart check school hard
+dmart check management hard
 ```
 
 ### 10. selfcheck
@@ -247,11 +252,17 @@ dmart create-users-folders
 
 ### 15. import-ldif
 
-Moves an LDAP directory (`slapcat` output) into DMART's users, keeping `{SSHA}`, `{SHA*}` and `{ARGON2}` password hashes until each owner's first sign-in. A dry run by default.
+Moves an LDAP directory (`slapcat` output) into DMART's users. A dry run by default: it prints what it would do, with a note on each entry it changes or leaves out.
+
+- **Passwords:** `{SSHA}`, `{SHA}`, `{SSHA256}`, `{SHA256}`, `{SSHA512}`, `{SHA512}`, `{ARGON2}` and bcrypt `{CRYPT}$2a$`, `$2b$` or `$2y$` hashes (as Casdoor stores them, cost 14 at most) are kept, so each account signs in with the password it had. The first successful sign-in or LDAP bind replaces the hash with Argon2id. A clear-text password is hashed on import, and reported. Any other scheme (`{MD5}`, `{CRYPT}$6$`, bcrypt above cost 14) brings the account in without a password, for its owner to reset.
+
+- **uuid:** an entry's `entryUUID` becomes the account's uuid, which is the `sub` DMART's OpenID Connect provider sends, so a client that linked accounts by the old directory's subject still finds them. One that is not a UUID, or that another account already has, gets a new uuid and a note.
+
+- **Names:** a person's `uid` (a service's `cn`) must be a valid shortname and meet the `username` rule of `regex.json` when one is set. An entry whose name fails is skipped, with a note.
 
 - `--apply`: write.
 
-- `--update`: also update accounts that already exist.
+- `--update`: also update accounts that already exist: their directory fields and password. An existing account keeps its uuid.
 
 ```
 dmart import-ldif directory.ldif
@@ -275,7 +286,7 @@ Deletes the records of deletions (tombstones) older than `--older-than <days>`, 
 
 It also raises the retention floor to the same cutoff. An incremental Parquet export (`--since`) whose previous export is older than the floor then warns `DELETIONS MAY HAVE BEEN LOST`; take a full export to resynchronize. Pick a window longer than your incremental export interval.
 
-When you run both prune commands, prune the empty histories first, let your incremental exports carry the tombstones that writes, then prune the tombstones.
+When you prune histories (`prune-empty-histories`, `prune-login-histories`) and tombstones, prune the histories first, let your incremental exports carry the tombstones that writes, then prune the tombstones.
 
 ```
 dmart prune-tombstones --older-than 90 --dry-run
@@ -352,6 +363,7 @@ Keys are matched whatever their case, and a line starting with `#` is a comment.
 - **CSV uploads:** when `REQUEST_TIMEOUT` stops an upload part-way, the CLI sends the rest from the row the server names, until the whole file is in, and prints one summary. A failed run names the row to resume from with `--start-row`.
 - **Tickets:** `progress` sends no body, so it cannot take a transition marked `resolution_required`, which needs a `resolution_reason`; send that one to `PUT /managed/progress-ticket` directly (see [Tickets & Workflows](/tickets)).
 - **Exports:** a flag-built export covers the current space from `/` (up to 10,000 entries unless `--limit` or `--all` says otherwise). `--include-self` adds the `--subpath` folder's own record to a zip. Without `--out`, the file goes to `~/Downloads/<space>.zip` (or `.csv`).
+- **Exit status:** a single command (`dmart cli c …`) exits with status 1 when it fails: the server answers `failed` (as `/managed/request` does when any record fails, though the others are written), an HTTP error comes back that is not JSON, or an export writes no file.
 - **Scripts:** `VAR <name> <value>` declares a variable and `${name}` uses it; `#` and `//` lines and `/* … */` blocks are comments. A script runs every line and exits 0 even when commands fail, unless `--strict` (`dmart cli --strict s <file>`) stops it at the first failure with status 1.
 - **Session:** a 401 in the middle of a session signs in again and retries once, without a word. The REPL keeps 1,000 lines of history in `~/.dmart/cli_history`.
 
@@ -369,4 +381,26 @@ Prints the list of available subcommands. Also `-h` / `--help`.
 
 ```
 dmart help
+```
+
+### 22. access report
+
+Prints what this instance grants, as JSON with sorted keys and sorted lists: the settings that decide who may sign up or sign in and what the public reaches (no secret shown), the permissions anonymous callers and every signed-in account reach, each role, permission and group with a checksum of its access fields, each space, and the warnings `dmart check management` counts. It reads the access rows and the spaces, and no user but `anonymous`. [Checking What an Instance Grants](/access-control#checking-what-an-instance-grants) describes each part.
+
+`--compare <saved.json>` checks the instance against a report you saved and reviewed. It lists each setting that changed and each role, permission, group or space added, removed or changed (naming the fields), and exits with status 1 when anything changed, 0 with `No changes.` otherwise, and 2 when it cannot read the saved report. A saved report reformatted by `jq` still compares. `GET /info/access` (global admins) returns the same report from a running server.
+
+```
+dmart access report > access-baseline.json
+dmart access report --compare access-baseline.json
+```
+
+### 23. prune-login-histories
+
+Deletes sign-in records from the history of accounts: history rows of the management space's `/users` older than `--older-than <days>` whose only change is `last_login`. A row that records any other change to an account is kept, and no account's `last_login` changes. Each deleted row gets a tombstone in the same transaction, so incremental Parquet exports learn of the deletion. The window has no default; `--dry-run` counts what would go.
+
+Nothing runs it for you. Archive the history first if it must stay available.
+
+```
+dmart prune-login-histories --older-than 365 --dry-run
+dmart prune-login-histories --older-than 365
 ```

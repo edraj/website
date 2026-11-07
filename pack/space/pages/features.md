@@ -97,7 +97,11 @@ sequenceDiagram
 
 - **Plugin Architecture:** Extend functionality with custom plugins for logic, validation, or external integrations.
 
-- **Solution Packs:** csdmart's source repository carries ready-made applications defined as data, in `packs/`: `org`, `catalogue`, `assets`, `servicedesk`, `approvals`, `kb`, `datamart` and the optional `comms`. Each is a space with its folders and schemas, plus the roles and permissions that make it usable. `packs/install.sh` installs every pack but `comms`, or `--packs a,b` with their dependencies; `--public` opens a pack's public roles to anonymous users, `--plugins` deploys its plugins, `--dry-run` prints the plan, and `--force` allows a downgrade. `packs/reset.sh` removes a pack. Each install leaves a receipt at `management/packs/<name>`, so a later update never overwrites or deletes an entry you changed; a pack's spaces, roles and permissions always follow the pack.
+- **Solution Packs:** csdmart's source repository carries ready-made applications defined as data, in `packs/`: `org`, `catalogue`, `assets`, `servicedesk`, `approvals`, `kb`, `datamart` and the optional `comms`. Each is a space with its folders and schemas, plus the roles and permissions that make it usable. `packs/install.sh` installs every pack but `comms`, or `--packs a,b` with their dependencies; `--public` opens a pack's public roles to anonymous users, `--plugins` deploys its plugins, `--dry-run` prints the plan, and `--force` allows a downgrade. `packs/reset.sh` removes a pack.
+
+- **Pack Updates Keep Your Edits:** Each install leaves a receipt at `management/packs/<name>`, with a checksum of the grants, state and names of each space, role and permission it ships. A later update never overwrites or deletes an entry, space, role or permission you changed: one the pack changed too is skipped and named, and one the new version drops is kept if you changed it. Installing over rows already there keeps those that differ from the pack.
+
+- **Comparing Packs With an Instance:** `packs/diff.sh` compares packs with a live instance and changes nothing. It reports each row a pack ships as the same, differing (the fields are named, not their values), changed on the instance, or missing, counts the records beyond the pack in each folder, and exits 1 on any difference. It reads by folder and shortname, never walks a space and never reads a user, so it is safe against production.
 
 - **AI Agents (MCP):** An optional MCP server lets AI agents query, read and write entries as a signed-in DMART user, within that user's permissions.
 

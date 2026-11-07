@@ -16,8 +16,8 @@ This file has the rules and recipes that get most tasks done. The `references/` 
 | Way | Use it when | Notes |
 |---|---|---|
 | **REST API** | Default. Anything scripted or repeatable. | Base URL is the server, e.g. `http://localhost:8282`; behind a proxy it is often `https://<host>/dmart`. JSON over HTTP with a bearer token. |
-| **MCP tools** (`dmart_query`, `dmart_read`, `dmart_create`, `dmart_update`, `dmart_delete`, `dmart_schema`, `dmart_history`, …) | The dmart MCP server is already connected to your client. | Only when the server runs with `ENABLE_MCP=true`. A query returns at most 50 records per call: page with `offset` and a `sort_by`, and add `retrieve_json_payload: true` for the bodies. Its sign-in refuses `admin` accounts; integrations use a `bot` account. |
-| **`dmart cli`** | You have a shell on the server host. | `dmart cli c <space> /<subpath> <command>` (e.g. `ls`, `cat <name>`). On the server host it signs in without a password. Operator commands (`dmart export`, `import`, `check`, `selfcheck`) also need that shell. |
+| **MCP tools** (`dmart_query`, `dmart_read`, `dmart_create`, `dmart_update`, `dmart_delete`, `dmart_schema`, `dmart_history`, …) | The dmart MCP server is already connected to your client. | Only when the server runs with `ENABLE_MCP=true`. A query returns at most 50 records per call: page with `offset` and a `sort_by`, and add `retrieve_json_payload: true` for the bodies. Its sign-in refuses `admin` accounts; integrations use a `bot` account, which reaches users, roles, permissions and groups only if the instance exempts it (rule 3). |
+| **`dmart cli`** | You have a shell on the server host. | `dmart cli c <space> /<subpath> <command>` (e.g. `ls`, `cat <name>`). On the server host it signs in without a password. Operator commands (`dmart export`, `import`, `check`, `selfcheck`, `access report`) also need that shell. |
 
 ## Sign in
 
@@ -39,7 +39,7 @@ dm "$DMART/user/profile" | jq -c '{status, shortname: .records[0].shortname}'
 
 1. **Names.** Shortnames and space names are letters, digits and `_` only (Arabic letters and digits too): **no dashes, dots or spaces**, at most 64 characters (32 for a space). A dash is refused with `invalid shortname`. Send `"shortname": "auto"` to let the server pick one.
 2. **Folders and schemas first.** Create a space, then its folders (`resource_type: folder`), then schemas (`resource_type: schema` under subpath `schema`), then entries. An entry names its schema with `payload.schema_shortname`; without one, its body is stored unchecked.
-3. **Users, roles, permissions and groups live in the `management` space**, under `users`, `roles`, `permissions` and `groups`.
+3. **Users, roles, permissions and groups live in the `management` space**, under `users`, `roles`, `permissions` and `groups`. Only an account of type `admin`, the built-in `dmart`, or one the instance exempts (`MANAGEMENT_EXEMPT_ACCOUNTS`, `MANAGEMENT_EXEMPT_ROLES`) reaches them. Any other account's grants on them count only for its own user record, and grants that anonymous or every signed-in user holds reach nothing in `management`. Adding grants won't change that, so say so instead.
 4. **Check every write's answer.** `/managed/request` takes several records at once. If any fails, the others are still written, and the answer is `status: failed` with code `430`. `error.info[0].failed` lists each failed record with its reason. HTTP `401` also means "not allowed", not only "not signed in".
 5. **Tickets move through their workflow.** A ticket (`resource_type: ticket`) names a `workflow_shortname`. Change its state with `PUT /managed/progress-ticket/...`, never by writing `state` in an update.
 
@@ -77,6 +77,8 @@ dm "$DMART/user/profile" | jq -c '{status, shortname: .records[0].shortname}'
 - `retrieve_json_payload: true` is needed to get `payload.body` back.
 - Answers leave out fields that are null, so a query that matches nothing has no `records` key at all: read it as `(.records // [])` in jq.
 - `sort_by` takes a column (`shortname`, `created_at`, `updated_at`, `owner_shortname`, …) or a payload path (`payload.body.year`). An unknown name silently falls back to `updated_at`.
+- A `history` query (and MCP `dmart_history`) needs `history` in the `resource_types` of a grant at that folder. Without it the answer is an empty success, not an error. Secret-named fields in a diff read `********`.
+- `jq_filter` runs a jq program on each record on the server (`"jq_filter": "{shortname, year: .attributes.payload.body.year}"`). One that fails answers HTTP `400` (`503` when jq is busy or missing) with `status: failed`.
 
 ### Search syntax (`search`)
 
@@ -196,11 +198,11 @@ curl -s -H "authorization: Bearer $TOKEN" -X POST "$DMART/managed/resource_with_
   -F "payload_file=@/tmp/cover.png;type=image/png" | jq -c '{status, error: .error.message}'
 ```
 
-The file comes back from `GET /managed/payload/media/library/books/dune/cover.png`.
+The file comes back from `GET /managed/payload/media/library/books/dune/cover.png`. Fetching an attachment takes `view` on its type (`media`, `comment`, …) **and** on the record it hangs off; without both, the answer is `404`, even where the attachment is listed.
 
 ### A read-only user
 
-A permission grants actions on resource types under subpaths; a role bundles permissions; a user holds roles. All three live in `management`.
+A permission grants actions on resource types under subpaths; a role bundles permissions; a user holds roles. All three live in `management`, so creating them takes an admin such as `dmart` (rule 3).
 
 ```bash
 dm -X POST "$DMART/managed/request" -d '{"space_name":"management","request_type":"create","records":[
@@ -211,7 +213,7 @@ dm -X POST "$DMART/managed/request" -d '{"space_name":"management","request_type
     "password":"Reader-pass-42","roles":["library_reader"]}}]}' | jq -c '{status, error: .error.message}'
 ```
 
-A permission on a folder covers everything below it. A password must meet the server's rule (by default 8 to 64 characters with a digit and a capital letter). For conditions (`own`, `is_active`), field limits and row filters, read `references/access-control.md`.
+A permission on a folder covers everything below it. For the reader to fetch attachments or read history, add their types (`media`, …, `history`) to `resource_types`. A password must meet the server's rule (by default 8 to 64 characters with a digit and a capital letter). For conditions (`own`, `is_active`), field limits and row filters, read `references/access-control.md`.
 
 ### Deleting safely
 

@@ -18,7 +18,7 @@ A cwd-relative `./config.env` is _not_ looked up implicitly. Because the file ma
 
 **Strict validation.** Configuration is bound and validated at startup (`ValidateOnStart`). Any **unknown key in `config.env` is rejected** and aborts startup — there is no silent fallthrough for typos. (Environment variables are not checked this way.) Keys of settings that no longer exist — `REDIS_HOST`/`PORT`/`PASSWORD`/`CONNECTION`, `ACTIVE_DATA_DB`, `WEBSITE_URL` and `WEBSITE_DIR` — are unknown keys and stop the boot. `ALLOW_PASSWORD_RESET_RESEND_AFTER` is ignored with a warning. `MANAGEMENT_SPACE` is retired: the management space is always `management`. `MANAGEMENT_SPACE="management"` still starts, with a warning to remove the line; any other value refuses to start.
 
-**Frontends read the server's values.** The `config.json` DMART serves cxb and catalog carries `OTP_LENGTH`, `ALLOW_OTP_RESEND_AFTER`, `OTP_TOKEN_TTL`, `MAX_UPLOAD_SIZE_MB`, `DEFAULT_QUERY_LIMIT`, `MAX_QUERY_LIMIT`, `UI_LIST_LIMIT` and whether the password rule is custom, with its hint. A frontend DMART does not serve can read the same from `GET /public/client-config`. The `backend_timeout` in that `config.json` is at least `REQUEST_TIMEOUT` + 5 seconds, so the server's own timeout answer arrives before the frontend gives up.
+**Frontends read the server's values.** The `config.json` DMART serves cxb and catalog carries `OTP_LENGTH`, `ALLOW_OTP_RESEND_AFTER`, `OTP_TOKEN_TTL`, `MAX_UPLOAD_SIZE_MB`, `DEFAULT_QUERY_LIMIT`, `MAX_QUERY_LIMIT`, `UI_LIST_LIMIT`, and whether the password and username rules are custom (`password_rule_custom`, `username_rule_custom`), with their hints (`password_hint`, `username_hint`). A frontend DMART does not serve can read the same from `GET /public/client-config`. The `backend_timeout` in that `config.json` is at least `REQUEST_TIMEOUT` + 5 seconds, so the server's own timeout answer arrives before the frontend gives up.
 
 **The frontends' own `config.json`.** DMART serves cxb and catalog the first it finds of: the file named by `--cxb-config` (or `DMART_CXB_CONFIG`), `./config.json`, `~/.dmart/config.json`, and the copy built into each app. Its keys are `title`, `footer`, `short_name`, `display_name`, `description`, `default_language`, `languages` and `backend`, plus catalog's switches `enable_websocket`, `enable_messaging`, `enable_surveys`, `enable_poll`, `enable_reaction_and_comment`, `enable_public_view` and `enable_notifications`. A blank `backend` means the page's own origin. Any other value must be on the page's own site, because both apps authenticate by a `SameSite=Lax` cookie (see [Base URL & Authentication](/api-docs#base-url--authentication)). cxb draws schema and workflow diagrams by sending their text to `https://www.plantuml.com/plantuml`, unless `plantuml_server` names another server.
 
@@ -33,7 +33,7 @@ A cwd-relative `./config.env` is _not_ looked up implicitly. Because the file ma
 | `QUERY_TOTAL_CAP` | Largest exact `total` a query computes. Above it, `total` is the cap and `total_is_lower_bound` is `true`. 0 = unlimited. | `100000` |
 | `RETRIEVE_TOTAL_DEFAULT` | Whether a query that omits `retrieve_total` is counted. A skipped count reports `total` as `-1`. `/public/query` counts only when asked. | `true` |
 | `ENABLE_SMART_SEARCH` | Plain words in a search match whole and partial words in entry values, with spelling correction, best match first. False keeps the plain substring match. | `true` |
-| `SEARCH_TEXT_INDEX_BATCH_SIZE` / `SEARCH_TEXT_INDEX_PAUSE_MS` | Pace of the background pass that fills the search text of older rows: rows per batch (1–10000), and a pause between batches in milliseconds (0–60000). Each row filled is rewritten in every index on `entries`; a pause spreads that write load over longer. | `500` / `0` |
+| `SEARCH_TEXT_INDEX_BATCH_SIZE` / `SEARCH_TEXT_INDEX_PAUSE_MS` | Pace of the background job that fills the search text of rows that have none, such as rows written outside DMART's own saves (see [Plain-text search](/query-search#plain-text-search)): the most rows a batch takes (1–10000), and a pause between batches in milliseconds (0–60000). A batch that takes over a second halves the next one, down to 10 rows, and quick ones double it back up to this size. Each row filled is rewritten in every index on `entries`; a pause spreads that write load over longer. | `500` / `0` |
 | `UNIQUENESS_MAX_PROBES` | Most searches one uniqueness rule may run for a single write; past it the write is refused | `1000` |
 | `EVENTS_LOG_MAX_BYTES` | Size at which a space's `events.jsonl` rolls over (one previous file is kept). 0 = never. | `52428800` (50 MiB) |
 | `URL_SHORTER_EXPIRES` | Short-link expiration (seconds) | `3600` |
@@ -95,6 +95,8 @@ On PostgreSQL, provide a full connection string with `POSTGRES_CONNECTION`, or l
 | `DATABASE_MAX_AUTO_PREPARE` | How many of the most-reused statements Npgsql prepares per connection. 0 disables. Ignored with `POSTGRES_CONNECTION`. | `200` |
 
 **Time zone.** DMART stores timestamps as the app host's local wall-clock time, with no time zone (see [Data Model](/data-model)). It pins each PostgreSQL session's time zone to the app host's, so the database's own clock agrees, unless the connection string sets `Timezone=` itself.
+
+**Session name.** DMART names its PostgreSQL sessions `dmart@<host>`, after the app host's name. It shows as `application_name` in `pg_stat_activity` and as `%a` in the database's log, so two DMART nodes, or DMART and another service signing in as the same role, can be told apart. A `POSTGRES_CONNECTION` that sets `Application Name` keeps its own.
 
 ### Spaces Folder (import/export only)
 
@@ -193,23 +195,46 @@ A lock does not sign the user out: access tokens already issued keep working unt
 | `MAX_OTP_REQUESTS_PER_DAY` | Cap on codes sent to one destination in a rolling 24 hours, counted the same two ways (0 = no cap) | `10` |
 | `OTP_HISTORY_RETENTION_DAYS` | Days used and expired codes are kept before they are purged. 0 = never purged. | `2` |
 | `REGISTRATION_ENABLED_CHANNELS` | Channels self-registration accepts: `email` and/or `msisdn`. Empty closes self-registration. | `"email,msisdn"` |
+| `REGISTRATION_EMAIL_DOMAINS` | Comma-separated email domains a user may give their own account: when registering (`/user/create`, and the account `ENABLE_OTP_IMPLICIT_REGISTRATION` creates) and when changing their own email (`/user/verify-contact`). `a.com,b.org` allows `x@a.com` and `x@b.org`, not `x@mail.a.com`: list each subdomain. A registration, or a code for a new address, outside them is refused with the list of allowed domains, and no code is sent; a code sign-in's implicit registration is refused silently, as the rest of its gate is. Admins creating or editing users are not limited, and an email an account already has keeps working, for confirming it and for sign-in codes. Empty allows any domain. | `""` |
 | `OTP_SHORTNAME_CHANNELS` | Whether `/user/otp-request`, the sign-in by code and `/user/password-reset-confirm` take a shortname, and where its code goes: `msisdn` and/or `email`, in order of preference. The account's first verified contact among them gets the code, else its first contact among them. `none` refuses a shortname on all three, so callers name the phone or email: shortnames are public, and resolving one lets anyone who knows a username have codes sent to that person and use up that address's resend cooldown and daily cap. An admin's sign-in (password, then password and code) is not affected, and its code keeps the default order. A reset by hosted mailbox follows the setting, and the default order under `none`. An unknown or repeated channel, or an empty value, stops the server from starting. | `msisdn,email` |
+| `EMAIL_CONTACT_ONLY_ROLES` | Comma-separated roles whose accounts sign in by phone alone. On an account that holds one, has a phone and no password, and is not of type `admin`, the email is for contact only: no sign-in or reset code goes to it, and no social sign-in reaches the account through it. Adding or changing that email then takes only a code sent to the new address. Changing the phone still takes a code to the current phone, and a code to the email does not count for it. Someone who loses the phone cannot recover the account through the email, so check that nothing signs these accounts in by email first. Empty changes nothing. | `""` |
 | `ENABLE_OTP_IMPLICIT_REGISTRATION` | Let a code sign-in with an unknown email or phone create the account instead of failing, under the same gates as `/user/create` (`IS_REGISTRABLE` and the channel) | `false` |
-| `REGEX_CONFIG_PATH` | JSON file overriding the `email` and `msisdn` patterns and the password rule (`password`, with the `password_hint` a refused password is told). Empty = `~/.dmart/regex.json`. The built-in rule is 8–64 characters with a digit and an uppercase letter. | `""` |
+| `REGEX_CONFIG_PATH` | JSON file overriding the `email` and `msisdn` patterns, the password rule (`password`, with the `password_hint` a refused password is told) and the username rule (`username`, with its `username_hint`); see the rules file below. Empty = `~/.dmart/regex.json`. The built-in password rule is 8–64 characters with a digit and an uppercase letter. | `""` |
 | `USER_CREATE_DEFAULT_ROLE` | Single role assigned to every self-created user (self-service create ignores roles in the body) | `""` (none) |
 | `USER_CREATE_DEFAULT_GROUP` | Single group assigned to every self-created user | `""` (none) |
 | `USER_PROFILE_PAYLOAD_PROTECTED_FIELDS` | CSV of payload fields users cannot update via `POST /user/profile` | `""` |
 | `ALLOWED_SUBMIT_MODELS` | CSV of `space.schema` pairs allowed for `/public/submit` and anonymous uploads, matched exactly, case included (empty = none) | `""` |
 | `USER_DELETION_MODE` | `soft` keeps a deleted user's row, marked deleted and stripped of contacts, password, mailbox, aliases and services: the account leaves user listings and their totals, and stays in exports. `hard` deletes it with the entries and attachments the user owns (an entry with every attachment beneath it, whoever owns that), their history and the account's own, its sessions and locks; the history the user wrote on records that stay is kept, and the spaces, roles, groups, permissions and users it owned pass to `dmart`, as does a folder of its that holds another owner's entry. An admin's hard delete of a user who has created records needs `force: true`. `POST /user/delete`, a user deleting themself, takes only the records the user may delete, each judged as their own delete request would be; if any they own are left, the account is soft-deleted instead, and the answer says how many (`records_kept`). See [Deleting a user](/entity-lifecycle#deleting-a-user). | `"soft"` |
 
+**The rules file.** The JSON file at `REGEX_CONFIG_PATH` may hold `email`, `msisdn`, `password`, `password_hint`, `username` and `username_hint`:
+
+```json
+{
+  "email": "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\z",
+  "password": "^.{12,64}\\z",
+  "password_hint": "Use at least 12 characters.",
+  "username": "^[a-z][a-z0-9_]{2,31}\\z",
+  "username_hint": "3-32 lowercase letters, digits and _, starting with a letter."
+}
+```
+
+- **A missing file, key or empty value** keeps the built-in rule. A rule that does not compile is logged, and the built-in one applies.
+- **`password`** applies to every new password (registration, profile, reset, an admin's create), never to stored ones.
+- **`username`** applies to a username a person chooses for a new user: a registrant's `shortname` at `/user/create`, an admin's create, and `dmart import-ldif`. It can only narrow DMART's own shortname rule (letters, digits and `_`, up to 64 characters), since a name must match both. A name the server makes is not held to it. Where DMART's usernames become Matrix IDs, use a Matrix-safe rule such as the one above.
+- **The hints** are what a refused password or username is told, and sign-up forms show them, so set each one whenever you change its rule.
+
 ### Admin Accounts
 
-Accounts of type `admin` sign in with their password and a one-time code, both checked: once the password checks out, the server sends the code. An admin resets its password by code only while another admin has set `force_password_change` on the account.
+Accounts of type `admin` sign in with their password and a one-time code, both checked: once the password checks out, the server sends the code. An admin resets its password by code only while `force_password_change` is set on the account, which only a global admin, or the active admin that created the account, may set.
+
+Management's users, roles, permissions and groups are for accounts of type `admin` and the built-in `dmart`. Another account's grants on them count only through the two exemptions below (see [The Management Space](/access-control#the-management-space)). At every start the log names, as `MANAGEMENT_ADMIN_ONLY`, each role whose grants there the rule limits, and `dmart check management hard` counts the accounts that hold each.
 
 | Setting | Description | Default |
 |---|---|---|
 | `ADMIN_IP_ALLOWLIST` | IPs and CIDR ranges admin accounts may sign in and work from, checked at sign-in and on every request. Empty = no address limit. Behind a proxy it needs `TRUSTED_PROXIES`. An entry that does not parse stops startup. | `""` |
 | `ADMIN_USER_TYPE` | Type the built-in `dmart` account is held to at every start: `web` or `admin`. As `admin` it signs in with its password and a code, so it needs an email or phone the server can send to; becoming one ends its sessions. Setting `web` again and restarting is the way back in when codes stop arriving. As `web` it is held to `WEB_DEVICE_OTP`, so it needs a verified email or phone before that is turned on. | `"web"` |
+| `MANAGEMENT_EXEMPT_ACCOUNTS` | Comma-separated accounts, such as a bot, whose grants on management's users, roles, permissions and groups count although they are not of type `admin`. Naming `anonymous` stops startup. | `""` |
+| `MANAGEMENT_EXEMPT_ROLES` | Comma-separated roles whose grants on management's users, roles, permissions and groups count for every account that holds them. Naming `world`, `logged_in` or the `USER_CREATE_DEFAULT_ROLE` role stops startup: what every caller holds never reaches the management space. | `""` |
 
 ### Password Hashing
 
@@ -261,7 +286,8 @@ Email and SMS each have an on/off switch, `IS_SMTP_ENABLED` and `IS_SMPP_ENABLED
 | `SMS_SENDER` | Optional sender ID / from-name inlined into the SMS request body | `""` |
 | `SMPP_AUTH_KEY` | Value of the `auth-key` header sent to the SMS gateway. Blank, no SMS is sent. | `""` |
 | `SMS_TIMEOUT` | Seconds a call to either SMS endpoint may take before the send counts as failed | `15` |
-| `MOCK_SMPP_API` | Send no SMS (dev/test) while SMS is on. Each code is still random, and is written to the server log at `warning` level. A mock is not a gateway, so without an SMS endpoint it needs `IS_SMPP_ENABLED=true`. | `false` |
+| `MOCK_SMPP_API` | Send no SMS (dev/test) while SMS is on. Each code is still random. The server log gets a `warning` line naming the number, which carries the message, code included, only with `MOCK_SMPP_LOG_OTP`. A mock is not a gateway, so without an SMS endpoint it needs `IS_SMPP_ENABLED=true`. | `false` |
+| `MOCK_SMPP_LOG_OTP` | Write each mocked SMS's text, and so its code, into that log line instead of `[redacted]`. Whoever reads the log then has the codes. | `false` |
 | `MOCK_OTP_FIXED` | Make every code sent over a mocked channel the fixed `MOCK_OTP_CODE`. Test servers only: anyone who knows an account's email or phone can then sign in as it. The server refuses to start with it on and no code, and warns at every start while it is in force. | `false` |
 | `MOCK_OTP_CODE` | The fixed code, `OTP_LENGTH` digits long; used only with `MOCK_OTP_FIXED=true` | `""` |
 
@@ -403,7 +429,7 @@ The channels file is a JSON array:
 | `ENABLE_INNER_JOIN_PUSHDOWN` | Push eligible inner joins into SQL as correlated EXISTS semi-joins. False forces the in-memory fallback. | `true` |
 | `ENABLE_MCP` | Expose the Model Context Protocol surface: `/mcp`, the OAuth 2.1 authorization server (`/oauth/*`) and its `/.well-known/oauth-*` discovery documents. False leaves all of them unmapped (`INVALID_ROUTE`, HTTP 422). | `false` |
 | `IMPORT_MAX_ENTRIES` | Reject zip imports declaring more than this many entries (decompression-bomb guard). 0 disables. | `500000` |
-| `IMPORT_MAX_UNCOMPRESSED_BYTES` | Reject zip imports whose declared uncompressed size exceeds this. 0 disables. | `2147483648` (2 GiB) |
+| `IMPORT_MAX_UNCOMPRESSED_BYTES` | Reject zip imports whose uncompressed size exceeds this, declared or as actually unpacked. 0 disables. | `2147483648` (2 GiB) |
 | `PARQUET_ROW_GROUP_ROWS` | Rows per row group in a Parquet export | `50000` |
 | `PARQUET_ATTACHMENT_PAGE_SIZE` / `PARQUET_HISTORY_PAGE_SIZE` | Attachments / history rows fetched per page during a Parquet export | `500` / `10000` |
 | `PARQUET_BULK_BATCH_SIZE` | Rows per bulk batch when restoring a Parquet export | `10000` |

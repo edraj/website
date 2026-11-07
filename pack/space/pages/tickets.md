@@ -53,7 +53,7 @@ A workflow is _not_ code. It is a `content` entry (resource type `content`) stor
 
 ### Anatomy of a workflow body
 
-**initial_state** The state a new ticket starts in. May be a plain string, or an array of `{name, roles}` objects — in the array form the engine prefers the entry whose `roles` contains `"default"`, falling back to the first named entry. The seeded `workflow` schema, in `management`, takes only the array form, and no top-level keys besides `name`, `illustration`, `initial_state` and `states`; a workflow there whose payload names that schema is checked against it.
+**initial_state** The state a new ticket starts in. May be a plain string, or an array of `{name, roles}` objects. In the array form the engine prefers the entry whose `roles` holds one of the roles on the user record of whoever creates the ticket (or puts it on the workflow with an update), then the one whose `roles` contains `"default"`, then the first named entry. A ticket that enters the workflow through a move takes the `"default"` entry, or the first. The `workflow` schema in `management/schema`, a core schema every start creates when it is missing, takes only the array form, and no top-level keys besides `name`, `illustration`, `initial_state` and `states`; a workflow there whose payload names that schema is checked against it.
 
 **states[]** The list of states. Each has a machine `state` key, an optional display `name`, an optional `is_open`, and a `next` array of outgoing transitions. A state with _no_ `next` is terminal (closed). A state with `"is_open": false` is closed too, though its transitions can still move a ticket on (see [Reopening a closed ticket](#reopening-a-closed-ticket)).
 
@@ -152,8 +152,8 @@ A reopen is a transition like any other: `PUT /managed/progress-ticket/{space}/{
 
 - **A new ticket starts open,** whatever its initial state declares.
 - **Tickets already in a state** when it is marked `"is_open": false` keep the `is_open` they have until they next move; nothing rewrites them.
-- **The seeded `workflow` schema** in `management` declares `is_open` on a state. So does the one catalog creates for a new space, which also allows `roles` and `resolution_required` on a transition and `resolutions` on a state. A space catalog set up earlier keeps its older schema, which refuses these keys: add them to that copy before using them there.
-- **cxb's ticket form** offers a closed ticket's transitions to a user who may take one of them, above a note that the ticket is closed; anyone else sees it closed. Its choices are listed by action, so two transitions to the same state are told apart, and Submit waits for a choice. cxb's workflow editor has a "Closed" checkbox per state, and its diagram ends a closed state's path.
+- **The `workflow` schema** in `management` declares `is_open` on a state. So does the one catalog creates for a new space, which also allows `roles` and `resolution_required` on a transition and `resolutions` on a state. A space catalog set up earlier keeps its older schema, which refuses these keys: add them to that copy before using them there.
+- **cxb's ticket form** offers a closed ticket's transitions to a user who may take one of them, above a note that the ticket is closed; anyone else sees it closed. Its choices are listed by action, so two transitions to the same state are told apart, and Submit waits for a choice, and for a resolution when the transition requires one. The form reads the workflow from the ticket's space, and from management's when the space has none of that name, while the server looks only in the ticket's space. cxb's workflow editor has a "Closed" checkbox per state and a "Resolution required" checkbox per transition, opens an `initial_state` written as a string, and its diagram ends a closed state's path.
 - **Catalog's reports page** shows a closed state that can be reopened as closed.
 
 ## Advancing a Ticket: `progress-ticket`
@@ -172,7 +172,7 @@ PUT /managed/progress-ticket/applications/api/v1/tickets/TCK_1042/reject
 }
 ```
 
-The body accepts `resolution` _or_ `resolution_reason` (both map to the ticket's `resolution_reason` column), plus an optional `comment`. A missing/empty body is allowed for transitions that do not require a resolution.
+The body accepts `resolution` _or_ `resolution_reason` (both map to the ticket's `resolution_reason` column, and `resolution_reason` wins when both are sent), plus an optional `comment`. A missing/empty body is allowed for transitions that do not require a resolution.
 
 The [CLI](/cli)'s `progress <subpath> <shortname> <action>` progresses a ticket in its current space, but sends no body, so it cannot take a transition with `resolution_required`; use the endpoint for those.
 
@@ -194,9 +194,9 @@ The workflow is the only way to move a ticket. On a ticket whose workflow exists
 
 **5 · Actor holds a required role** If the transition lists `roles`, the actor must hold at least one of them among the roles on their user record — otherwise the transition is refused.
 
-**6 · Resolution when required** If the transition sets `resolution_required: true`, a `resolution_reason` must be present in the body — else the request fails with `MISSING_DATA`.
+**6 · Resolution when required** If the transition sets `resolution_required: true`, the body must carry a `resolution_reason` (or `resolution`) that is not empty or blank, else the request fails with `MISSING_DATA`. `null`, `""` and whitespace count as none. The reason is stored trimmed.
 
-When all checks pass, the service builds a patch — `state` = the new state, `is_open` = whether that state is open, and `resolution_reason` if supplied (otherwise the ticket keeps the one it has) — and applies it through `EntryService.UpdateAsync` with the action override `progress_ticket` (so the permission walk gates on the `progress_ticket` action, not `update`). A non-empty `comment` is then stored as a `comment` attachment under the ticket, carrying the new state. The comment is written best effort, after the transition: if it fails, the transition stands and the request still succeeds, and it fires no plugin event of its own. [Plugins](/plugins) hear of the transition as an `update` event whose `attributes` carry the new `state` and a `history_diff` of what changed. The success envelope echoes the outcome:
+When all checks pass, the service builds a patch — `state` = the new state, `is_open` = whether that state is open, and `resolution_reason` if supplied and not blank (otherwise the ticket keeps the one it has) — and applies it through `EntryService.UpdateAsync` with the action override `progress_ticket` (so the permission walk gates on the `progress_ticket` action, not `update`). The patch is written only if the ticket is still at the revision the transition was evaluated on: of two transitions racing on one ticket, one wins and the other answers `CONFLICT`, and the caller reloads the ticket before trying again. A non-empty `comment` is then stored as a `comment` attachment under the ticket, carrying the new state. The comment is written best effort, after the transition: if it fails, the transition stands and the request still succeeds, and it fires no plugin event of its own. [Plugins](/plugins) hear of the transition as an `update` event whose `attributes` carry the new `state` and a `history_diff` of what changed, delivered at least once (see [After-Hook Delivery](/plugins#after-hook-delivery)). The success envelope echoes the outcome:
 
 ```json
 {
@@ -221,6 +221,7 @@ The rejections are explicit. A few representative errors (all returned as `statu
 | Actor lacks a required role | `INVALID_TICKET_STATUS` — "You don't have the permission to progress this ticket with action {action}" |
 | Resolution required but omitted | `MISSING_DATA` — "this transition requires a resolution_reason" |
 | Caller lacks the `progress_ticket` action on the ticket | `NOT_ALLOWED` — "no progress_ticket access" |
+| The ticket changed after the transition was evaluated, such as by a competing transition | `CONFLICT` (HTTP 409) — "entry changed; …" |
 
 ## Assigning: the `assign` Request
 

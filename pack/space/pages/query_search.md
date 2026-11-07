@@ -29,7 +29,7 @@ The `search` field is consulted when `type` is one of:
 
 The `search` field is **ignored** for `type` = `spaces` and `history`. For `events` it is a plain, case-sensitive substring matched against each raw event line.
 
-In the `management` space, a query at `/users`, `/roles`, `/groups` or `/permissions` (or below) runs on that table, so a selector names that table's columns: `email`, `msisdn`, `roles` and `groups` are columns of users, not of entries.
+In the `management` space, a query at `/users`, `/roles`, `/groups` or `/permissions` (or below) runs on that table, so a selector names that table's columns: `email`, `msisdn`, `roles` and `groups` are columns of users, not of entries. A grant on those four counts only for accounts of type `admin`, the built-in `dmart` and the exemptions an instance sets, apart from one on the caller's own user record (see [The Management Space](/access-control#the-management-space)).
 
 The query's other filters are ANDed with the search: `filter_types`, `filter_shortnames`, `filter_schema_names`, `filter_tags` (any of the listed tags), and `from_date` / `to_date`, which bound `created_at`. `filter_schema_names` defaults to `["meta"]`, which filters nothing: the name `meta` is dropped from the list.
 
@@ -90,6 +90,12 @@ Every typed word must match. Results come back best match first — whole words,
 
 A word with a digit (`x200`), a single letter, or a fragment of more than 200 of the space's words is matched as a plain substring of the entry's values, without corrections. An entry's indexed text stops at 100,000 characters, so a word past that point in a very large body is not found.
 
+**Rows written outside DMART's saves.** Words are matched against each entry's stored search text, which DMART's own saves write. A row inserted or changed another way (a bulk import, a move that renames, `Dmart.SqlAdapter`, a service writing the database directly) is left without one, and a background job fills it; until then, plain words match that row as plain substrings of its values. The job runs once a minute, and keeps out of the way of the writers that changed those rows:
+
+- **Locked rows are skipped.** On PostgreSQL it skips a row another transaction holds, and fills it on a later pass.
+- **Busy rows wait.** Outside a large backlog (more than 100,000 rows waiting) it fills a row only once the row has gone a minute unwritten, so a record a writer keeps rewriting waits until it is quiet. The first pass after a start fills every waiting row.
+- **Slow batches shrink.** A batch that takes over a second halves the next one, down to 10 rows, and quick ones double it back up to `SEARCH_TEXT_INDEX_BATCH_SIZE`; `SEARCH_TEXT_INDEX_PAUSE_MS` spaces them (see [Settings](/settings#general-configuration)).
+
 A word that starts with `-` is not an exclusion: it and the words typed next to it are matched as plain substrings. So is every plain word with `ENABLE_SMART_SEARCH=false`, and on every table but entries (users, roles, groups, permissions, attachments): a case-insensitive substring of the shortname, payload, display names, descriptions and tags, read as JSON text, key names included.
 
 A bare `*` is not a wildcard. As a plain word it is matched as a substring, so `"search": "*"` finds only records whose values hold an asterisk. To list everything, leave `search` out.
@@ -111,7 +117,7 @@ web01 @payload.body.dc:us-east
 
 `field` is the column name (e.g. `shortname`, `is_active`) or a dotted jsonb path (e.g. `payload.body.email`). A field that is not a column — `@title:x`, `@BadName:x` — is a `400` (`INVALID_DATA`) naming the problem; it is never silently dropped. Custom data lives under `@payload.body.<field>`.
 
-Columns the API never returns cannot be searched, as a field or as the start of a path: a user's `password`, `last_login` and `last_failed_login`, a history row's `request_headers` and an attachment's `media`. Naming one is a `400`.
+Columns the API never returns cannot be searched, as a field or as the start of a path: a user's `password`, `last_login` and `last_failed_login`, an entry's `revision`, a history row's `request_headers` and an attachment's `media`. Naming one is a `400`, and so is a table name or an SQL keyword such as `current_user`.
 
 The behaviour depends on which **category** `field` falls into:
 
@@ -956,17 +962,21 @@ The filter above projects each record down to just its payload body, so `records
 
 - Subprocess timeout is `JQ_TIMEOUT` seconds (config key, default `2`). A timeout returns a `JQ_TIMEOUT` failure envelope; a jq syntax/runtime error returns `JQ_ERROR`.
 
-- The filter is capped at **1024 characters** and rejected if it references dangerous builtins (`env`, `$ENV`, `input`, `inputs`, `input_filename`, `input_line_number`, `debug`, `stderr`, `path(`, `getpath`, `halt`, `halt_error`, `builtins`, `modulemeta`, `$__loc__`) or starts with an `import` or `include` directive.
+- The filter is capped at **1024 characters** and rejected if it references dangerous builtins (`env`, `$ENV`, `input`, `inputs`, `input_filename`, `input_line_number`, `debug`, `stderr`, `path(`, `getpath`, `halt`, `halt_error`, `builtins`, `modulemeta`, `$__loc__`) or starts with an `import` or `include` directive. `jq` runs with none of the server's environment but `PATH`, `LANG` and `LC_ALL`.
 
-- At most `JQ_MAX_CONCURRENCY` (default 4) `jq` processes run at once; a request that waits longer than `JQ_QUEUE_TIMEOUT_SECONDS` (default 5) for one gets a retryable `JQ_TIMEOUT`. Output past 32 MB is a `JQ_ERROR`.
+- At most `JQ_MAX_CONCURRENCY` (default 4) `jq` processes run at once; a request that waits longer than `JQ_QUEUE_TIMEOUT_SECONDS` (default 5) for one gets a retryable `JQ_TIMEOUT`. Output up to 32 MB is returned whole; past it is a `JQ_ERROR`.
 
-- `jq` must be on `PATH` (the RPM/container declares it as a dependency); if it is missing the filter fails cleanly rather than crashing the request.
+- **A failure is not a 200.** The `failed` envelope comes with HTTP 400, or 503 when every `jq` slot stayed busy or `jq` is missing, so a proxy does not cache it as the answer.
+
+- `jq` must be on `PATH` (the RPM/container declares it as a dependency); jq 1.6 and later work. If it is missing the filter fails cleanly rather than crashing the request.
 
 A `jq_filter` may also be set on a join's nested `query`, where it reshapes that join's matched list (wrapped as `map([ <filter> ])` for per-base alignment) before attachment.
 
 ## `history` & `events` queries
 
 These two query types do not use the `search` DSL (see the table at the top) and instead read audit trails. Both show a change only where the caller could list the record it belongs to now, under its grants' conditions, row filters and ACL; the history of an attachment also needs a grant on the attachment's own type.
+
+**Old values take a `history` grant.** A diff holds a record's old values, including ones since removed from it, so reading the record is not enough. A history query also needs `history` in the `resource_types` of a grant, with `view` or `query`, that reaches the queried folder; a query at the space root needs it at the root. Without it the answer is empty, with no error. In the events feed, an event still shows without it, but without its old and new values.
 
 ### `history`
 
@@ -984,13 +994,13 @@ Reads the per-entry change log from the `histories` table. A request with no cal
 
 Each record has `resource_type: history` and the changed record's `shortname` and `subpath`, and carries in `attributes` `owner_shortname` (who made the change), `timestamp`, `diff` and `last_checksum_history`. It carries no request headers.
 
-`diff` maps each changed field to its `old` and `new` value. Its keys are dotted paths: `is_active`, `displayname.en`, `payload.body.title`. An array is stored and compared whole, so a change to one element shows the whole old and new array. A `password` key, or one ending in `.password`, reads `********` on both sides. The row an entry's create writes lists the fields it set, each with `old: null`, without the body; a CSV import writes none.
+`diff` maps each changed field to its `old` and `new` value. Its keys are dotted paths: `is_active`, `displayname.en`, `payload.body.title`. An array is stored and compared whole, so a change to one element shows the whole old and new array. A field named for a secret reads `********` on both sides, at any depth, inside arrays and sub-objects too: any name holding a word such as `password`, `secret`, `token`, `otp`, `pin`, `jwt`, `authorization` or `api_key`, numbered and plural forms included. A change whose sides are only booleans (`force_password_change`) keeps its values. The row an entry's create writes lists the fields it set, each with `old: null`, without the body; a CSV import writes none.
 
 ### `events`
 
 Reads the append-only space event feed (`events.jsonl` under the space, written when `SPACES_FOLDER` is set; past `EVENTS_LOG_MAX_BYTES`, 50 MiB by default, it rolls over and one previous file is kept and read). It needs a signed-in caller: on `/public/query` it answers `NOT_AUTHENTICATED`. It is filtered by `subpath` (and below it, unless `exact_subpath`), by `from_date` / `to_date`, and by `search` as a plain, case-sensitive substring of each raw line, and paged — `filter_shortnames` and `filter_types` are **ignored**. Default sort is newest-first.
 
-An event carries what its record held, so a caller other than a global admin sees an event only for a record it could list now, matched by uuid: not one deleted, moved away or replaced under the same name since. Such callers get each event without its `request_headers`.
+An event carries what its record held, so a caller other than a global admin sees an event only for a record it could list now, matched by uuid: not one deleted, moved away or replaced under the same name since. Such callers get each event without its `request_headers`. Every caller gets its diff masked as a history diff is, and `search` must also match the event as the caller gets it, so it never finds a value the response masks or leaves out.
 
 ```json
 {
@@ -1003,7 +1013,7 @@ An event carries what its record held, so a caller other than a global admin see
 
 If the space has no event log, the events feed is simply empty — there is no database fallback (parity with upstream).
 
-Looking for natural-language / vector search instead of the `search` DSL? That is a separate endpoint — `POST /managed/semantic-search` (pgvector cosine similarity), documented in the [API reference](/api-docs). It does not use the `search` string or any of the query types above.
+Looking for natural-language / vector search instead of the `search` DSL? That is a separate endpoint — `POST /managed/semantic-search` (pgvector cosine similarity), documented in the [API reference](/api-docs). It does not use the `search` string or any of the query types above. It returns only entries the caller could list, reading candidates nearest first and past those the caller cannot see, within bounds: at most three reads (three times the page, at least 100, then four times the last read), 2,000 candidates in all. A caller whose grants hide most of the nearest entries can get a short page, and its `matched` is a lower bound.
 
 ## Quick reference
 
