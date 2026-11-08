@@ -5,8 +5,10 @@
 #
 #   DMART=http://127.0.0.1:8282 DMART_PASSWORD=... skill/test-recipes.sh
 #
-# Point it at a throwaway dmart: the recipes create a `library` space and a
-# `reader1` user. CI runs it after the website pack is installed.
+# Point it at a throwaway dmart on this host: the recipes create a `library`
+# space and a `reader1` bot, whose password they set with `dmart passwd`, so
+# `dmart` must be on the PATH and read that server's config.env (BACKEND_ENV).
+# CI runs it after the website pack is installed.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -43,6 +45,7 @@ expect '"code":430' "the schema refusal to answer 430"
 expect '"body":{"title":"Dune","author":"Frank Herbert","year":1966}' "the update to merge one field"
 expect '{"state":"lent","is_open":true}' "the ticket to move to lent"
 expect '"report":[{"entries":2' "the dry run to count the folder and its ticket"
+expect 'Password updated for reader1' "dmart passwd to set the bot's password"
 
 reader=$(curl -s -X POST "$DMART/user/login" -H 'content-type: application/json' \
   -d '{"shortname":"reader1","password":"Reader-pass-42"}' | python3 -I -c 'import json,sys; print(json.load(sys.stdin)["records"][0]["attributes"]["access_token"])')

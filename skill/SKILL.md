@@ -210,10 +210,16 @@ dm -X POST "$DMART/managed/request" -d '{"space_name":"management","request_type
     "subpaths":{"library":["books"]},"resource_types":["content","folder"],"actions":["query","view"],"conditions":[]}},
   {"resource_type":"role","subpath":"roles","shortname":"library_reader","attributes":{"is_active":true,"permissions":["library_read"]}},
   {"resource_type":"user","subpath":"users","shortname":"reader1","attributes":{"is_active":true,
-    "password":"Reader-pass-42","roles":["library_reader"]}}]}' | jq -c '{status, error: .error.message}'
+    "type":"bot","roles":["library_reader"]}}]}' | jq -c '{status, error: .error.message}'
 ```
 
-A permission on a folder covers everything below it. For the reader to fetch attachments or read history, add their types (`media`, …, `history`) to `resource_types`. A password must meet the server's rule (by default 8 to 64 characters with a digit and a capital letter). For conditions (`own`, `is_active`), field limits and row filters, read `references/access-control.md`.
+No request sets a password: a `password` in a user's attributes is refused with `INVALID_DATA`, and the user is not created. A person signs in with a code sent to their email or phone, and sets a password with a reset code (`/user/otp-request` with `purpose: reset`, then `/user/password-reset-confirm`). A bot gets no code, so its password is set on the dmart host, read from standard input (as root, `sudo dmart passwd`, where the packages installed dmart). Without a shell there, ask the user to run it:
+
+```bash
+printf '%s\n' 'Reader-pass-42' | dmart passwd reader1
+```
+
+A permission on a folder covers everything below it. For the reader to fetch attachments or read history, add their types (`media`, …, `history`) to `resource_types`. A password must meet the server's rule (by default 8 to 64 characters with a digit and a capital letter). No request marks an email or phone verified either: a code does, or `dmart mark-verified` on the host. For conditions (`own`, `is_active`), field limits and row filters, read `references/access-control.md`.
 
 ### Deleting safely
 

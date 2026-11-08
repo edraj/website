@@ -14,7 +14,8 @@ syntax, through the REST API, the MCP tools or `dmart cli`.
 - `evals/`: tasks for comparing an agent with and without the skill. Each case has a prompt,
   the expected outcome and one grader per check, in the layout `claude plugin eval` reads.
   The prompts expect `$DMART` and `$DMART_PASSWORD` for a fresh dmart, seeded as each
-  case's prompt describes.
+  case's prompt describes. `readonly-auditor-aggregate` also runs on the dmart host, since a
+  password is set there with `dmart passwd`.
 
 Published with the site: `https://dmart.cc/skill/dmart.zip` (the folder), the unpacked files under
 `https://dmart.cc/skill/dmart/`, and `https://dmart.cc/llms.txt`.

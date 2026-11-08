@@ -5,7 +5,7 @@ A new release installs over the old one, keeps `config.env` and the data, and br
 - **Back up.** On SQLite, copy the database file (`/var/lib/dmart/dmart.db` for the packages) while the service is stopped; on PostgreSQL, take a `pg_dump`. [`dmart export`](/cli#5-export) also writes each space out as files.
 - **Several nodes** sharing one PostgreSQL database are upgraded together; see [Running several nodes](/technical#running-several-nodes).
 - **New settings go in after the upgrade.** dmart refuses to start when `config.env` holds a key it does not know. So a setting a release adds goes into the file only once that release is installed, and comes out again before a rollback to an older one. A key a release retires is only warned about at start.
-- **Read [Before restarting on 1.7.9](#before-restarting-on-179)** first: this release needs a step between installing and restarting.
+- **Read [Before restarting on 1.7.10](#before-restarting-on-1710)** first: this release refuses to start with open registration that takes no code, and changes how accounts get their passwords.
 
 ## Upgrading
 
@@ -23,30 +23,13 @@ sudo apk upgrade dmart && sudo rc-service dmart restart
 - **At its first start,** the new version runs schema initialization, the search-text fill and any one-time `query_policies` rewrite the release brings, and builds any index it adds, which on a large `entries` table takes a while. On PostgreSQL several nodes take turns at these; see [Running several nodes](/technical#running-several-nodes), which also covers rolling back.
 - **The repositories** carry the five most recent releases.
 
-## Before restarting on 1.7.9
+## Before restarting on 1.7.10
 
-1.7.9 limits the management space (see [The Management Space](/access-control#the-management-space)):
-- **Users, roles, permissions and groups** count only for accounts of type `admin`, the built-in `dmart`, and the accounts and roles you exempt. Any other account loses those records, with their attachments and history, whatever its roles say.
-- **What every caller holds,** that is grants of anonymous callers, `logged_in` and the sign-up default role, reaches nothing in management.
-- **There is no switch** to turn this off. An exemption is the way to keep access.
+1.7.10 leaves passwords and verified addresses to their owners: no admin's request sets either (see [Managing User Accounts](/access-control#managing-user-accounts)).
 
-So between installing the package and restarting:
-
-1. **Install without restarting:** `sudo dnf upgrade dmart`, or the `apt` or `apk` line above without its restart.
-2. **See what the limit takes away:** `sudo dmart check management hard`.
-   - Under `management_admin_only` it names each role whose grants on those records stop counting, and how many accounts that are not admins hold it, by type.
-   - Under `everyone_grant_in_management` it names the grants every caller holds there. Move data that every user reads, and its schemas, out of management into a space of its own.
-3. **Exempt what must keep its access:**
-   - Add the roles to `MANAGEMENT_EXEMPT_ROLES` and the bot accounts to `MANAGEMENT_EXEMPT_ACCOUNTS` in `config.env` (see [Settings](/settings)). The server refuses to start when the accounts name `anonymous`, or the roles name `world`, `logged_in` or the sign-up default role.
-   - The check reads them: run it again until it lists only the roles you mean to limit.
-4. **Restart.** At every start the server logs `MANAGEMENT_ADMIN_ONLY` with any role still limited.
-
-For the container, run the check from the new image against the same volume, before replacing the container: `podman run --rm -v dmart-data:/root/.dmart ghcr.io/edraj/csdmart:latest dmart check management hard`. Add the settings to the volume's `config.env`. For a tarball, run the new binary's `dmart check management hard` before restarting.
-
-**Clients are told the grants without these limits.** The permissions map an app reads at sign-in (`/user/profile`, `/user/permissions`) lists grants as the roles hold them, so an app may offer a user-management screen that the server then refuses (see [The Management Space](/access-control#the-management-space)).
-
-**Rolling back** to an earlier release: first take `MANAGEMENT_EXEMPT_ROLES` and `MANAGEMENT_EXEMPT_ACCOUNTS` out of `config.env`. An older release refuses to start with keys it does not know.
-
-**Catalog's polls** read their schema from the `poll` space's `/schema` folder. If yours is only in management, copy it there.
-
-**A container first started by an older image** keeps its `config.env`, which lacks `MOCK_SMPP_LOG_OTP=true`, so its log shows each mocked SMS code as `[redacted]`. Add that line to the volume's `config.env` and restart the container.
+- **Open registration needs codes.** The server does not start with `IS_REGISTRABLE=true` and `IS_OTP_FOR_CREATE_REQUIRED=false`. Before restarting, set `IS_OTP_FOR_CREATE_REQUIRED=true` (the default) or `IS_REGISTRABLE=false` in `config.env`.
+- **A script that creates users with a `password`** now gets `INVALID_DATA`, and the user is not created. Create the user without one. A person then signs in with a code and sets a password with a reset code. A bot's password is set on the host: `printf '%s\n' "$PASSWORD" | sudo dmart passwd <shortname>`. Existing accounts keep their passwords.
+- **Users an admin creates, and addresses an admin changes, start unverified.** A password sign-in that names such an email or phone gets `USER_ISNT_VERIFIED` (11) until the user's first code, a sign-in by code or a password reset by code; a sign-in by shortname is unaffected. A client that creates users and signs them in by email or phone with a password should answer 11 with a code prompt.
+- **An admin's change of an email or phone** also costs a `mobile` account its trusted device, and a `web` account too under `WEB_DEVICE_OTP`, so its next sign-in asks for a code. An account locked to its device keeps it.
+- **A server with no mail or SMS channel** cannot verify an address by code. Its users sign in by shortname, or whoever runs the server marks an address verified with [`dmart mark-verified`](/cli#24-mark-verified).
+- **The request log masks more headers:** each whose name contains `key`, `auth`, `token`, `secret`, `password`, `passwd`, `cookie`, `session`, `signature` or `credential` reads `******`, so a log search that read one finds the mask.
