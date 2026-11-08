@@ -164,7 +164,7 @@ dmart settings
 
 ### 8. passwd
 
-Sets the password for a user (Argon2-hashed), held to the same password rule as every other way of setting one (`regex.json`). The shortname may be passed positionally; the password is read from standard input (a prompt at a terminal), never the command line, so a script can pipe it in. It also reactivates and unlocks the account (`is_active` true, `attempt_count` 0), clears `force_password_change` as a reset by code does, and ends all of its sessions. No request sets a password, so this is how a bot account gets one, or any account on a server that cannot send a reset code; with the flag cleared, the MCP and OpenID Connect sign-ins accept it.
+Sets the password for a user (Argon2-hashed), held to the same password rule as every other way of setting one (`regex.json`). The shortname may be passed positionally; the password is read from standard input (a prompt at a terminal), never the command line, so a script can pipe it in. It also reactivates and unlocks the account (`is_active` true, `attempt_count` 0), clears `force_password_change` as a reset by code does, and ends all of its sessions. No request sets a password, so this is how a bot account gets one, or any account on a server that cannot send a reset code. With the flag cleared, the MCP sign-in accepts the account, and so does the OpenID Connect one unless it is a bot; an admin signs in through neither form (see [Account Types](/access-control#account-types)).
 
 It sets the password of an account that exists, and exits with status 1 when there is none:
 
