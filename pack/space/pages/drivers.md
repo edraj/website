@@ -59,6 +59,11 @@ foreach (var record in resp.Records ?? [])
     Console.WriteLine(record.Shortname);
 ```
 
+Password resets and health checks
+
+- **A password reset by code:** `PasswordResetRequestAsync` sends the code, and `PasswordResetConfirmAsync(otp, password, …)` redeems it and sets the new password, naming the same shortname, phone or email. No admin call sets a password (see [Managing User Accounts](/access-control#managing-user-accounts)).
+- **`GetSpaceHealthAsync(space)`** runs the `soft` health check of a space (`/managed/health/soft/{space}`, global admins only), and `GetSpaceHealthAsync(space, "hard")` or `"all"` adds up to 10 sample shortnames for each check.
+
 Errors and retired calls
 
 - **A failed record in a batch.** When any record of a `RequestAsync` (`/managed/request`) fails, the call throws a `DmartException` whose `Error.Code` is `SOMETHING_WRONG` (430). Each failed record's own code and message are in `Error.Info[0]["failed"]`, as `error_code` and `error`: a payload that fails its schema is `INVALID_DATA` (402), "payload failed schema validation", listing each failing constraint.
@@ -93,7 +98,7 @@ public sealed class Grant
 
 `Dmart.SqlAdapter` works on a database the dmart server has already set up, and suits tools inside the same trust boundary: ETL, bulk loads, internal services.
 
-- **`DmartSqlAdapter.WithRbac(db)`** checks every call against the roles, ACLs and query policies of the `actor` it names, and holds each write to the server's rules, so an app can do no more through it than the same caller could through the HTTP API, the management space's rule aside (see [Dmart.SqlAdapter under RBAC](#dmartsqladapter-under-rbac)). A `null` actor is the anonymous user.
+- **`DmartSqlAdapter.WithRbac(db)`** checks every call against the roles, ACLs and query policies of the `actor` it names, and holds each write to the server's rules, so an app can do no more through it than the same caller could through the HTTP API (see [Dmart.SqlAdapter under RBAC](#dmartsqladapter-under-rbac)). A `null` actor is the anonymous user.
 - **`new DmartSqlAdapter(db)`** is the system context: no permission checks, and `actor` is ignored.
 - **Either way** it leaves out what the server adds on top of the database: schema validation, folder content rules, plugin hooks, the history rows a write records, and the tombstones an incremental export reads deletions from. Under RBAC it reads a ticket's workflow only to refuse what the server refuses. Use `Dmart.Client` when you need those.
 - **Concurrent writes.** An update, move or delete is checked, inside its transaction, against the revision of the entry it read and judged, so a change another writer made in between is never written over. An update or delete then throws `DmartConflictException`, and a move moves nothing and answers `false`: load the entry again and reapply the change. The revision is a column the dmart server adds when it sets up or migrates the database. Until it is there the adapter writes without comparing, and it compares from its next write once it is, with no restart. The revision is not in the JSON the adapter or the API hands out.
@@ -120,7 +125,18 @@ var entry = await adapter.LoadAsync("products", "/catalog", "widget_42",
 - **A grant with `filter_fields_values`** lists no row, reads no record and admits no write, except on folders and spaces: the SDK does not evaluate row filters. Read and write those rows through the HTTP API.
 - **`__current_user__` and `__current_user__owner__`** resolve as on the server. Neither resolves for the anonymous actor or to a name of the form `__name__`, nor the owner word for an account no one owns, and a subpath that names one then reaches nothing.
 - **Subpaths.** A grant on a space's root lists the whole space; an empty subpaths list (`{"S": []}`) reaches nothing. The spaces listing counts only grants that hold `view` or `query` and reach something.
-- **The management space.** The SDK does not apply the server's rule for it (see [The Management Space](/access-control#the-management-space)): grants on management's users, roles, permissions and groups count for any actor, whatever its type, and so do grants every caller holds. Where that rule must hold, use the HTTP API.
+- **The management space** is limited as on the server (see [The Management Space](/access-control#the-management-space)), in every check and listing and in the permission map. Give the adapter the server's exemptions and sign-up role, or it limits every account that is not an admin, as a server with no exemptions does:
+
+  ```csharp
+  var adapter = DmartSqlAdapter.WithRbac(db, options: new DmartSqlAdapterOptions
+  {
+      ManagementExemptRoles = ["ops_admin"],          // MANAGEMENT_EXEMPT_ROLES
+      ManagementExemptAccounts = ["integration_bot"], // MANAGEMENT_EXEMPT_ACCOUNTS
+      UserCreateDefaultRole = "customer",             // USER_CREATE_DEFAULT_ROLE
+  });
+  ```
+
+  A `PermissionEngine` built by hand takes the same three. An exemption naming `anonymous`, `world`, `logged_in` or the sign-up role throws `ArgumentException`, as the server refuses to start.
 - **Accounts.** A deleted account holds no grant. The inactive `anonymous` row the server creates resolves its roles, so the anonymous actor gets what `world` opens.
 - **A read by name** answers a record the actor may not read as a missing one: `null` where the address admits the actor, `DmartPermissionDeniedException` where it does not. `LoadAsync`, `LoadOrNoneAsync`, `GetSchemaAsync`, `FetchSpaceAsync`, `LoadUserMetaAsync` and `LoadUserMetaForAuthAsync` answer so, and `IsEntryExistAsync` judges a record on its stored type.
 - **No password hash** comes back under RBAC, from `LoadUserMetaForAuthAsync` included. A sign-in reads the hash on a system-context adapter.

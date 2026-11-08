@@ -164,7 +164,7 @@ dmart settings
 
 ### 8. passwd
 
-Sets the password for a user (Argon2-hashed), held to the same password rule as every other way of setting one (`regex.json`). The shortname may be passed positionally; the password is read from a prompt, never the command line. It also reactivates and unlocks the account (`is_active` true, `attempt_count` 0) and ends all of its sessions.
+Sets the password for a user (Argon2-hashed), held to the same password rule as every other way of setting one (`regex.json`). The shortname may be passed positionally; the password is read from standard input (a prompt at a terminal), never the command line, so a script can pipe it in. It also reactivates and unlocks the account (`is_active` true, `attempt_count` 0), clears `force_password_change` as a reset by code does, and ends all of its sessions. No request sets a password, so this is how a bot account gets one, or any account on a server that cannot send a reset code. With the flag cleared, the MCP sign-in accepts the account, and so does the OpenID Connect one unless it is a bot; an admin signs in through neither form (see [Account Types](/access-control#account-types)).
 
 It sets the password of an account that exists, and exits with status 1 when there is none:
 
@@ -175,6 +175,7 @@ It sets the password of an account that exists, and exits with status 1 when the
 ```
 dmart passwd
 sudo dmart passwd dmart
+printf '%s\n' "$BOT_PASSWORD" | sudo dmart passwd sync_bot
 ```
 
 ### 9. check
@@ -396,11 +397,20 @@ dmart access report --compare access-baseline.json
 
 ### 23. prune-login-histories
 
-Deletes sign-in records from the history of accounts: history rows of the management space's `/users` older than `--older-than <days>` whose only change is `last_login`. A row that records any other change to an account is kept, and no account's `last_login` changes. Each deleted row gets a tombstone in the same transaction, so incremental Parquet exports learn of the deletion. The window has no default; `--dry-run` counts what would go.
+Deletes sign-in records from the history of accounts: history rows of the management space's `/users` older than `--older-than <days>` that record only a sign-in, its `last_login` and `login_method`. A row that records any other change to an account is kept, such as a device the sign-in trusted or an address its code verified (see [An Account's History](/access-control#an-accounts-history)), and no account's `last_login` changes. Each deleted row gets a tombstone in the same transaction, so incremental Parquet exports learn of the deletion. The window has no default; `--dry-run` counts what would go.
 
 Nothing runs it for you. Archive the history first if it must stay available.
 
 ```
 dmart prune-login-histories --older-than 365 --dry-run
 dmart prune-login-histories --older-than 365
+```
+
+### 24. mark-verified
+
+Marks an account's email (`--email`) or phone (`--msisdn`) verified, for a server that cannot send the code that would prove it, such as one with no mail or SMS channel. No request can: `/managed/request` ignores the verified flags (see [Managing User Accounts](/access-control#managing-user-accounts)). Like `import-ldif`, it reads the server's `config.env` and database, so only whoever runs the server can use it, and it records a history row by `dmart`. An unknown account, or one without that address, exits with status 1; an address already verified is left as it is.
+
+```
+sudo dmart mark-verified jdoe --email
+sudo dmart mark-verified jdoe --msisdn
 ```

@@ -282,9 +282,9 @@ The management space holds the accounts and the rows that grant access, so the s
 
 - **Self-service needs no grant**, so it is unaffected: sign-in, `/user/profile`, password reset, codes and registration. So are the directory replica's feed, LDAP service accounts, the OpenID Connect provider, and the commands run on the host, such as `dmart check`, `dmart passwd` and `dmart import-ldif`. `dmart cli` is not one of them: it signs in as a user, and is held to these limits like any other client.
 
-- **What a client is told.** The permissions map `/user/profile` and `/user/permissions` return lists the grants as the roles hold them, without these limits, so a client may offer what the server then refuses.
+- **What a client is told** follows these limits too. The permissions map that `/user/profile`, `/user/permissions` and MCP return lists what the server allows, a grant on the caller's own record and the core schemas included, so an app that builds its menus from it offers no screen the server then refuses.
 
-Both exemptions are comma-separated shortnames in `config.env`, empty by default (see [Settings](/settings#admin-accounts)). An exemption naming what every caller holds, `anonymous` in `MANAGEMENT_EXEMPT_ACCOUNTS` or `world`, `logged_in` or the sign-up default role in `MANAGEMENT_EXEMPT_ROLES`, stops the server from starting. At every start the server logs `MANAGEMENT_ADMIN_ONLY` with the roles whose grants on users, roles, permissions or groups count only for admins, and `dmart check management hard` says how many accounts that are not admins hold each, by type.
+Both exemptions are comma-separated shortnames in `config.env`, empty by default (see [Settings](/settings#admin-accounts)). An exemption naming what every caller holds, `anonymous` in `MANAGEMENT_EXEMPT_ACCOUNTS` or `world`, `logged_in` or the sign-up default role in `MANAGEMENT_EXEMPT_ROLES`, stops the server from starting. At every start the server logs `MANAGEMENT_ADMIN_ONLY` with the roles whose grants on users, roles, permissions or groups count only for admins, and `dmart check management hard` says how many accounts each one limits, by type.
 
 ### Checking What an Instance Grants
 
@@ -315,7 +315,7 @@ dmart access report --compare access-approved.json
 | Check | Finds |
 |---|---|
 | `everyone_grant_in_management` | A grant anonymous callers, `logged_in` or the sign-up default role hold in management, which reaches nothing there. |
-| `management_admin_only` | A role that is not exempt and reaches users, roles, permissions or groups, which therefore counts there only for admins. `hard` counts its other holders by type. `super_admin` shows here unless it is exempt; the built-in `dmart` keeps its access either way, so the count matters for the other accounts that hold it. |
+| `management_admin_only` | A role that is not exempt and reaches users, roles, permissions or groups, which therefore counts there only for admins. A grant that reaches only the caller's own record through `__current_user__` is left out, since it keeps working; an `own` grant is not, as an account never owns its own user record. `hard` counts the holders it limits by type, leaving out admins, `dmart` and the exempt accounts. `super_admin` shows here unless it is exempt. |
 | `broad_user_read` | A grant that reads every user record: `query` or `view` on users with no condition, row filter or restricted field. A leak of the user list takes this shape. |
 | `public_broad_grant` | A permission anonymous callers or every signed-in account reach that names `__all_spaces__`, `__all_subpaths__` or a space's root, or the `user`, `role`, `permission`, `group` or `history` type. |
 | `role_missing_permission` | A role naming a permission that does not exist. |
@@ -462,9 +462,6 @@ Users, roles, groups and permissions are records in the `management` space, unde
       "attributes": {
         "displayname": {"en": "Jane Doe"},
         "email": "jane@example.com",
-        "is_email_verified": true,
-        "password": "Handover-2026",
-        "force_password_change": true,
         "roles": ["editor"],
         "groups": ["sales"]
       }
@@ -475,13 +472,15 @@ Users, roles, groups and permissions are records in the `management` space, unde
 
 A role, group or permission takes the same request, with `resource_type` `role`, `group` or `permission` and its own subpath. Each is found by its shortname, so an update or delete of one, and a user's rename, is judged where it lives, whatever coordinates the request names (see [What a Refusal Says](#what-a-refusal-says)). On a user:
 
-- **A password is set only on `create`**, and must meet the [password rule](#password-rule). An `update` carrying `password` is refused with `INVALID_DATA` ("password cannot be changed via /managed/request; use the OTP password-reset flow or /user/profile"). To get someone back into an account, set `force_password_change` and have them reset the password by code, or run `dmart passwd` on the host.
-
-- **A create without a password** always sets `force_password_change`, and the user sets a first password through a reset by code. Catalog's create-user form works this way: it sets no password, and offers to send the new user the code by email or phone at once, with the reset-password link to pass on.
+- **No admin sets a password.** Whoever knows a password can sign in with it, so a `create` or `update` carrying `password` is refused with `INVALID_DATA`, for every account type; an empty one counts as absent. An account `/managed/request` creates has no password and has `force_password_change` on. Its owner signs in with a code, and sets a password with a reset by code (`/user/otp-request` with `purpose: reset`, then `/user/password-reset-confirm`). A bot receives no code, so its password is set on the host with [`dmart passwd`](/cli#8-passwd), which clears `force_password_change` as a reset does. Catalog's create-user form works this way: it sets no password, and offers to send the new user the code by email or phone at once, with the reset-password link to pass on. To get someone back into an account, set `force_password_change` and have them reset the password by code, or run `dmart passwd` on the host.
 
 - **A contact `email` is unique, whatever its case.** A create or update whose `email` another account in the same folder holds, in any case, is refused with `DATA_SHOULD_BE_UNIQUE` (415, naming `@email`); one held by an account in another folder, by the database, with `INVALID_DATA` ("… already in use"). An update that keeps the account's own email, in any case, is not checked for it.
 
-- **`is_email_verified` and `is_msisdn_verified` default to `false`.** Until they are set, or the contact is verified, a password sign-in that names that email or phone is refused with `USER_ISNT_VERIFIED` (11); one by shortname is not. A sign-in by code needs no verified address: the code proves it, and the sign-in marks the address it went to verified, as a password reset by code does. So an account an admin created signs in by code whichever identifier it names.
+- **An admin's request never verifies an address.** `/managed/request` ignores `is_email_verified` and `is_msisdn_verified`, since admin screens send them back on every save: a new account starts with neither, and an update leaves both as stored. Until an address is verified, a password sign-in that names that email or phone is refused with `USER_ISNT_VERIFIED` (11); one by shortname is not. A sign-in by code needs no verified address: the code proves it, and the sign-in marks the address it went to verified, as a password reset by code does. So an account an admin created signs in by code whichever identifier it names.
+
+- **Changing an email or phone unverifies it.** An update that changes an account's email or phone (a change of case alone does not count) clears that address's verified flag, so only a code sent to the new address verifies it again. A `mobile` account, and a `web` account under `WEB_DEVICE_OTP`, also loses its trusted device, so its next sign-in asks for a code. An account locked to its device keeps the device. A change the user makes through `/user/verify-contact` is proved by its code and stays verified.
+
+- **Without a code**, three things mark an address verified: `dmart import-ldif`, for the email the directory gives; an import that restores accounts, which keeps their flags as exported; and [`dmart mark-verified`](/cli#24-mark-verified), run on the host, for a server with no mail or SMS channel to send the code.
 
 User managers are also held to these rules there. A global admin is held to none of them.
 
@@ -489,7 +488,7 @@ User managers are also held to these rules there. A global admin is held to none
 
 - **What roles and permissions grant.** Setting a role's `permissions` or `grantable_by`, a group's `grantable_by`, or a permission's `subpaths`, `resource_types`, `actions`, `conditions`, `restricted_fields`, `allowed_fields_values` or `filter_fields_values` takes a global admin, as does switching a role, group or permission back on.
 
-- **Nobody changes their own account's sign-in or access fields** there: `email`, `msisdn`, `force_password_change`, `type`, `is_active`, `roles`, `groups`, `is_email_verified`, `is_msisdn_verified`, `locked_to_device` (and `device_id` where it decides the sign-in: a mobile account's, and a web account's under `WEB_DEVICE_OTP`), the hosted `mailbox` and `mail_aliases`, nor an `unlock`. Posting a record back unchanged is fine.
+- **Nobody changes their own account's sign-in or access fields** there: `email`, `msisdn`, `force_password_change`, `type`, `is_active`, `roles`, `groups`, `locked_to_device` (and `device_id` where it decides the sign-in: a mobile account's, and a web account's under `WEB_DEVICE_OTP`), the hosted `mailbox` and `mail_aliases`, nor an `unlock`. Posting a record back unchanged is fine.
 
 - **On another account**, the same fields need a global admin when the account holds a role or group the actor could not give. On an admin account they need a global admin, or the admin that owns the account while that owner is an active admin able to give every role and group the account holds.
 
@@ -506,7 +505,7 @@ User managers are also held to these rules there. A global admin is held to none
 | `bot` | For integrations. Never locked by failed attempts and outside the session limit; its token works until it expires or is ended by a sign-out. |
 | `admin` | A password **and** a one-time code, both checked. Never through Google, Facebook, Apple, an LDAP bind, or the MCP and OpenID Connect sign-in forms. With `ADMIN_IP_ALLOWLIST` set, served only from those addresses, at sign-in and on every request. |
 
-The type grants no permissions; roles do. What it decides is whether grants on users, roles, permissions and groups count: for an `admin` account they do, and for other types only through an exemption, the built-in `dmart` aside (see [The Management Space](#the-management-space)). An admin account needs a password and a phone or an email for its code, which `/managed/request` enforces, and making an account an admin ends its sessions. An admin resets its password by code only while a global admin, or the active admin that owns the account, has set `force_password_change` on it; the reset clears it. The built-in `dmart` account is held at every start to `ADMIN_USER_TYPE`: `web` (the default) or `admin`.
+The type grants no permissions; roles do. What it decides is whether grants on users, roles, permissions and groups count: for an `admin` account they do, and for other types only through an exemption, the built-in `dmart` aside (see [The Management Space](#the-management-space)). An admin account needs a phone or an email for its codes, which `/managed/request` enforces. It creates an admin without a password and with `force_password_change` on, so the admin sets its first password with a reset code sent there. Such an admin can be updated before its first reset, so a mistyped phone or email is corrected before the code goes out; what `/managed/request` refuses is making an existing account that has no password an admin. Making an account an admin ends its sessions. An admin resets its password by code only while a global admin, or the active admin that owns the account, has set `force_password_change` on it; the reset clears it. The built-in `dmart` account is held at every start to `ADMIN_USER_TYPE`: `web` (the default) or `admin`.
 
 ### Trusted Browser (`WEB_DEVICE_OTP`)
 
@@ -515,7 +514,7 @@ Off by default, for tightly secured instances. With `WEB_DEVICE_OTP=true`, an ac
 - **The browser's identity** is a random token the server sets in the `dmart_device` cookie (HttpOnly, `SameSite=Lax`, `Path=/`, `Secure` over HTTPS, for 400 days). A `device_id` in the request body counts for nothing for a web account. Only the token's SHA-256 fingerprint is stored, in the account's `device_id`: one trusted browser per account, with no expiry.
 - **Password and provider sign-ins** (`/user/login` with a password; Google, Facebook, Apple) succeed only from the trusted browser. From any other browser, the first one included, the right password answers `OTP_NEEDED` (115), which cxb's and catalog's sign-in forms turn into a code step. A wrong password is still just a wrong password.
 - **A sign-in by code** makes its browser the trusted one, with a new token. The browser trusted before needs a code next time.
-- **A verified email or phone is required.** A web account with neither cannot sign in by password or provider: once the credential checks out it gets `USER_ISNT_VERIFIED` (11), before the trusted-browser check. A code is the way in: a sign-in by code, or a password reset by code, marks the address the code went to verified, and the sign-in by code also trusts the browser. An admin can instead set `is_email_verified` or `is_msisdn_verified`.
+- **A verified email or phone is required.** A web account with neither cannot sign in by password or provider: once the credential checks out it gets `USER_ISNT_VERIFIED` (11), before the trusted-browser check. A code is the way in: a sign-in by code, or a password reset by code, marks the address the code went to verified, and the sign-in by code also trusts the browser. Where no code can be sent, `dmart mark-verified` on the host marks an address verified.
 - **The stored browser is guarded:** nobody sets their own account's `device_id` through `/managed/request`, and the profile does not change it.
 - **Other sign-in forms.** The MCP and OpenID Connect sign-in forms take a password only, so a web account signs in there only from its trusted browser. Apple's web sign-in always asks for a code, since its callback carries no `SameSite=Lax` cookie. A script or the `dmart` CLI signing in to a web account with a password must keep the cookie and handle the code step; a `bot` account is the type for those.
 - **The built-in `dmart` account** is a web account unless `ADMIN_USER_TYPE=admin`, so give it a verified email or phone the server can send to before turning this on. `WEB_DEVICE_OTP=false` and a restart is the way back in.
@@ -524,7 +523,7 @@ Off by default, for tightly secured instances. With `WEB_DEVICE_OTP=true`, an ac
 
 ### Password Rule
 
-Every new password must meet one rule: at registration, on `/user/profile`, at password reset, in an admin's create, and in `dmart passwd`. The built-in rule asks for 8–64 characters with at least one digit and one uppercase letter (Latin or Arabic), from a set of allowed symbols. A deployment sets its own with a `password` pattern and a `password_hint`, the message a refused password gets, in the regex file (`REGEX_CONFIG_PATH`, `~/.dmart/regex.json` by default). Existing passwords are never re-checked.
+Every new password must meet one rule: at registration, on `/user/profile`, at password reset and in `dmart passwd`. The built-in rule asks for 8–64 characters with at least one digit and one uppercase letter (Latin or Arabic), from a set of allowed symbols. A deployment sets its own with a `password` pattern and a `password_hint`, the message a refused password gets, in the regex file (`REGEX_CONFIG_PATH`, `~/.dmart/regex.json` by default). Existing passwords are never re-checked.
 
 The same file overrides the `email` and `msisdn` formats, and holds the [username rule](#usernames). The built-in formats are `^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\z` and `^\+?[0-9]{6,15}\z`.
 
@@ -558,7 +557,7 @@ Two settings limit what a user's own email may be and do (see [Settings](/settin
 
 ### Forced Password Change
 
-`force_password_change` marks an account whose password is missing or temporary. It is set on every account created without a password: by an admin's create, by a self-registration with only an email or phone, and by a code sign-in that registers the account (`ENABLE_OTP_IMPLICIT_REGISTRATION`). An admin may also set it. Setting a password on `/user/profile` or through a reset clears it, and `GET /user/profile` returns it.
+`force_password_change` marks an account whose password is missing or temporary. It is set on every account created without a password: every account an admin creates, a self-registration with only an email or phone, and a code sign-in that registers the account (`ENABLE_OTP_IMPLICIT_REGISTRATION`). An admin may also set it. Setting a password on `/user/profile`, through a reset or with `dmart passwd` clears it, and `GET /user/profile` returns it.
 
 `/user/login` does not stop on it, so a client reads the flag and asks the user for a new password. The MCP and OpenID Connect sign-in forms stop such a user with a page asking them to choose their own password in dmart first, and their token endpoints refuse the account (`invalid_grant`) until then.
 
@@ -585,6 +584,17 @@ Guesses at a code are capped by that code's own `MAX_OTP_VERIFY_ATTEMPTS`, lock 
 ### Sessions
 
 Each sign-in issues a token valid for `JWT_ACCESS_EXPIRES` (30 days) and records a session, and every request checks that the session is still there. Signing out ends it. An account keeps at most `MAX_SESSIONS_PER_USER` (5) sessions; a sign-in past that ends the oldest, and 0 means no limit. With `SESSION_INACTIVITY_TTL` set, a session unused for that many seconds ends. A bot keeps no session, so neither limit applies to it. A password change or reset ends the account's sessions while `LOGOUT_ON_PWD_CHANGE` is on (the default), and so do deactivating the account, making it an admin, and switching it to or from `bot`.
+
+### An Account's History
+
+An account's history (a [`history`](/query-search#history) query under `management:/users`) holds the edits made to it through `/managed/request`, `/user/profile` and `/user/verify-contact`, by whoever made them, and these rows, each in the `{field: {old, new}}` shape of every history row:
+
+- **Each sign-in**, by the account: `last_login`, from the previous sign-in's time to this one's, and `login_method`, from the previous sign-in's way to this one's: `password`, `code`, `password+code` (an admin), `provider` (Google, Facebook or Apple) or `registration` (the sign-in that ends a self-registration). When the sign-in made a device the trusted one, `device_id`, masked `********`, with `old` null for the account's first trusted device: the row says that it changed, never to what. When its code verified an address, `is_email_verified` or `is_msisdn_verified`.
+- **A password reset by code**, by the account: `password`, masked, with the verified flag and `force_password_change` it changed.
+- **`dmart mark-verified`**, by `dmart`: the flag it set.
+- **An import that overwrites the account** (`dmart import`, `/managed/import`, a pack install), by the account that ran it, `dmart` for the commands run on the host: what it changed. Roles, groups and permissions get the same row (see [History & alterations](/data-model#8-history--alterations)).
+
+No row holds a code or a password. [`prune-login-histories`](/cli#23-prune-login-histories) removes old rows that record only a sign-in, and keeps one that trusted a device or verified an address.
 
 ### Mailbox, Aliases and Services
 
