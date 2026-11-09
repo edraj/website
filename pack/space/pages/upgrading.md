@@ -6,7 +6,6 @@ A new release installs over the old one, keeps `config.env` and the data, and br
 - **Several nodes** sharing one PostgreSQL database are upgraded together; see [Running several nodes](/technical#running-several-nodes).
 - **New settings go in after the upgrade.** dmart refuses to start when `config.env` holds a key it does not know. So a setting a release adds goes into the file only once that release is installed, and comes out again before a rollback to an older one. A key a release retires is only warned about at start.
 - **Read [Before restarting on 1.7.12](#before-restarting-on-1712)** first: where clients send a payload schema for their users, a new setting must be in place.
-- **Coming from 1.7.10 or earlier,** the upgrade notes of each release in between apply too; they are in the CHANGELOG of csdmart's source. From 1.7.9 or earlier, two stop things working: the server does not start with `IS_REGISTRABLE=true` and `IS_OTP_FOR_CREATE_REQUIRED=false`, so first set `IS_OTP_FOR_CREATE_REQUIRED=true` or `IS_REGISTRABLE=false`; and a request that creates a user with a `password` is refused with `INVALID_DATA` (see [Managing User Accounts](/access-control#managing-user-accounts)).
 
 ## Upgrading
 
