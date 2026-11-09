@@ -139,6 +139,8 @@ A permission that fails a check is passed over, and the next one is tried. A per
 
 Users edit themselves through `POST /user/profile`, not through their permissions: an account never owns its own user record, and nobody changes their own sign-in or access fields through `/managed/request` (see [Managing User Accounts](#managing-user-accounts)). The profile endpoint changes the display name, description, language and payload, and the password only against the current one; email and phone change through `POST /user/verify-contact`. The `USER_PROFILE_PAYLOAD_PROTECTED_FIELDS` setting names payload fields a user may not set on their own profile, or at self-registration.
 
+Nor does a user choose their record's payload schema, which decides how its payload is checked. A user's own request that names a `schema_shortname` other than the one the record has, sends an empty one, or changes the payload's `content_type` is refused with `PROTECTED_FIELD` (210): on `/user/profile`, at `/user/create`, and on their own record through `/managed/request`, a global admin aside. A record with no schema may take only `USER_PAYLOAD_SCHEMA`, which every self-registered account gets when it is set; while it is empty, only an admin gives a user a schema. An account a code sign-in creates has no payload body, so nothing is checked then: its first profile save that brings one is checked against the schema in full, required fields included. The account's create event carries the schema, so a plugin filtered on it hears the sign-up.
+
 ## Permission JSON Structure
 
 Permissions are defined as JSON objects. Understanding these keys is critical for configuring access.

@@ -6,7 +6,7 @@ These managed plugins are compiled into the single self-contained binary and reg
 
 **audit** Writes a log line for every create, update, delete and other action, with who did it (the rows of a bulk CSV import excepted). Hook
 
-**semantic_indexer** When the `pgvector` extension is installed and an embedding API is configured, embeds each entry on create and update so it can be found by semantic (vector) search. Hook
+**semantic_indexer** When the `pgvector` extension is installed and an embedding API is configured, embeds each entry on create and update so it can be found by semantic (vector) search. [`/managed/reindex-embeddings`](/api-docs) backfills the same entries: it follows the plugin's filters, and can narrow them. Hook
 
 **realtime_updates_notifier** The live notification path: for each matching event it computes the set of subscription channels (walking subpath prefixes × schema × action × state) and sends a `notification_subscription` message, via the in-process WebSocket manager, to each subscribed client that may read the changed record — judged as a read of that record would be, at the moment of sending. For an attachment, that takes reading the record it hangs off too, its ACL included. It reaches only clients connected to the node that handled the write: with several nodes behind a load balancer, a client on another node hears nothing. Hook
 
@@ -212,6 +212,7 @@ The `version` in the `info` answer shows on `GET /info/plugins`, and defaults to
 | `save_entry` | `entry`, the whole entry | `{"code":0}` |
 | `update_user` | `user`, the whole user | `{"code":0}` |
 | `query` | The query itself, with an optional `as_actor` | A query response |
+| `delete` | A `/managed/request` delete body without `request_type`: `space_name`, `records` (`resource_type`, `subpath` and `shortname` each), optional `force` and `dry_run`, and an optional `as_actor` | The delete's response |
 | `send_email` | `to`, `subject`, `html` | `{"code":0}` |
 | `ws_broadcast` | `channel`, `message` | `{"code":0}` |
 | `log` | `level` (0–6), optional `category`, `message` | `{"code":0}` |
@@ -223,7 +224,9 @@ After a push, pass the tokens FCM rejected (`UNREGISTERED`, `INVALID_ARGUMENT`) 
 
 - **Reads and writes skip DMART's checks.** `load_entry`, `load_user`, `save_entry` and `update_user` go straight to the database: no permission check, schema validation, folder content policy or hooks. `save_entry` and `update_user` write a history row only when they change an existing record, attributed to the user whose action started the exchange, with `x-source: plugin` and `x-plugin: <name>` in its stored headers; a create writes none. `save_entry` writes the entry and its history row in one transaction, gives a JSON body its checksum, and raises the entry's revision as any change does, so an update, move or delete that read the entry before the save answers `CONFLICT`. It carries no revision of its own: the last save wins, and a save can recreate an entry deleted since the plugin read it. A write that must pass those checks goes through the REST API, signed in as the plugin's own account.
 
-- **A `query` runs as the user whose action started the exchange**: the hook's `user_shortname`, or the API request's `user`. `"as_actor": "<user>"` in the query runs it as that user instead. `"as_actor": null` runs it as the anonymous user, never as the system: on every table (entries, attachments, users, roles, groups, permissions, spaces) it returns what an anonymous caller may list, under anonymous's grants, ACLs and row filters. A `history` query with it is refused.
+- **A `query` runs as the user whose action started the exchange**: the hook's `user_shortname`, or the API request's `user`. `"as_actor": "<user>"` in the query runs it as that user instead, but naming another user takes `"allow_impersonation": true` in the plugin's `config.json`; without it the callback answers `NOT_ALLOWED`. `"as_actor": null` runs it as the anonymous user, never as the system: on every table (entries, attachments, users, roles, groups, permissions, spaces) it returns what an anonymous caller may list, under anonymous's grants, ACLs and row filters. A `history` query with it is refused.
+
+- **A `delete` is a REST delete**, of any record type: users, roles, permissions, groups, spaces, attachments, entries and folders. It runs as a `query` does, as the triggering user or `as_actor` under the same rule, and through the pipeline of a `/managed/request` delete, so that user's permissions and each type's rules hold: a user goes as `USER_DELETION_MODE` says, the management space keeps its limits, a folder with content needs `force`, and `dry_run` deletes nothing. To delete what that user cannot, name a user who can. Other plugins' before-hooks can still refuse it, and their after-hooks fire. The calling plugin's own hooks do not, nor those of a plugin whose callback led to this one, since each is waiting on its callback. A refused delete answers a failed response, with each record's error under `error.info[0].failed`.
 
 - **More than 256 callbacks** in one exchange kills the process, and the call fails.
 
