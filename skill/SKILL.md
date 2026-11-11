@@ -75,7 +75,7 @@ dm "$DMART/user/profile" | jq -c '{status, shortname: .records[0].shortname}'
 - `subpath` covers the folder **and every folder below it** unless `exact_subpath` is true.
 - `limit` defaults to **10**. `-1` asks for the server maximum (10,000 by default). Page with `offset`. `attributes.total` is the full count (`-1` when `retrieve_total` is false).
 - `retrieve_json_payload: true` is needed to get `payload.body` back.
-- Answers leave out fields that are null or empty (`""`, `[]`, `{}`), inside `payload.body` too. A query that matches nothing has no `records` key at all, so read it as `(.records // [])` in jq, and a body field saved as `""` reads back absent.
+- REST answers leave out fields that are null or empty (`""`, `[]`, `{}`), inside `payload.body` too. A query that matches nothing has no `records` key at all, so read it as `(.records // [])` in jq, and a body field saved as `""` reads back absent.
 - `sort_by` takes a column (`shortname`, `created_at`, `updated_at`, `owner_shortname`, …) or a payload path (`payload.body.year`). An unknown name silently falls back to `updated_at`.
 - A `history` query (and MCP `dmart_history`) needs `history` in the `resource_types` of a grant at that folder. Without it the answer is an empty success, not an error. Secret-named fields in a diff read `********`.
 - `jq_filter` runs a jq program on each record on the server (`"jq_filter": "{shortname, year: .attributes.payload.body.year}"`). One that fails answers HTTP `400` (`503` when jq is busy or missing) with `status: failed`.
