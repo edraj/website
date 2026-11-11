@@ -143,7 +143,7 @@ The **Payload** is where an entry's real content lives. What `body` holds depend
 }
 ```
 
-**A body is stored as sent.** Keys are never rewritten: `myKey` stays `myKey`. snake_case is the convention for payload fields, and a schema can enforce it; the server does not. Numbers keep their form, so `10240.0` comes back as `10240.0`. JSON Schema counts a number with a zero fraction as an integer, so a schema's `"type": "integer"` accepts `10240.0`. Reads return the payload as stored, explicit `null`s and empty values (`""`, `[]`, `{}`) included, and the payload route sends the stored body untouched.
+**A body is stored as sent.** Keys are never rewritten: `myKey` stays `myKey`. snake_case is the convention for payload fields, and a schema can enforce it; the server does not. Numbers keep their form, so `10240.0` comes back as `10240.0`. JSON Schema counts a number with a zero fraction as an integer, so a schema's `"type": "integer"` accepts `10240.0`. The stored body keeps explicit `null`s and empty values (`""`, `[]`, `{}`), but API responses leave them out, the payload route's included (see [the response envelope](/api-docs#response-envelope)).
 
 **`checksum` is set by dmart, never by the caller.** On an entry with a JSON body, `payload.checksum` is the SHA-256 (lowercase hex) of the body written as compact JSON. dmart sets it on a create that brings none and recomputes it whenever an update changes the body; an update that leaves the body as it is keeps the stored value. An uploaded file keeps its own SHA-256 until an update changes the body.
 

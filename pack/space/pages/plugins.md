@@ -6,7 +6,7 @@ These managed plugins are compiled into the single self-contained binary and reg
 
 **audit** Writes a log line for every create, update, delete and other action, with who did it (the rows of a bulk CSV import excepted). Hook
 
-**semantic_indexer** When the `pgvector` extension is installed and an embedding API is configured, embeds each entry on create and update so it can be found by semantic (vector) search. [`/managed/reindex-embeddings`](/api-docs) backfills the same entries: it follows the plugin's filters, and can narrow them. Hook
+**semantic_indexer** When the `pgvector` extension is installed and an embedding API is configured, embeds each entry on create and update so it can be found by semantic (vector) search: its shortname, displayname, tags, description (HTML reduced to its text) and JSON body, in that order. [`/managed/reindex-embeddings`](/api-docs) backfills the same entries: it follows the plugin's filters, and can narrow them. Hook
 
 **realtime_updates_notifier** The live notification path: for each matching event it computes the set of subscription channels (walking subpath prefixes × schema × action × state) and sends a `notification_subscription` message, via the in-process WebSocket manager, to each subscribed client that may read the changed record — judged as a read of that record would be, at the moment of sending. For an attachment, that takes reading the record it hangs off too, its ACL included. It reaches only clients connected to the node that handled the write: with several nodes behind a load balancer, a client on another node hears nothing. Hook
 

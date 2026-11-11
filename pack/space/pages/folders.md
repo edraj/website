@@ -182,7 +182,7 @@ sequenceDiagram
 
 5. **Toolbar**: in catalog, CSV download appears only if `allow_csv`, and CSV upload only if `allow_upload_csv`.
 
-6. **Create form**: driven by `content_schema_shortnames` — _zero_ schemas → a free-form entry; _one_ → that schema's form is auto-loaded and rendered; _many_ → the user picks which schema first. cxb's create dialog offers only the resource types and schemas the folder lists, when it lists any. Catalog's Create New Item offers only the folder's own schemas, and in a folder that lists none it creates plain content with no schema.
+6. **Create form**: driven by `content_schema_shortnames` — _zero_ schemas → a free-form entry; _one_ → that schema's form is auto-loaded and rendered; _many_ → the user picks which schema first. cxb's create dialog offers only the resource types and schemas the folder lists, when it lists any. Catalog's Create New Item offers the folder's own schemas with the first one picked, or, in a folder that lists none, every schema in the space with none picked. It always offers "No schema" too, since the server accepts an item without one; such an item can be given a body in JSON, Markdown, HTML or plain text. It creates content and tickets, as far as the folder's `content_resource_types` and the user's grants allow, a ticket with one of the folder's `workflow_shortnames` or else of the space's workflows; where it can create neither, the button does not show.
 
 ## 10. Content policy is enforced on the server
 
