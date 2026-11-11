@@ -134,7 +134,7 @@ A query that leaves out `limit` gets `DEFAULT_QUERY_LIMIT` rows (10 by default).
 - **`retrieve_lock_status: true`** adds `attributes.locked: {"owner_shortname": …}` to each record someone holds a lock on.
 - **`include_fields`, `exclude_fields` and `highlight_fields`** are accepted and ignored.
 - **`type: history`** returns rows only to a caller with `view` or `query` on the `history` resource type at the query's subpath, through a grant there or on a folder above it. Without one the answer is empty, with no error. The `events` feed still lists a change without that grant, but leaves out its old and new values, and only a global admin sees an event's request headers. See [Query & Search](/query-search#history--events-queries).
-- **Secrets in a diff** read `********` on both sides, at any depth, inside arrays and sub-objects, in `history` rows and `events` alike. That covers any field whose name contains `password`, `passphrase`, `secret`, `credential`, `api_key` or `private_key`, however it is written (`smtpPassword`, `apiKey`), and any with `token`, `otp`, `pin`, `jwt`, `pwd` or `authorization` as a word of its name (`access_token`, `otpCode`, `pins`, `token2`). A change whose two sides are only booleans, such as `force_password_change`, keeps its values.
+- **Secrets in a diff** read `********` on both sides, at any depth, inside arrays and sub-objects, in `history` rows and `events` alike. That covers any field whose name contains `password`, `passcode`, `passphrase`, `secret`, `credential`, `api_key` or `private_key`, however it is written (`smtpPassword`, `apiKey`), and any with `token`, `otp`, `pin`, `jwt`, `pwd` or `authorization` as a word of its name (`access_token`, `otpCode`, `pins`, `token2`). A change whose two sides are only booleans, such as `force_password_change`, keeps its values.
 
 ## Enums & Possible Values
 
@@ -171,7 +171,7 @@ The following values are string **conventions** — they are validated/handled a
 
 The `/managed`, `/public`, and `/user` endpoints return the same envelope, except where they hand back a record or a file itself: a read of one record (`/entry`, `byuuid`, `byslug`) returns that record's own JSON, and the payload, CSV and export routes return the file. A success carries `records` and an `attributes` block (with `total` / `returned` counts on queries); a failure carries a single `error` object, sometimes with an `info` list of details. `error.code` is DMART's own error code, not the HTTP status (see [Error codes](#error-codes)).
 
-**Empty metadata values are left out.** In a JSON response of 1 MB or less, every object property whose value is `null`, `""`, `[]` or `{}` is removed, at any depth, except inside `payload`, `relationships` and a history row's `diff`: those come back as stored, empty and `null` values included, and the keys stay even when empty. What a `failed` field holds is left as it is, and elements of a list are never removed. A larger response is sent as built and can carry empty values. The payload routes send a payload as stored, with nothing removed. A client treats an absent metadata field and an empty one as the same.
+**Empty values are left out.** In a JSON response of 1 MB or less, every object property whose value is `null`, `""`, `[]` or `{}` is removed, at any depth: in a payload's body, its relationships and a history row's `diff` as in the metadata. A `payload` or `relationships` key itself stays even when empty. What a `failed` field holds is left as it is, and elements of a list are never removed. A larger response is sent as built and can carry empty values. On the payload routes, an entry's body loses its empty values the same way, while an attachment's file is sent as it was uploaded. A client treats an absent field and an empty one as the same.
 
 **Headers.** Every response carries `x-server-time`, the server's local time in ISO 8601, which a browser client on another origin may read. `X-Correlation-ID` echoes the request's own, or is a new id when the request sent none; the access log records it, and a `500` names it in its message as `Reference: <id>`.
 
@@ -439,19 +439,24 @@ Without a `search`, it lists the records under the subpath (and below it, unless
 
 POST `/managed/semantic-search`
 
-Natural-language (vector) search — embeds the query and returns the top-N most similar entries by cosine distance over `entries.embedding`. Requires the pgvector extension _and_ a configured embedding provider (`EMBEDDING_API_URL`); when either is missing it returns a clean `400` failure envelope. Each hit is checked as a read of that entry, and only the hits the caller may read are returned and counted in `matched`; a `space_name` the caller cannot read returns no matches. `limit` is clamped to a max of 100. Candidates are read nearest first, in at most three reads (three times the page, at least 100, then four times the last read) and 2,000 candidates in all, so a page can come back short when most of the nearest entries are hidden from the caller, and `matched` is a lower bound.
+Natural-language (vector) search — embeds the query and returns the top-N most similar entries by cosine distance over `entries.embedding`. Requires the pgvector extension _and_ a configured embedding provider (`EMBEDDING_API_URL`); when either is missing it returns a clean `400` failure envelope. Each hit is checked as a read of that entry, and only the hits the caller may read are returned and counted in `matched`; a `space_name` the caller cannot read returns no matches. `limit` is clamped to a max of 100. Candidates are read nearest first, in at most three reads (three times the page, at least 100, then four times the last read) and 2,000 candidates in all, so a page can come back short when most of the nearest entries are hidden from the caller, and `matched` is a lower bound. A hit carries the entry's `displayname`, so a client can show it without reading the entry; its description and payload stay out.
+
+**`"mode": "hybrid"`** also finds misspellings, parts of words and exact codes such as `8GB`, which a vector alone can miss. Besides the vector match, it runs the [plain-text search](/query-search#plain-text-search) of `/managed/query` as the caller, once for each typed word of three or more characters, or two with a digit, up to six words. Each side reads twice the `limit`, at least 20 and at most 100, and the rankings are merged by reciprocal rank fusion, so an entry found by both, or for more of the words, ranks higher. Each hit lists in `found_by` which side found it (`semantic`, `words`); one only the words found has no `similarity`. `matched` then counts the entries either side found. Hybrid needs `space_name` (`MISSING_DATA` without it). The default mode is `"vector"`, and any other value is refused with `INVALID_DATA`.
+
+An entry is embedded by its shortname, its English and Arabic displayname, its tags, its English and Arabic description, and its JSON body, in that order. HTML in a displayname or description is reduced to its text. The embedding model reads only the start of that text, about 512 tokens, so the short fields come first.
 
 ```
 // request
 {
   "query": "how do refunds work",
-  "space_name": "data",        // optional
+  "space_name": "data",        // optional; required in hybrid mode
   "subpath": "/articles",       // optional prefix
   "resource_types": ["content"],// optional
-  "limit": 10                    // optional (default 10, max 100)
+  "limit": 10,                   // optional (default 10, max 100)
+  "mode": "vector"               // optional: "vector" (default) or "hybrid"
 }
 
-// success -> each record's attributes carry space_name, similarity (0..1), uri
+// success -> each record's attributes carry space_name, similarity (0..1), uri, displayname
 {
   "status": "success",
   "records": [
@@ -460,7 +465,8 @@ Natural-language (vector) search — embeds the query and returns the top-N most
       "shortname": "refund_policy",
       "subpath": "/articles",
       "attributes": { "space_name": "data", "similarity": 0.83,
-                      "uri": "dmart://data/articles/refund_policy" }
+                      "uri": "dmart://data/articles/refund_policy",
+                      "displayname": { "en": "Refund policy" } }
     }
   ],
   "attributes": { "returned": 1, "matched": 3 }
@@ -819,7 +825,7 @@ The MCP server exposes these tools to agents. Every tool runs under the caller's
 | `dmart_delete` | Delete an entry. With `confirm: true` it deletes without asking; without it, a client that supports **elicitation** is asked to confirm, and any other client is refused. Folders take an optional `force` flag to cascade-delete non-empty contents. |
 | `dmart_history` | Retrieve the change history of an entry. It needs `view` or `query` on `history` at the entry's folder, as a `history` query does; without it the tool returns no changes. |
 | `dmart_download` | Download the raw payload / attachment of an entry. An attachment the caller may not read answers the tool error `attachment not found`, as a missing one does. |
-| `dmart_semantic_search` | Natural-language vector search (requires pgvector + an embedding provider, same as `/managed/semantic-search`). |
+| `dmart_semantic_search` | Natural-language vector search (requires pgvector + an embedding provider, same as `/managed/semantic-search`). Takes the same `mode`: `"hybrid"`, with `space_name`, adds the word search. |
 
 **Limits.** `dmart_download` refuses a payload over 5 MB, and returns text (`text/*` and JSON) as UTF-8 and anything else as base64. `dmart_history` returns the newest changes first, at most 50 (`DEFAULT_QUERY_LIMIT` unless `limit` says otherwise). A delete confirmation waits up to 2 minutes for the client's answer. A session's SSE outbox holds 256 messages, and past that drops the oldest.
 
