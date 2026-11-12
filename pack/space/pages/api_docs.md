@@ -738,7 +738,7 @@ DMART pushes live updates over WebSocket connections. A built-in notifier plugin
 
 GET `/ws`
 
-Opens an authenticated WebSocket connection for realtime notifications. The JWT is passed as a query param (`ws://host/ws?token=JWT`) or via the `auth_token` cookie, which is not taken from a cross-site browser handshake (one whose `Origin` is neither this host nor listed in `ALLOWED_CORS_ORIGINS`). The handshake is refused with HTTP `401` if the token is invalid, the user is inactive, or the session has been revoked, and an open socket is closed when its session ends.
+Opens an authenticated WebSocket connection for realtime notifications. The JWT is passed as a query param (`ws://host/ws?token=JWT`) or via the `auth_token` cookie, which is not taken from a cross-site browser handshake (one whose `Origin` is neither this host nor listed in `ALLOWED_CORS_ORIGINS`). The handshake is refused with HTTP `401` if the token is invalid, the user is inactive, or the session has been revoked, and an open socket is closed when its session ends. A socket is not cut at `REQUEST_TIMEOUT`. A server that starts to stop ends every open socket at once, so a restart does not wait for WebSocket clients; a client reconnects to reach the new process.
 
 After connecting, the client subscribes by sending a `notification_subscription` message with at least `space_name` and `subpath`. Subscribing needs `view` there, and the server answers with a `notification_subscription` message whose `status` is `success` or `failed`; a `notification_unsubscribe` message drops every subscription. DMART builds a channel name of the form `space:subpath:schema:action:state`, defaulting any omitted segment to the `__ALL__` wildcard. The realtime notifier plugin then broadcasts every matching CRUD event to subscribed clients, each judged when the event is sent: a subscriber hears only of the records it may read, and of an attachment only when it may also read the record the attachment hangs off.
 
@@ -803,7 +803,7 @@ Sends a JSON-RPC MCP request (initialize, list/call tools, etc.).
 
 GET `/mcp`
 
-Opens the server-sent-events (SSE) stream for the MCP session, replacing the one already open.
+Opens the server-sent-events (SSE) stream for the MCP session, replacing the one already open. It takes the `Mcp-Session-Id` that `initialize` returned. Without one it answers `405`, the MCP spec's "no stream here", and the client carries on over POST. An id the server does not hold for the caller (unknown, ended, lost in a restart, or another user's) answers `404`, and the client initializes again.
 
 DELETE `/mcp`
 

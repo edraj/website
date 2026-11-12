@@ -5,7 +5,7 @@ A new release installs over the old one, keeps `config.env` and the data, and br
 - **Back up.** On SQLite, copy the database file (`/var/lib/dmart/dmart.db` for the packages) while the service is stopped; on PostgreSQL, take a `pg_dump`. [`dmart export`](/cli#5-export) also writes each space out as files.
 - **Several nodes** sharing one PostgreSQL database are upgraded together; see [Running several nodes](/technical#running-several-nodes).
 - **New settings go in after the upgrade.** dmart refuses to start when `config.env` holds a key it does not know. So a setting a release adds goes into the file only once that release is installed, and comes out again before a rollback to an older one. A key a release retires is only warned about at start.
-- **Read [Before restarting on 1.7.15](#before-restarting-on-1715)** first: every install should take this release, for the .NET runtime fixes built into it.
+- **Read [Before restarting on 1.7.16](#before-restarting-on-1716)** first: every install should take this release, for the .NET runtime fixes built into it.
 
 ## Upgrading
 
@@ -23,7 +23,8 @@ sudo apk upgrade dmart && sudo rc-service dmart restart
 - **At its first start,** the new version runs schema initialization, the search-text fill and any one-time `query_policies` rewrite the release brings, and builds any index it adds, which on a large `entries` table takes a while. On PostgreSQL several nodes take turns at these; see [Running several nodes](/technical#running-several-nodes), which also covers rolling back.
 - **The repositories** carry the five most recent releases.
 
-## Before restarting on 1.7.15
+## Before restarting on 1.7.16
 
-- **Every install should take this release.** The .NET runtime is compiled into the binary, so a release is how an install gets Microsoft's runtime fixes. 1.7.15 is built on runtime 10.0.15, which fixes CVE-2026-114146 (ASP.NET Core elevation of privilege) and CVE-2026-114147 and CVE-2026-114149 (ASP.NET Core denial of service). An install on an older release keeps those flaws until it upgrades.
-- **`LOG_BODIES` is a new setting** (see [Settings](/settings)). It goes into `config.env` only once 1.7.15 is installed, and comes out again before a rollback, since an older release does not start with a key it does not know. Without it, the access lines keep both bodies.
+Nothing needs doing first: 1.7.16 changes no schema and adds no setting.
+
+- **Every install should take this release.** The .NET runtime is compiled into the binary, so a release is how an install gets Microsoft's runtime fixes. 1.7.16 is built on runtime 10.0.15, which fixes CVE-2026-114146 (ASP.NET Core elevation of privilege) and CVE-2026-114147 and CVE-2026-114149 (ASP.NET Core denial of service). An install on a release built on an older runtime keeps those flaws until it upgrades.
