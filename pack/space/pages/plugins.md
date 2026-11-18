@@ -79,7 +79,7 @@ The `config.json` file defines the plugin's metadata and behavior.
 
 Hooks hear `create`, `update`, `delete`, `move`, `lock` and `unlock`. Progressing or assigning a ticket reaches them as an `update`, and no event carries `query`, `view`, `attach`, `assign` or `progress_ticket`, so a filter naming only those never fires.
 
-A `before` hook fires once every check of the write has passed, just before the write: the caller's permission, the row filters, the owner group and field limits, the schema and uniqueness rules. That holds for an entry and for a user, role, group, permission or space written through `/managed/request` alike, so a hook sees no write that is then refused, save one that loses a race at the write itself. An update or delete of a user, role, group, permission or space that is not there reaches no hook, nor does a dry-run delete, nor a delete of the `management` space, which is refused (`CANNT_DELETE`) once the permission check has passed. A veto fails the record with `INVALID_DATA` ("plugin rejected …"). A delete that removes nothing, of a record that is not there or that row filters or an ACL hide from the caller, fires no `after` hook.
+A `before` hook fires once every check of the write has passed, just before the write: the caller's permission, the row filters, the owner group and field limits, the schema and uniqueness rules. That holds for an entry and for a user, role, group, permission or space written through `/managed/request` alike, so a hook sees no write that is then refused, save one that loses a race at the write itself. An update or delete of a user, role, group, permission or space that is not there reaches no hook, nor does a dry-run delete, nor a delete of the `management` space, which is refused (`CANNT_DELETE`) once the permission check has passed. A veto fails the write with `INVALID_DATA` (402, HTTP 400), and the caller is told why: "plugin rejected <action>: <the plugin's message>", such as "plugin rejected update: …", the message cut at 500 characters. A hook that fails rather than refuses (a timeout, a crash, a plugin worker that is busy or gone, any other exception) gives only "plugin rejected <action>", so nothing internal reaches the caller. Write a refusal's message for the person who made the request, without paths, stack traces or other internals. A delete that removes nothing, of a record that is not there or that row filters or an ACL hide from the caller, fires no `after` hook.
 
 Some filters never fire:
 
@@ -91,7 +91,7 @@ Some filters never fire:
 
 API plugins ignore `filters`: their routes are mounted whenever `is_active` is true.
 
-These codes in the log mark a plugin that did not load or run: `PLUGIN_INVALID` (a hook without `filters` or `listen_time`), `PLUGIN_UNKNOWN` (a config with no plugin behind it), `PLUGIN_ERROR` (a config that does not parse, or a hook that failed), `NATIVE_PLUGIN_LOAD_FAILED` (a subprocess plugin that did not start) and `SUBPROCESS_PLUGIN_TIMEOUT` (a plugin silent for 30 seconds).
+These codes in the log mark a plugin that did not load or run: `PLUGIN_INVALID` (a hook without `filters` or `listen_time`), `PLUGIN_UNKNOWN` (a config with no plugin behind it), `PLUGIN_ERROR` (a config that does not parse, or a hook that failed), `NATIVE_PLUGIN_LOAD_FAILED` (a subprocess plugin that did not start) and `SUBPROCESS_PLUGIN_TIMEOUT` (a plugin silent for 30 seconds). A `before` hook's refusal is logged at Warning as `PLUGIN_REFUSED`, with the plugin, the action and its reason.
 
 ### After-Hook Delivery
 
@@ -151,7 +151,7 @@ public sealed class MyHookPlugin : IHookPlugin
 }
 ```
 
-The `Event` carries details about the action: `EventId` (on an entry's after event), `SpaceName`, `Subpath`, `Shortname`, `ResourceType`, `SchemaShortname`, `ActionType`, `UserShortname`, and `Attributes`. Throwing from a `before` hook aborts the action; an `after` hook that throws is logged but does not fail the request, and on an entry's event it is called again later (see [After-Hook Delivery](#after-hook-delivery)). A redelivered event is rebuilt from its stored copy: its attribute values come back as strings, `long` or `double`, `bool`, `null` and nested `Dictionary<string, object>`, and arrays as `JsonElement`.
+The `Event` carries details about the action: `EventId` (on an entry's after event), `SpaceName`, `Subpath`, `Shortname`, `ResourceType`, `SchemaShortname`, `ActionType`, `UserShortname`, and `Attributes`. Throwing from a `before` hook aborts the action. To tell the caller why, throw `new PluginRefusedException(Shortname, reason)`: the caller reads "plugin rejected <action>: <reason>", where any other exception gives only "plugin rejected <action>"; an `after` hook that throws is logged but does not fail the request, and on an entry's event it is called again later (see [After-Hook Delivery](#after-hook-delivery)). A redelivered event is rebuilt from its stored copy: its attribute values come back as strings, `long` or `double`, `bool`, `null` and nested `Dictionary<string, object>`, and arrays as `JsonElement`.
 
 A managed plugin that creates an entry through `EntryService.CreateAsync` is judged as the actor it passes, as a request is: its `create` grants and their row filters, and the owner group the entry names, which must be one the actor belongs to unless a grant without a row filter gives it `assign` at the entry's address.
 
@@ -193,7 +193,7 @@ The subprocess protocol is a simple request/response over JSON lines:
 {"type":"request","request":{...}}           {"status":"success","attributes":{...}}
 ```
 
-The `version` in the `info` answer shows on `GET /info/plugins`, and defaults to `0.0.0`. A hook answers `{"status":"error","message":"..."}` to fail; from a `before` hook, that refuses the action. An API plugin's `info` answer also lists its `routes`, each a `method` and a `path`, mounted under `/{shortname}`; a method other than `GET`, `POST`, `PUT` or `DELETE` is mounted as `GET`.
+The `version` in the `info` answer shows on `GET /info/plugins`, and defaults to `0.0.0`. A hook answers `{"status":"error","message":"..."}` to fail; from a `before` hook, that refuses the action, and the caller is told its `message`. An API plugin's `info` answer also lists its `routes`, each a `method` and a `path`, mounted under `/{shortname}`; a method other than `GET`, `POST`, `PUT` or `DELETE` is mounted as `GET`.
 
 **The hook event** is snake_case JSON: `space_name`, `subpath`, `shortname`, `action_type`, `resource_type`, `schema_shortname`, `user_shortname` and `attributes`, plus the record's `uuid`, `displayname`, `description` and `tags`, and on an entry's after event its `event_id`, the same on every delivery of that event. A field without a value is left out. The event carries no payload body; read the record with `load_entry`. In `attributes`:
 

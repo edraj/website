@@ -102,6 +102,19 @@ On PostgreSQL, provide a full connection string with `POSTGRES_CONNECTION`, or l
 
 The on-disk `spaces/` + `.dm/meta.*.json` layout is a transfer/backup format used only by `import`, `export` and `seed` — never as a live store. `SPACES_FOLDER` defaults empty. When set, it is where `dmart seed` copies the bundled sample spaces, and the root of an optional append-only audit trail: each space's events go to `<SPACES_FOLDER>/<space>/.dm/events.jsonl` (rolled over at `EVENTS_LOG_MAX_BYTES`), which `events` queries read. Empty, no audit trail is written.
 
+### SQL over SQLite datasets (opt-in)
+
+With `DATA_ASSET_SQL=true`, a SQLite database stored as a `data_asset` attachment can be queried with one read-only `SELECT` by anyone who may download it: through `POST /managed/data-asset/query`, the `dmart_sql` MCP tool, or a saved `sql_query` entry (see [SQL over SQLite datasets](/api-docs#sql-over-sqlite-datasets)). While it is on, an upload of a SQLite dataset that is not a sound database is refused. A value out of range stops the server from starting.
+
+| Setting | Description | Default |
+|---|---|---|
+| `DATA_ASSET_SQL` | Turns SQL over datasets on. Off, its routes answer `INVALID_ROUTE` and its MCP tools an error. | `false` |
+| `DATA_ASSET_SQL_TIMEOUT_MS` | Milliseconds a query may run before it is stopped (`SQL_TIMEOUT`), 100–60000 | `2000` |
+| `DATA_ASSET_SQL_MAX_ROWS` | Most rows a query returns, and the `limit` of one that names none, 1–100000 | `1000` |
+| `DATA_ASSET_SQL_MAX_CONCURRENT` / `DATA_ASSET_SQL_MAX_CONCURRENT_PER_USER` | Queries running at once on the server, and for one caller; past either, `SQL_BUSY` (HTTP 503). At least 1. | `4` / `2` |
+| `DATA_ASSET_SQL_CACHE_DIR` | Where datasets are copied out of the database to be opened. Empty: a new private directory under the system temp directory, removed at shutdown. | `""` |
+| `DATA_ASSET_SQL_CACHE_MB` | Megabytes of copies kept there; the least recently used go first. At least 1. | `1024` |
+
 ## Security & Authentication
 
 Authentication is JWT Bearer (HS256, symmetric key from `JWT_SECRET`) with Argon2id password hashing. With `ENABLE_MCP=true` DMART also runs an OAuth 2.1 authorization server for MCP clients, and with `OIDC_ISSUER` set, an OpenID Connect provider that signs its tokens with its own RSA key. DMART's own tokens are always HS256; that is not configurable.

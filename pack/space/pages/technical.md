@@ -199,9 +199,11 @@ REST-like and resource-oriented. Key routers:
 
 ## 6. Data Asset Management
 
-DMART stores data files, and moves its own data in and out in tabular formats. It does not read, query or convert the contents of a stored file.
+DMART stores data files, and moves its own data in and out in tabular formats. It does not read or convert the contents of a stored file, save that a SQLite one can be queried with SQL.
 
 - **Data-asset attachments:** a `data_asset` attachment, uploaded through `/managed/resource_with_payload`, holds a CSV, JSONL, SQLite or Parquet file. Its content type comes from the upload's MIME type or file extension (`csv`; `jsonl` or `ndjson`; `sqlite` or `db`; `parquet`). DMART stores the bytes as they are and serves them back. `sqlite` here is a content type, not the SQLite database backend.
+
+- **SQL over SQLite datasets:** with `DATA_ASSET_SQL=true`, a `sqlite` data asset can be queried with one read-only `SELECT`, alone or joined with others, by anyone who may download it: through `POST /managed/data-asset/query`, the `dmart_sql` MCP tool, or a saved `sql_query` entry that callers, anonymous ones included, run by filling in its values (see [SQL over SQLite datasets](/api-docs#sql-over-sqlite-datasets)).
 
 - **The `csv`, `jsonl`, `sqlite` and `parquet` resource types** cannot hold such a file: an upload for any of them must be JSON, and anything else is refused with `INVALID_DATA`. Use a `data_asset` attachment.
 
