@@ -196,7 +196,7 @@ On queries, `total` is `-1` when the count was skipped (`retrieve_total: false`;
 }
 ```
 
-As a rule the HTTP status follows `error.code`: `401` for authentication and permission refusals, `404` for a record that is not there, `409` for a name or unique value already taken or a record that changed under the request, `403` for a refused password change, `423` for an entry someone else has locked, `503` while the password-hashing budget is full or `jq` is busy or missing, and `400` for anything else. The tables below give each code's status. `/user/login` and the social sign-in routes answer every refusal with HTTP `401`, whatever its code. `POST /managed/query` and `POST /public/query` answer some failures, such as a missing `space_name` or a malformed `join`, with HTTP `200` and the `failed` envelope, so a client reads `status` there. A failed `jq_filter` on them answers `400`, or `503` when jq is busy or missing.
+As a rule the HTTP status follows `error.code`: `401` for authentication and permission refusals, `404` for a record that is not there, `409` for a name or unique value already taken or a record that changed under the request, `403` for a refused password change, `423` for an entry someone else has locked, `503` while the password-hashing budget is full, too many SQL queries over datasets are running, or `jq` is busy or missing, and `400` for anything else. The tables below give each code's status. `/user/login` and the social sign-in routes answer every refusal with HTTP `401`, whatever its code. `POST /managed/query` and `POST /public/query` answer some failures, such as a missing `space_name` or a malformed `join`, with HTTP `200` and the `failed` envelope, so a client reads `status` there. A failed `jq_filter` on them answers `400`, or `503` when jq is busy or missing.
 
 **A refused write answers as a missing record would, to a caller that cannot read the record.** Update, patch, assign, update_acl, move, delete, lock and unlock are judged first on the address, as if nothing were stored there. A caller the address refuses gets `NOT_ALLOWED`, whether or not the record exists. A caller the address admits, but refused for what is stored (the record's ACL denies it the action, an entry is stored as another type than the request names, or a [row filter](/access-control#row-filters) of its grants leaves the record out), gets what a missing record at that address gets (`OBJECT_NOT_FOUND`, `SHORTNAME_DOES_NOT_EXIST`, or a success that removes nothing) when it cannot read the record, and `NOT_ALLOWED` when it can; nothing is written either way. A user, role, group or permission is judged in its folder of the management space (`management:/users`, `/roles`, `/groups`, `/permissions`), its create included, and a space at its own root, whatever coordinates the request names. A refusal by a condition (`own`, `is_active`) or a field limit stays `NOT_ALLOWED`, as it is for a missing record. Reads by name work the same way: a record the caller may not read answers `404`.
 
@@ -225,7 +225,9 @@ Some codes look like HTTP statuses and are not: `400` is a name already taken (H
 | 430 | `SOMETHING_WRONG` | 400 / 500 | `400`: a `/managed/request` batch in which some records failed, or a check the server could not complete (uniqueness, the embedding provider). `500`: a server or database fault. |
 | 120 | `JQ_TIMEOUT` | 400 / 503 | `400`: a `jq_filter` ran too long. `503`: every jq slot was busy. |
 | 121 | `JQ_ERROR` | 400 / 503 | `400`: a `jq_filter` that is invalid or fails. `503`: no `jq` on the server. |
-| 230 | `INVALID_ROUTE` | 422 / 405 | No such route, or a method the route does not take. |
+| 122 | `SQL_TIMEOUT` | 400 | A [SQL query over datasets](#sql-over-sqlite-datasets) ran past `DATA_ASSET_SQL_TIMEOUT_MS`, or was cancelled. |
+| 123 | `SQL_BUSY` | 503 | `DATA_ASSET_SQL_MAX_CONCURRENT` SQL queries over datasets are running, or `DATA_ASSET_SQL_MAX_CONCURRENT_PER_USER` of the caller's. |
+| 230 | `INVALID_ROUTE` | 422 / 405 / 400 | No such route, or a method the route does not take. `400`: SQL over datasets while `DATA_ASSET_SQL` is off. |
 | 504 | `REQUEST_TIMEOUT` | 504 | The request ran past `REQUEST_TIMEOUT`. |
 
 Sign-in and tokens:
@@ -496,7 +498,7 @@ Exports data based on a `Query` object, as a ZIP. Global admins only, and not cu
 
 POST `/managed/csv`, POST `/managed/csv/{space}`
 
-Exports query results as CSV, at most `MAX_QUERY_LIMIT` rows to a file. With `?preview=1` it answers, instead of the file, what the CSV for the same body would hold: `exported`, `total`, `limit`, `truncated`, the `reason` when it was cut short, and a `message`. `/managed/csv/{space}` also takes a saved query's record as its body.
+Exports query results as CSV, at most `MAX_QUERY_LIMIT` rows to a file. With `?preview=1` it answers, instead of the file, what the CSV for the same body would hold: `exported`, `total`, `limit`, `truncated`, the `reason` when it was cut short, and a `message`. `/managed/csv/{space}` also takes a saved query's record as its body. A [saved SQL query](#sql-over-sqlite-datasets) exports its own columns, with no preview, and any failure of one answers HTTP `400`.
 
 PUT `/managed/progress-ticket/{space}/{subpath}/{shortname}/{action}`
 
@@ -565,7 +567,7 @@ Reloads the in-process permissions and roles cache from the database, and drops 
 
 POST `/managed/execute/{task_type}/{space}`
 
-Runs a **saved query** task. The only defined `task_type` is `query`: DMART loads a saved query entry by `shortname`, parses its `payload.body` as a `Query`, and executes it. `query_overrides` merge into the loaded query, and any `$param` placeholders inside the query's `search` string (e.g. `@status:$state`) are substituted from the overrides; unresolved `@field:$param` fragments are stripped before execution.
+Runs a **saved query** task. The only defined `task_type` is `query`: DMART loads a saved query entry by `shortname`, parses its `payload.body` as a `Query`, and executes it. `query_overrides` merge into the loaded query, and any `$param` placeholders inside the query's `search` string (e.g. `@status:$state`) are substituted from the overrides; unresolved `@field:$param` fragments are stripped before execution. A [saved SQL query](#sql-over-sqlite-datasets) runs here too.
 
 The misspelled legacy path `/managed/excute/{task_type}/{space}` is also mapped for client compatibility.
 
@@ -597,6 +599,82 @@ On a directory primary: the user and group feed a replica pulls, password hashes
 GET `/managed/s/{token}`
 
 Resolves a short token and issues a `302` redirect to its original URL (anonymous-accessible, rate-limited). It redirects only to a `/managed/entry/` URL under `APP_URL`, which then judges whoever follows it as any read is judged; an unknown or expired token answers `404`.
+
+### SQL over SQLite datasets
+
+A SQLite database stored as a `data_asset` attachment, with content type `sqlite` (an upload ending in `.sqlite` or `.db`, or sent as `application/vnd.sqlite3`), can be queried with SQL. Anyone who may download it may run one read-only `SELECT` over it, alone or joined with other datasets and with a folder's live entries. It is off unless `DATA_ASSET_SQL=true` (see [Settings](/settings#sql-over-sqlite-datasets-opt-in)); while off, these routes answer `INVALID_ROUTE` (HTTP 400). While it is on, an upload of a `sqlite` dataset that is not a sound SQLite database (SQLite's header, and `PRAGMA quick_check`) is refused with `INVALID_DATA`.
+
+POST `/managed/data-asset/query`
+
+Runs one read-only statement over the datasets and folders the body names.
+
+```
+// request
+{
+  "space_name": "acme",
+  "assets": {
+    "sales":   { "subpath": "/reports", "shortname": "sales" },
+    "regions": { "subpath": "/reference", "shortname": "regions" }
+  },
+  "sql": "SELECT r.label, sum(s.amount) AS total FROM sales.orders s JOIN regions.areas r ON r.code = s.region WHERE s.year = :year GROUP BY 1 ORDER BY 2 DESC",
+  "params": { "year": 2026 },   // optional
+  "limit": 100,                  // optional; default and most DATA_ASSET_SQL_MAX_ROWS
+  "format": "json"               // optional: "json" (default) or "csv"
+}
+
+// success
+{
+  "status": "success",
+  "attributes": {
+    "columns": [{ "name": "label", "type": "TEXT" }, { "name": "total" }],
+    "rows": [["North", 13.5], ["South", 7.25]],
+    "truncated": false,
+    "elapsed_ms": 3
+  }
+}
+```
+
+- **`assets`** attaches each dataset under its key, and the SQL names its tables `key.table`. A dataset is named by the subpath it is stored under, its entry's subpath plus the entry's shortname, and its own shortname: `sales` attached to the folder `reports` at the root of the space is `{"subpath": "/reports", "shortname": "sales"}`. The datasets are in `space_name`. A key is letters, digits and `_`, not starting with a digit, and not `main` or `temp`. A key can instead name a folder's entries, as the table of that name (see below). A query names at most 10 datasets and folders.
+- **`sql`** is one statement, in SQLite's dialect, that only reads: `SELECT`, with `WITH` and `VALUES`. The pragmas that describe a table or an index work too, as functions or statements: `pragma_table_info('orders', 'sales')`, and `table_xinfo`, `table_list`, `index_list`, `index_info`, `index_xinfo` and `foreign_key_list`. Anything else is refused with `INVALID_DATA` (HTTP 400): a write, `ATTACH`, `DETACH`, a transaction, any other pragma, and a second statement. So is SQL that SQLite does not accept, with SQLite's message.
+- **`params`** fill the statement's named parameters (`:year`, `$year` or `@year`). Every value is bound, never pasted into the SQL. Strings, numbers and `null` bind as themselves, `true` and `false` as 1 and 0, and an object or array as its JSON text, for SQLite's JSON functions. A parameter with no value in `params`, or a bare `?`, is refused with `INVALID_DATA`.
+- **The answer.** `columns` gives each column's name, and its declared `type` when it is read straight from a table. A value is a number, a string or `null`; a blob comes as base64. `truncated` is true when the row cap, or the 16 MB cap on a result, cut the rows, and `truncated_tables` names each folder table that was cut. A query that returns no rows has no `rows` key, as any empty value is left out (see [the response envelope](#response-envelope)). With `"format": "csv"` the rows come as a `text/csv` file with a header row.
+- **Who may query what.** A caller may name a dataset only if it may download it, as `/managed/payload` decides: the attachment's own type, the entry it hangs off, that entry's ACL and its row filters. A dataset the caller may not download answers as one that is not there (`OBJECT_NOT_FOUND`, 404), and one that is not a `sqlite` data asset answers `INVALID_DATA`. SQL has no permission of its own, since it shows nothing a download does not, and a folder's entries reach the SQL as `/managed/query` would return them to the caller. Free-form SQL needs a session: there is no public route for it.
+- **Limits.** A query is stopped after `DATA_ASSET_SQL_TIMEOUT_MS` (2 seconds by default) with `SQL_TIMEOUT` (122). At most `DATA_ASSET_SQL_MAX_CONCURRENT` queries run at once, and `DATA_ASSET_SQL_MAX_CONCURRENT_PER_USER` of one caller's; past either the answer is `SQL_BUSY` (123, HTTP 503). The SQL may be up to 100,000 characters, with up to 100 parameters.
+- **How a query is kept to reading.** The SQL runs inside DMART, on a SQLite connection of its own that sees only the datasets named and the folder tables written into it, never DMART's own database. Each dataset is attached read-only and immutable, from a copy checked against the checksum stored at upload, and no further `ATTACH` is possible. Defensive mode is on, the datasets' schemas are not trusted, an authorizer allows reading and nothing else, SQLite's limits on lengths, expression depth and compound selects are lowered, and extension loading stays off. What running in-process cannot do is cap one query's memory or contain a crash in SQLite, so datasets come only from those who may upload a `data_asset`.
+- **The log.** Every query is logged at Information: the caller, the datasets, a hash of the SQL, and the rows returned and time taken, or the error.
+
+**A folder's entries as a table.** A key of `assets` can name a folder instead of a dataset, and the SQL then reads the folder's entries as the table of that name, so live data joins datasets:
+
+```
+"assets": {
+  "prices":  { "subpath": "/reference", "shortname": "prices" },
+  "tickets": { "folder": "/support/tickets", "search": "@status:open",
+               "fields": ["shortname", "payload.body.sku", "payload.body.qty", "created_at"] }
+},
+"sql": "SELECT t.sku, sum(t.qty * p.price) AS value FROM tickets t JOIN prices.items p ON p.sku = t.sku GROUP BY 1"
+```
+
+- **`folder`** is the folder's subpath, and the table holds the entries directly in it, not those in its subfolders. **`search`** narrows them, in the [search syntax](/query-search) of `/managed/query`.
+- **`fields`** are the columns, up to 50, each read as a folder's `csv_columns` key is (see [Folders](/folders#8-index_attributes-in-depth)): a dotted key is a path (`payload.body.sku`), and a bare one is looked up in the payload body first. A column is named after its key's last part (`sku`), and two fields that would share a name are refused. Without `fields`, the columns are `shortname`, `resource_type`, `schema`, `owner_shortname`, `created_at`, `updated_at` and `body`, the payload body as JSON for SQLite's JSON functions (`json_extract(body, '$.sku')`).
+- **A value** is a number, a string (dates too), 1 or 0 for true and false, an object or array as its JSON text, or `null`, and the columns have no declared type. A key that names a folder cannot start with `sqlite_`.
+- **The entries are the caller's.** DMART reads them with its own query engine, as the caller, so every permission and row filter applies, and writes them into the query's own in-memory database: SQLite never reads DMART's database. A table holds at most `MAX_QUERY_LIMIT` entries (10,000 by default) and 16 MB of values; a folder with more is cut, and the answer's `truncated_tables` names each table that was.
+
+GET `/managed/data-asset/schema/{space}/{subpath}/{shortname}`
+
+Describes one dataset, named and checked as in a query: `attributes.tables` lists each table and view with its `type` (`table` or `view`), its `columns` (each a `name`, and the declared `type` when it has one), and for a table its row count in `rows`.
+
+**Saved SQL queries.** A `content` entry whose payload schema is `sql_query` is a saved SQL query. Its body holds `sql` and `assets`, datasets or folders as above, and optionally `params`, default values, and `limit`, a default row cap; its datasets are in its own space.
+
+```json
+{
+  "sql": "SELECT count(*) AS n, sum(amount) AS total FROM sales.orders WHERE region = :region",
+  "assets": { "sales": { "subpath": "/reports", "shortname": "sales" } },
+  "params": { "region": "south" },
+  "limit": 100
+}
+```
+
+It runs where saved queries run, `/managed/execute/query/{space}`, [`/public/excute/query/{space}`](#public-access-public) and `/managed/csv/{space}`, sent as `{"resource_type": "content", "subpath": "/queries", "shortname": "by_region", "attributes": {"region": "north"}}` or as `{"shortname", "subpath", "query_overrides"}`. The request's attributes fill the parameters over the body's `params`, and a numeric `limit` among them caps the rows. Every value is bound, so a caller, anonymous included, only fills in values: a value that reads like SQL is just text the query compares. It runs as its caller, who needs read access to the saved query and to every dataset it names, and answers as `/managed/data-asset/query` does. DMART needs no `sql_query` schema: a name with no schema in the space's `/schema` folder is saved unchecked, so a space adds one only to check its saved queries.
 
 ## Public Access `/public`
 
@@ -637,6 +715,8 @@ Runs a saved query task (see `/managed/execute`) as the anonymous user, who only
 - **A `$parameter` value** may hold only letters, digits, `_`, `-` and `.`, with `|` between several values (`open|closed`). Any other character, such as a space, `@`, `:`, `*` or a bracket, is refused, since it could add search terms or widen the match.
 - **A stored search with parameters** is refused when dropping the ones left unfilled, or filled with an empty value, would leave it with no search at all, which would list the whole folder. A stored search with no parameters runs as it is.
 - **A refused call** answers as a saved query that is not there: `SHORTNAME_DOES_NOT_EXIST` (404), "task not found", as does every other failure to load the task here.
+
+A [saved SQL query](#sql-over-sqlite-datasets) runs here as the anonymous user, over the datasets anonymous may download, and binds the caller's values, so the `$parameter` rules above do not apply to it. A saved query that cannot be loaded still answers "task not found"; a failure of its SQL answers as on `/managed/data-asset/query`. Publishing one means granting anonymous read on it and on its datasets.
 
 This narrows only the saved query. `/public/query` still lists and searches any folder where the anonymous user holds `query`, so a saved query does not limit what anonymous callers can read.
 
@@ -738,7 +818,7 @@ DMART pushes live updates over WebSocket connections. A built-in notifier plugin
 
 GET `/ws`
 
-Opens an authenticated WebSocket connection for realtime notifications. The JWT is passed as a query param (`ws://host/ws?token=JWT`) or via the `auth_token` cookie, which is not taken from a cross-site browser handshake (one whose `Origin` is neither this host nor listed in `ALLOWED_CORS_ORIGINS`). The handshake is refused with HTTP `401` if the token is invalid, the user is inactive, or the session has been revoked, and an open socket is closed when its session ends.
+Opens an authenticated WebSocket connection for realtime notifications. The JWT is passed as a query param (`ws://host/ws?token=JWT`) or via the `auth_token` cookie, which is not taken from a cross-site browser handshake (one whose `Origin` is neither this host nor listed in `ALLOWED_CORS_ORIGINS`). The handshake is refused with HTTP `401` if the token is invalid, the user is inactive, or the session has been revoked, and an open socket is closed when its session ends. A socket is not cut at `REQUEST_TIMEOUT`. A server that starts to stop ends every open socket at once, so a restart does not wait for WebSocket clients; a client reconnects to reach the new process.
 
 After connecting, the client subscribes by sending a `notification_subscription` message with at least `space_name` and `subpath`. Subscribing needs `view` there, and the server answers with a `notification_subscription` message whose `status` is `success` or `failed`; a `notification_unsubscribe` message drops every subscription. DMART builds a channel name of the form `space:subpath:schema:action:state`, defaulting any omitted segment to the `__ALL__` wildcard. The realtime notifier plugin then broadcasts every matching CRUD event to subscribed clients, each judged when the event is sent: a subscriber hears only of the records it may read, and of an attachment only when it may also read the record the attachment hangs off.
 
@@ -803,13 +883,13 @@ Sends a JSON-RPC MCP request (initialize, list/call tools, etc.).
 
 GET `/mcp`
 
-Opens the server-sent-events (SSE) stream for the MCP session, replacing the one already open.
+Opens the server-sent-events (SSE) stream for the MCP session, replacing the one already open. It takes the `Mcp-Session-Id` that `initialize` returned. Without one it answers `405`, the MCP spec's "no stream here", and the client carries on over POST. An id the server does not hold for the caller (unknown, ended, lost in a restart, or another user's) answers `404`, and the client initializes again.
 
 DELETE `/mcp`
 
 Terminates the current MCP session.
 
-### Available tools (11)
+### Available tools (13)
 
 The MCP server exposes these tools to agents. Every tool runs under the caller's JWT, so DMART's permission model is enforced identically to the HTTP API — there is no admin escape hatch.
 
@@ -826,6 +906,8 @@ The MCP server exposes these tools to agents. Every tool runs under the caller's
 | `dmart_history` | Retrieve the change history of an entry. It needs `view` or `query` on `history` at the entry's folder, as a `history` query does; without it the tool returns no changes. |
 | `dmart_download` | Download the raw payload / attachment of an entry. An attachment the caller may not read answers the tool error `attachment not found`, as a missing one does. |
 | `dmart_semantic_search` | Natural-language vector search (requires pgvector + an embedding provider, same as `/managed/semantic-search`). Takes the same `mode`: `"hybrid"`, with `space_name`, adds the word search. |
+| `dmart_sql` | One read-only SQL `SELECT` over SQLite datasets, taking `space_name`, `assets` (datasets or folders), `sql`, `params` and `limit` as [`/managed/data-asset/query`](#sql-over-sqlite-datasets) does, and answering its columns and rows as JSON. Needs `DATA_ASSET_SQL`; without it the tool answers an error. |
+| `dmart_dataset_schema` | A dataset's tables and views, their columns and types, and each table's row count, from `space_name`, `subpath` and `shortname`. Needs `DATA_ASSET_SQL`. |
 
 **Limits.** `dmart_download` refuses a payload over 5 MB, and returns text (`text/*` and JSON) as UTF-8 and anything else as base64. `dmart_history` returns the newest changes first, at most 50 (`DEFAULT_QUERY_LIMIT` unless `limit` says otherwise). A delete confirmation waits up to 2 minutes for the client's answer. A session's SSE outbox holds 256 messages, and past that drops the oldest.
 

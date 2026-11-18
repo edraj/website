@@ -79,6 +79,7 @@ dm "$DMART/user/profile" | jq -c '{status, shortname: .records[0].shortname}'
 - `sort_by` takes a column (`shortname`, `created_at`, `updated_at`, `owner_shortname`, …) or a payload path (`payload.body.year`). An unknown name silently falls back to `updated_at`.
 - A `history` query (and MCP `dmart_history`) needs `history` in the `resource_types` of a grant at that folder. Without it the answer is an empty success, not an error. Secret-named fields in a diff read `********`.
 - `jq_filter` runs a jq program on each record on the server (`"jq_filter": "{shortname, year: .attributes.payload.body.year}"`). One that fails answers HTTP `400` (`503` when jq is busy or missing) with `status: failed`.
+- SQL over a SQLite file: where the server runs with `DATA_ASSET_SQL=true`, a `data_asset` attachment of content type `sqlite` takes one read-only `SELECT` through `POST /managed/data-asset/query` or MCP `dmart_sql`, as `{"space_name": "acme", "assets": {"s": {"subpath": "/reports", "shortname": "sales"}}, "sql": "SELECT region, sum(amount) FROM s.orders WHERE year = :year GROUP BY 1", "params": {"year": 2026}}`. A dataset's `subpath` is its entry's subpath plus the entry's shortname. The answer is `attributes.columns` and `attributes.rows` (no `rows` key when none match). List the tables first with `GET /managed/data-asset/schema/{space}/{subpath}/{shortname}` or `dmart_dataset_schema`. A key of `assets` can instead name a folder, `{"folder": "/support/tickets", "search": "@status:open", "fields": ["shortname", "payload.body.sku"]}`, whose entries, as the caller may query them, the SQL reads as the table of that key.
 
 ### Search syntax (`search`)
 
@@ -108,7 +109,7 @@ Negation, booleans, `[]` paths and engine differences have sharp edges. Before r
                   { "reducer_name": "max", "alias": "latest", "args": ["@payload.body.year"] } ] } }
 ```
 
-Each group comes back as a record whose `attributes` hold the group keys and the aliases. A group key's name is its path with the dots turned to `_`, e.g. `payload_body_author`. Reducers: `count`, `count_distinct`, `sum`, `avg`, `min`, `max`, and others in the reference.
+Each group comes back as a record whose `attributes` hold the group keys and the aliases. A group key's name is its path with the dots turned to `_`, e.g. `payload_body_author`. Group a date by period with `@created_at|month` (or `|day`, `|week`, `|year`): the key is `created_at_month`, holding the period's first day as `YYYY-MM-DD`. Reducers: `count`, `count_distinct`, `sum`, `avg`, `min`, `max`, and others in the reference.
 
 ## Recipes
 

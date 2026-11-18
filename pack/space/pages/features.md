@@ -37,6 +37,8 @@ Finding information is effortless with DMART's robust search engine.
 
 - **Native SQL Search:** Search runs inside the database — full-text and trigram indexes on PostgreSQL, FTS5 on SQLite — with no separate search cluster. Semantic search is available on PostgreSQL with pgvector and an embedding API.
 
+- **SQL over SQLite datasets:** A SQLite file stored as a data asset can be queried with one read-only `SELECT`, alone or joined with others and with a folder's live entries, by anyone who may download it, and a saved SQL query can be published for callers to fill in. Off unless `DATA_ASSET_SQL=true` (see [SQL over SQLite datasets](/api-docs#sql-over-sqlite-datasets)).
+
 ## 3. Collaboration & Workflow Automation
 
 Built-in tools to manage processes and teamwork.
