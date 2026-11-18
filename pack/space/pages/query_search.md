@@ -758,9 +758,9 @@ These fields of the `Query` body decide what each record carries.
 
 `POST /managed/csv` takes the same body and answers a CSV file, sized by the same `limit` rule: one file holds at most `MAX_QUERY_LIMIT` rows, a body without `limit` gets `DEFAULT_QUERY_LIMIT` rows, and `-1` asks for as many as the server allows.
 
-When the query's `subpath` is a folder that names its `csv_columns` (see [folders](/folders)), the file holds exactly those columns, each headed by its `name`. Otherwise the columns are `resource_type`, `shortname`, `subpath` and `uuid`, then the records' attributes in alphabetical order: `displayname` and `description` split by language (`displayname.en`), lists of text joined with `|`, and `payload` as one JSON cell. That cell holds an entry's body only when the request sets `retrieve_json_payload: true`. A saved query exported through `/managed/csv/{space}` always takes this second form. To load a CSV back, see `resources_from_csv` in the [API reference](/api-docs).
+When the query's `subpath` is a folder that names its `csv_columns` (see [folders](/folders)), the file holds exactly those columns, each headed by its `name`. Otherwise the columns are `resource_type`, `shortname`, `subpath` and `uuid`, then the records' attributes in alphabetical order: `displayname` and `description` split by language (`displayname.en`), lists of text joined with `|`, and `payload` as one JSON cell. That cell holds an entry's body only when the request sets `retrieve_json_payload: true`. A saved query exported through `/managed/csv/{space}` always takes this second form, and a [saved SQL query](/api-docs#sql-over-sqlite-datasets) exports its own columns. To load a CSV back, see `resources_from_csv` in the [API reference](/api-docs).
 
-The file cannot say that it stopped short, so `POST /managed/csv?preview=1` answers, in `attributes`, what the CSV for the same body would hold: `exported`, `total`, `limit`, `truncated`, the `reason` it stops short (`max_query_limit`, `default_query_limit` or `limit`) and a `message`. `/managed/csv/{space}`, which also runs a saved query, takes `?preview=1` too.
+The file cannot say that it stopped short, so `POST /managed/csv?preview=1` answers, in `attributes`, what the CSV for the same body would hold: `exported`, `total`, `limit`, `truncated`, the `reason` it stops short (`max_query_limit`, `default_query_limit` or `limit`) and a `message`. `/managed/csv/{space}`, which also runs a saved query, takes `?preview=1` too, save for a saved SQL query.
 
 ## Aggregation `type:"aggregation"`
 
@@ -787,6 +787,19 @@ Groups are paged like records: `limit` (by default `DEFAULT_QUERY_LIMIT`, 10) ca
 ```
 
 `group_by` is a list of column names or dotted paths (`payload.body.status`, `displayname.en`); a leading `@` is optional and stripped. A column the API never returns (see _Field selectors_) is skipped, as a group-by and as a reducer argument. `reducers` is a list of aggregate specs. (A third field, `load`, is accepted for wire-compat with upstream but the SQL builder derives its columns from `group_by` + `reducers` only — `load` is effectively a no-op here.)
+
+### Grouping by date
+
+A group-by can group a date by its period: `@field|day`, `|week` (weeks start on Monday), `|month` or `|year`.
+
+```json
+"aggregation_data": {
+  "group_by": ["@created_at|month"],
+  "reducers": [{ "reducer_name": "count", "alias": "n" }]
+}
+```
+
+Each group is named by its period's first day, as `YYYY-MM-DD` text (`2026-11-01`), under the group-by's key with `|` read as `_` (`created_at_month`), alike on PostgreSQL and SQLite. The date is the value's first ten characters as written, so a payload timestamp (`@payload.body.ordered_at|day`) groups by its own calendar day, whatever its offset. A value that is not an ISO date there, an impossible one such as `2026-02-30` included, groups as `null` rather than failing the query. An unknown period is skipped, as an unknown field is.
 
 ### The `reducers[]` item shape
 

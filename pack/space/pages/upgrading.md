@@ -5,7 +5,6 @@ A new release installs over the old one, keeps `config.env` and the data, and br
 - **Back up.** On SQLite, copy the database file (`/var/lib/dmart/dmart.db` for the packages) while the service is stopped; on PostgreSQL, take a `pg_dump`. [`dmart export`](/cli#5-export) also writes each space out as files.
 - **Several nodes** sharing one PostgreSQL database are upgraded together; see [Running several nodes](/technical#running-several-nodes).
 - **New settings go in after the upgrade.** dmart refuses to start when `config.env` holds a key it does not know. So a setting a release adds goes into the file only once that release is installed, and comes out again before a rollback to an older one. A key a release retires is only warned about at start.
-- **Read [Before restarting on 1.7.17](#before-restarting-on-1717)** first: a plugin's refusal now reaches the caller, so check what your plugins say.
 
 ## Upgrading
 
@@ -23,7 +22,6 @@ sudo apk upgrade dmart && sudo rc-service dmart restart
 - **At its first start,** the new version runs schema initialization, the search-text fill and any one-time `query_policies` rewrite the release brings, and builds any index it adds, which on a large `entries` table takes a while. On PostgreSQL several nodes take turns at these; see [Running several nodes](/technical#running-several-nodes), which also covers rolling back.
 - **The repositories** carry the five most recent releases.
 
-## Before restarting on 1.7.17
+## Before restarting on 1.7.18
 
-- **Check what your plugins refuse with.** A `before` hook's error `message` now reaches the caller, as "plugin rejected update: <message>" (see [Plugins](/plugins)). Write it for the person who made the request, without paths, stack traces or other internals.
-- **`DATA_ASSET_SQL` and the `DATA_ASSET_SQL_*` settings are new** (see [Settings](/settings#sql-over-sqlite-datasets-opt-in)). They go into `config.env` only once 1.7.17 is installed, and come out again before a rollback, since an older release does not start with a key it does not know. Without them, SQL over datasets stays off.
+Nothing needs doing first: 1.7.18 adds no setting, and rolling back to 1.7.17 needs nothing. On PostgreSQL it adds a function to the schema, `dmart_date_or_null`, which 1.7.17 leaves unused.

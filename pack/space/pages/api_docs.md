@@ -602,11 +602,11 @@ Resolves a short token and issues a `302` redirect to its original URL (anonymou
 
 ### SQL over SQLite datasets
 
-A SQLite database stored as a `data_asset` attachment, with content type `sqlite` (an upload ending in `.sqlite` or `.db`, or sent as `application/vnd.sqlite3`), can be queried with SQL. Anyone who may download it may run one read-only `SELECT` over it, alone or joined with other datasets. It is off unless `DATA_ASSET_SQL=true` (see [Settings](/settings#sql-over-sqlite-datasets-opt-in)); while off, these routes answer `INVALID_ROUTE` (HTTP 400). While it is on, an upload of a `sqlite` dataset that is not a sound SQLite database (SQLite's header, and `PRAGMA quick_check`) is refused with `INVALID_DATA`.
+A SQLite database stored as a `data_asset` attachment, with content type `sqlite` (an upload ending in `.sqlite` or `.db`, or sent as `application/vnd.sqlite3`), can be queried with SQL. Anyone who may download it may run one read-only `SELECT` over it, alone or joined with other datasets and with a folder's live entries. It is off unless `DATA_ASSET_SQL=true` (see [Settings](/settings#sql-over-sqlite-datasets-opt-in)); while off, these routes answer `INVALID_ROUTE` (HTTP 400). While it is on, an upload of a `sqlite` dataset that is not a sound SQLite database (SQLite's header, and `PRAGMA quick_check`) is refused with `INVALID_DATA`.
 
 POST `/managed/data-asset/query`
 
-Runs one read-only statement over the datasets the body names.
+Runs one read-only statement over the datasets and folders the body names.
 
 ```
 // request
@@ -634,20 +634,36 @@ Runs one read-only statement over the datasets the body names.
 }
 ```
 
-- **`assets`** attaches each dataset under its key, and the SQL names its tables `key.table`. A dataset is named by the subpath it is stored under, its entry's subpath plus the entry's shortname, and its own shortname: `sales` attached to the folder `reports` at the root of the space is `{"subpath": "/reports", "shortname": "sales"}`. The datasets are in `space_name`. A key is letters, digits and `_`, not starting with a digit, and not `main` or `temp`. A query names at most 10 datasets.
-- **`sql`** is one statement, in SQLite's dialect, that only reads: `SELECT`, with `WITH` and `VALUES`. The pragmas that describe a table or an index work too, as functions or statements: `pragma_table_info('orders', 'sales')`, and `table_xinfo`, `table_list`, `index_list`, `index_info`, `index_xinfo` and `foreign_key_list`. Anything else is refused, with `NOT_ALLOWED` or `INVALID_DATA`: a write, `ATTACH`, `DETACH`, a transaction, any other pragma, and a second statement. SQL that SQLite does not accept answers `INVALID_DATA` with SQLite's message.
+- **`assets`** attaches each dataset under its key, and the SQL names its tables `key.table`. A dataset is named by the subpath it is stored under, its entry's subpath plus the entry's shortname, and its own shortname: `sales` attached to the folder `reports` at the root of the space is `{"subpath": "/reports", "shortname": "sales"}`. The datasets are in `space_name`. A key is letters, digits and `_`, not starting with a digit, and not `main` or `temp`. A key can instead name a folder's entries, as the table of that name (see below). A query names at most 10 datasets and folders.
+- **`sql`** is one statement, in SQLite's dialect, that only reads: `SELECT`, with `WITH` and `VALUES`. The pragmas that describe a table or an index work too, as functions or statements: `pragma_table_info('orders', 'sales')`, and `table_xinfo`, `table_list`, `index_list`, `index_info`, `index_xinfo` and `foreign_key_list`. Anything else is refused with `INVALID_DATA` (HTTP 400): a write, `ATTACH`, `DETACH`, a transaction, any other pragma, and a second statement. So is SQL that SQLite does not accept, with SQLite's message.
 - **`params`** fill the statement's named parameters (`:year`, `$year` or `@year`). Every value is bound, never pasted into the SQL. Strings, numbers and `null` bind as themselves, `true` and `false` as 1 and 0, and an object or array as its JSON text, for SQLite's JSON functions. A parameter with no value in `params`, or a bare `?`, is refused with `INVALID_DATA`.
-- **The answer.** `columns` gives each column's name, and its declared `type` when it is read straight from a table. A value is a number, a string or `null`; a blob comes as base64. `truncated` is true when the row cap, or the 16 MB cap on a result, cut the rows. A query that returns no rows has no `rows` key, as any empty value is left out (see [the response envelope](#response-envelope)). With `"format": "csv"` the rows come as a `text/csv` file with a header row.
-- **Who may query what.** A caller may name a dataset only if it may download it, as `/managed/payload` decides: the attachment's own type, the entry it hangs off, that entry's ACL and its row filters. A dataset the caller may not download answers as one that is not there (`OBJECT_NOT_FOUND`, 404), and one that is not a `sqlite` data asset answers `INVALID_DATA`. SQL has no permission of its own, since it shows nothing a download does not. Free-form SQL needs a session: there is no public route for it.
+- **The answer.** `columns` gives each column's name, and its declared `type` when it is read straight from a table. A value is a number, a string or `null`; a blob comes as base64. `truncated` is true when the row cap, or the 16 MB cap on a result, cut the rows, and `truncated_tables` names each folder table that was cut. A query that returns no rows has no `rows` key, as any empty value is left out (see [the response envelope](#response-envelope)). With `"format": "csv"` the rows come as a `text/csv` file with a header row.
+- **Who may query what.** A caller may name a dataset only if it may download it, as `/managed/payload` decides: the attachment's own type, the entry it hangs off, that entry's ACL and its row filters. A dataset the caller may not download answers as one that is not there (`OBJECT_NOT_FOUND`, 404), and one that is not a `sqlite` data asset answers `INVALID_DATA`. SQL has no permission of its own, since it shows nothing a download does not, and a folder's entries reach the SQL as `/managed/query` would return them to the caller. Free-form SQL needs a session: there is no public route for it.
 - **Limits.** A query is stopped after `DATA_ASSET_SQL_TIMEOUT_MS` (2 seconds by default) with `SQL_TIMEOUT` (122). At most `DATA_ASSET_SQL_MAX_CONCURRENT` queries run at once, and `DATA_ASSET_SQL_MAX_CONCURRENT_PER_USER` of one caller's; past either the answer is `SQL_BUSY` (123, HTTP 503). The SQL may be up to 100,000 characters, with up to 100 parameters.
-- **How a query is kept to reading.** The SQL runs inside DMART, on a SQLite connection of its own that sees only the datasets named, never DMART's own database. Each dataset is attached read-only and immutable, from a copy checked against the checksum stored at upload, and no further `ATTACH` is possible. Defensive mode is on, the datasets' schemas are not trusted, an authorizer allows reading and nothing else, SQLite's limits on lengths, expression depth and compound selects are lowered, and extension loading stays off. What running in-process cannot do is cap one query's memory or contain a crash in SQLite, so datasets come only from those who may upload a `data_asset`.
+- **How a query is kept to reading.** The SQL runs inside DMART, on a SQLite connection of its own that sees only the datasets named and the folder tables written into it, never DMART's own database. Each dataset is attached read-only and immutable, from a copy checked against the checksum stored at upload, and no further `ATTACH` is possible. Defensive mode is on, the datasets' schemas are not trusted, an authorizer allows reading and nothing else, SQLite's limits on lengths, expression depth and compound selects are lowered, and extension loading stays off. What running in-process cannot do is cap one query's memory or contain a crash in SQLite, so datasets come only from those who may upload a `data_asset`.
 - **The log.** Every query is logged at Information: the caller, the datasets, a hash of the SQL, and the rows returned and time taken, or the error.
+
+**A folder's entries as a table.** A key of `assets` can name a folder instead of a dataset, and the SQL then reads the folder's entries as the table of that name, so live data joins datasets:
+
+```
+"assets": {
+  "prices":  { "subpath": "/reference", "shortname": "prices" },
+  "tickets": { "folder": "/support/tickets", "search": "@status:open",
+               "fields": ["shortname", "payload.body.sku", "payload.body.qty", "created_at"] }
+},
+"sql": "SELECT t.sku, sum(t.qty * p.price) AS value FROM tickets t JOIN prices.items p ON p.sku = t.sku GROUP BY 1"
+```
+
+- **`folder`** is the folder's subpath, and the table holds the entries directly in it, not those in its subfolders. **`search`** narrows them, in the [search syntax](/query-search) of `/managed/query`.
+- **`fields`** are the columns, up to 50, each read as a folder's `csv_columns` key is (see [Folders](/folders#8-index_attributes-in-depth)): a dotted key is a path (`payload.body.sku`), and a bare one is looked up in the payload body first. A column is named after its key's last part (`sku`), and two fields that would share a name are refused. Without `fields`, the columns are `shortname`, `resource_type`, `schema`, `owner_shortname`, `created_at`, `updated_at` and `body`, the payload body as JSON for SQLite's JSON functions (`json_extract(body, '$.sku')`).
+- **A value** is a number, a string (dates too), 1 or 0 for true and false, an object or array as its JSON text, or `null`, and the columns have no declared type. A key that names a folder cannot start with `sqlite_`.
+- **The entries are the caller's.** DMART reads them with its own query engine, as the caller, so every permission and row filter applies, and writes them into the query's own in-memory database: SQLite never reads DMART's database. A table holds at most `MAX_QUERY_LIMIT` entries (10,000 by default) and 16 MB of values; a folder with more is cut, and the answer's `truncated_tables` names each table that was.
 
 GET `/managed/data-asset/schema/{space}/{subpath}/{shortname}`
 
 Describes one dataset, named and checked as in a query: `attributes.tables` lists each table and view with its `type` (`table` or `view`), its `columns` (each a `name`, and the declared `type` when it has one), and for a table its row count in `rows`.
 
-**Saved SQL queries.** A `content` entry whose payload schema is `sql_query` is a saved SQL query. Its body holds `sql` and `assets`, as above, and optionally `params`, default values, and `limit`, a default row cap; its datasets are in its own space.
+**Saved SQL queries.** A `content` entry whose payload schema is `sql_query` is a saved SQL query. Its body holds `sql` and `assets`, datasets or folders as above, and optionally `params`, default values, and `limit`, a default row cap; its datasets are in its own space.
 
 ```json
 {
@@ -890,7 +906,7 @@ The MCP server exposes these tools to agents. Every tool runs under the caller's
 | `dmart_history` | Retrieve the change history of an entry. It needs `view` or `query` on `history` at the entry's folder, as a `history` query does; without it the tool returns no changes. |
 | `dmart_download` | Download the raw payload / attachment of an entry. An attachment the caller may not read answers the tool error `attachment not found`, as a missing one does. |
 | `dmart_semantic_search` | Natural-language vector search (requires pgvector + an embedding provider, same as `/managed/semantic-search`). Takes the same `mode`: `"hybrid"`, with `space_name`, adds the word search. |
-| `dmart_sql` | One read-only SQL `SELECT` over SQLite datasets, taking `space_name`, `assets`, `sql`, `params` and `limit` as [`/managed/data-asset/query`](#sql-over-sqlite-datasets) does, and answering its columns and rows as JSON. Needs `DATA_ASSET_SQL`; without it the tool answers an error. |
+| `dmart_sql` | One read-only SQL `SELECT` over SQLite datasets, taking `space_name`, `assets` (datasets or folders), `sql`, `params` and `limit` as [`/managed/data-asset/query`](#sql-over-sqlite-datasets) does, and answering its columns and rows as JSON. Needs `DATA_ASSET_SQL`; without it the tool answers an error. |
 | `dmart_dataset_schema` | A dataset's tables and views, their columns and types, and each table's row count, from `space_name`, `subpath` and `shortname`. Needs `DATA_ASSET_SQL`. |
 
 **Limits.** `dmart_download` refuses a payload over 5 MB, and returns text (`text/*` and JSON) as UTF-8 and anything else as base64. `dmart_history` returns the newest changes first, at most 50 (`DEFAULT_QUERY_LIMIT` unless `limit` says otherwise). A delete confirmation waits up to 2 minutes for the client's answer. A session's SSE outbox holds 256 messages, and past that drops the oldest.
