@@ -85,7 +85,7 @@ The system determines the "state" of the request to match against Permission con
 
 - **`own`:** Set if `resource.owner_shortname == user.shortname` OR `resource.owner_group_shortname` is in `user.groups`. An account never owns its own user record, whatever its `owner_shortname` or owner group says, and the anonymous user owns nothing, though anonymous submissions name it as their owner.
 
-- **Owner groups.** A record's owner group hands it to the group's members wherever `own` applies, so a create may name as `owner_group_shortname` only a group its creator belongs to. Any other group needs `assign` at the record's address, through a grant with no row filter and no condition, since there is no record yet to judge them on (a global admin's carries neither); otherwise the create is refused with `NOT_ALLOWED`. The group judged is the one the record is written with, so the rule holds for an entry created from a CSV row, MCP or a plugin, for a user, role, group or permission created through `/managed/request`, and for an attachment create that names one. A `/public/submit` body field named `owner_group_shortname` is the submission's data, not an owner group.
+- **Owner groups.** A record's owner group hands it to the group's members wherever `own` applies, so a create may name as `owner_group_shortname` only a group its creator belongs to. Any other group needs `assign` at the record's address, through a grant with no row filter and no condition, since there is no record yet to judge them on (a global admin's carries neither); otherwise the create is refused with `NOT_ALLOWED`. The group judged is the one the record is written with, so the rule holds for an entry created from a CSV row, MCP or a plugin, for a user, role, group or permission created through `/managed/request`, and for an attachment create that names one. A `/public/submit` body field named `owner_group_shortname` is the submission's data, not an owner group. Moving an entry to another owner group later is an [`assign` request](/entity-lifecycle#reassigning-ownership-assign), which takes `assign` on the entry whatever groups the caller is in; an attachment's group changes through an update, which then needs `assign`.
 
 ### 4. Hierarchy Traversal & Global Wildcards
 
@@ -169,7 +169,7 @@ These are the values DMART checks for. Other strings in `actions`, `conditions` 
 | `update` | Modify an existing entry's metadata or payload, or set its ACL (`update_acl`). |
 | `delete` | Remove an entry. |
 | `attach` | Not checked by the server. Adding an attachment (comment, media, reaction, relationship) needs `create` on the attachment's own resource type at the entry's path. Reading one needs `view` or `query` on that type, and fetching one also needs `view` on the record it hangs off (see [Row Filters](#row-filters)). |
-| `assign` | Change an entry's owner (the `assign` request). Also what changing an attachment's owner group takes, and what a create takes to name an owner group its creator is not in. |
+| `assign` | Change an entry's owner or owner group (the `assign` request). Also what changing an attachment's owner group takes, and what a create takes to name an owner group its creator is not in. |
 | `move` | Not checked by the server. A move needs `update` on the source and `create` at the destination. |
 | `progress_ticket` | Advance a ticket through its workflow states. |
 | `lock` | Place a lock on an entry to block concurrent edits. `update` allows it too. |
@@ -182,9 +182,9 @@ These are the values DMART checks for. Other strings in `actions`, `conditions` 
 | `own` | The requesting user must own the entry — its `owner_shortname` equals the user, or the entry's owning group is one of the user's groups. Never true for the user's own user record, nor for the anonymous user. |
 | `is_active` | The entry's `is_active` flag must be `true`. |
 
-Conditions gate access to _existing_ entries, so the `create` and `query` actions are exempt from condition checks. A listing still returns only the rows a grant's conditions admit: active ones under `is_active`, the caller's own under `own`.
+Conditions gate access to _existing_ entries, so the `create` and `query` actions are exempt from condition checks. A listing still returns only the rows a grant's conditions admit: active ones under `is_active`, the caller's own under `own`, by name or through one of its groups.
 
-Owning a row does not list it on its own. A listing follows the grants as a read by name does: a row is listed only through a grant whose resource types and conditions admit it (an `own` grant lists the caller's rows), or through an ACL that grants the caller `query`. A user's own user record is never listed through an `own` grant alone, and its attachments, a profile picture say, are listed only through a grant on user records that reaches it.
+Owning a row does not list it on its own. A listing follows the grants as a read by name does: a row is listed only through a grant whose resource types and conditions admit it (an `own` grant lists the rows the caller owns, by name or through one of its groups, as a read by name counts them), or through an ACL that grants the caller `query`. A user's own user record is never listed through an `own` grant alone, and its attachments, a profile picture say, are listed only through a grant on user records that reaches it.
 
 **The spaces listing** (`type: spaces` on `/managed/query` and `/public/query`, MCP's `dmart_spaces` and `dmart://spaces`) lists a space through an active grant that holds `view` or `query` and reaches something there, by the space's name or `__all_spaces__`, unless the space's ACL denies the caller `view` or `query`. A grant to `create` alone, such as a submission form's `world` grant, lists no space. Nor does a grant reach anything under an empty subpaths list, a subpath whose magic word does not resolve for the caller (an anonymous `world` grant on `people/__current_user__`), or a row filter that cannot be resolved. A query at a space's root is let in on the same terms when no grant admits it there directly.
 
@@ -266,7 +266,7 @@ A write the caller may not make is refused in the same words whether or not its 
 
 - **Creating a user, role, group or permission** through `/managed/request` is judged there too: it needs `create` at the type's folder in `management`, or global admin rights, whatever space and subpath the request names. The record is still stored where the request names (a pack may keep its permissions in its own space). A `create` grant elsewhere, such as one in the caller's own personal space, creates none of these, and a caller without the right hears `NOT_ALLOWED` whether or not the name is taken. A new account's ACL may hold only actions its creator holds in `management`, and a user's rename is judged as a create of the new name there.
 
-- **Assign** checks `assign` on the record before it looks up the new owner. **Unlock**, past releasing the caller's own lock, needs `lock`, `update` or `unlock` on the entry before it answers, and refuses alike whether the entry is locked, unlocked or missing.
+- **Assign** checks `assign` on the record before it looks up the new owner or owner group. **Unlock**, past releasing the caller's own lock, needs `lock`, `update` or `unlock` on the entry before it answers, and refuses alike whether the entry is locked, unlocked or missing.
 
 - **A refused attachment payload**, on `/managed/payload` and `/public/payload`, is an empty 404, as a missing one is, and MCP `dmart_download` answers a refused attachment with the "attachment not found" error a missing one gets.
 

@@ -57,7 +57,7 @@ stateDiagram-v2
 
 - **Custom Workflows:** Define custom state transitions and rules to match your specific business processes. Each transition can be limited to roles or require a resolution, and a state can be closed yet keep a reopen transition, so a delivered ticket reads closed until someone with the right role reopens it.
 
-- **Assignments:** Hand an entry or ticket over to another user, who becomes its owner. Assigning changes only the owner, and leaves a ticket's state as it is.
+- **Assignments:** Hand an entry or ticket over to another user, who becomes its owner, or to another group, whose members then own it. Assigning changes only the owner and the owner group, and leaves a ticket's state as it is.
 
 - **Collaborators & Locks:** Name the people working on an entry in its collaborators, and lock a ticket while you work it, which records you as its `processed_by` and holds off other editors.
 

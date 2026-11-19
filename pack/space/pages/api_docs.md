@@ -70,7 +70,7 @@ Represents a resource in the system. This is the primary object for creating or 
 }
 ```
 
-The server sets `owner_shortname`, `created_at` and `updated_at`; a write ignores them. A create makes the caller the owner, an update keeps the owner, and only an `assign` request changes it. `owner_group_shortname` is stored as sent, but a create may name only a group its creator belongs to: any other group needs `assign` at the record's address, through a grant without a row filter, or the create is refused with `NOT_ALLOWED` (see [Access Control](/access-control#3-contextual-conditions)).
+The server sets `owner_shortname`, `created_at` and `updated_at`; a write ignores them. A create makes the caller the owner, an update keeps the owner, and only an `assign` request changes it. `owner_group_shortname` is stored as sent, but a create may name only a group its creator belongs to: any other group needs `assign` at the record's address, through a grant without a row filter, or the create is refused with `NOT_ALLOWED` (see [Access Control](/access-control#3-contextual-conditions)). An update keeps it as stored, and an `assign` request moves the record to another group or out of one.
 
 ### Request
 
@@ -654,9 +654,9 @@ Runs one read-only statement over the datasets and folders the body names.
 "sql": "SELECT t.sku, sum(t.qty * p.price) AS value FROM tickets t JOIN prices.items p ON p.sku = t.sku GROUP BY 1"
 ```
 
-- **`folder`** is the folder's subpath, and the table holds the entries directly in it, not those in its subfolders. **`search`** narrows them, in the [search syntax](/query-search) of `/managed/query`.
+- **`folder`** is the folder's subpath, and the table holds the entries directly in it, not those in its subfolders. A key gives `folder`, or a dataset's `subpath` and `shortname`, never both, and a folder's key cannot start with `sqlite_`, which SQLite keeps for itself; either is refused with `INVALID_DATA`. **`search`** narrows them, in the [search syntax](/query-search) of `/managed/query`.
 - **`fields`** are the columns, up to 50, each read as a folder's `csv_columns` key is (see [Folders](/folders#8-index_attributes-in-depth)): a dotted key is a path (`payload.body.sku`), and a bare one is looked up in the payload body first. A column is named after its key's last part (`sku`), and two fields that would share a name are refused. Without `fields`, the columns are `shortname`, `resource_type`, `schema`, `owner_shortname`, `created_at`, `updated_at` and `body`, the payload body as JSON for SQLite's JSON functions (`json_extract(body, '$.sku')`).
-- **A value** is a number, a string (dates too), 1 or 0 for true and false, an object or array as its JSON text, or `null`, and the columns have no declared type. A key that names a folder cannot start with `sqlite_`.
+- **A value** is a number, a string (dates too), 1 or 0 for true and false, an object or array as its JSON text, or `null`, and the columns have no declared type.
 - **The entries are the caller's.** DMART reads them with its own query engine, as the caller, so every permission and row filter applies, and writes them into the query's own in-memory database: SQLite never reads DMART's database. A table holds at most `MAX_QUERY_LIMIT` entries (10,000 by default) and 16 MB of values; a folder with more is cut, and the answer's `truncated_tables` names each table that was.
 
 GET `/managed/data-asset/schema/{space}/{subpath}/{shortname}`

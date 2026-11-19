@@ -22,6 +22,6 @@ sudo apk upgrade dmart && sudo rc-service dmart restart
 - **At its first start,** the new version runs schema initialization, the search-text fill and any one-time `query_policies` rewrite the release brings, and builds any index it adds, which on a large `entries` table takes a while. On PostgreSQL several nodes take turns at these; see [Running several nodes](/technical#running-several-nodes), which also covers rolling back.
 - **The repositories** carry the five most recent releases.
 
-## Before restarting on 1.7.18
+## Before restarting on 1.7.19
 
-Nothing needs doing first: 1.7.18 adds no setting, and rolling back to 1.7.17 needs nothing. On PostgreSQL it adds a function to the schema, `dmart_date_or_null`, which 1.7.17 leaves unused.
+Nothing needs doing first: 1.7.19 adds no setting and changes no schema, and rolling back to 1.7.18 needs nothing. A role whose grant has `own` without `is_active` lists more rows than before: those its holder's groups own, which the holder could already read by name.
