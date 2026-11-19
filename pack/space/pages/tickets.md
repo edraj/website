@@ -225,7 +225,7 @@ The rejections are explicit. A few representative errors (all returned as `statu
 
 ## Assigning: the `assign` Request
 
-Handing a ticket to a new owner is a first-class operation, distinct from a normal update. It goes through the standard `/managed/request` envelope with `request_type: "assign"` (one of the 7 request types) and is dispatched by `DispatchAssignAsync`:
+Handing a ticket to a new owner or owner group is a first-class operation, distinct from a normal update. It goes through the standard `/managed/request` envelope with `request_type: "assign"` (one of the 7 request types) and is dispatched by `DispatchAssignAsync`:
 
 ```http
 POST /managed/request
@@ -245,17 +245,17 @@ POST /managed/request
 }
 ```
 
-**Why it isn't a plain update.** `owner_shortname` is a _restricted field_ — a regular `update` silently preserves the creation-time owner and can never transfer it. The `assign` path opts into exactly that one restricted field (`AssignRestrictedFields`) and gates the permission check on the `assign` action (not `update`) via an action override. This lets an admin grant "may reassign ownership" separately from "may edit content".
+**Why it isn't a plain update.** `owner_shortname` and `owner_group_shortname` are _restricted fields_ — a regular `update` silently keeps them as stored and can never transfer the ticket. The `assign` path opts into exactly those two restricted fields (`AssignRestrictedFields`) and gates the permission check on the `assign` action (not `update`) via an action override. This lets an admin grant "may reassign ownership" separately from "may edit content".
 
 The dispatcher's contract:
 
-**owner_shortname required** Absent or empty → `MISSING_DATA` ("The owner_shortname is required").
+**An owner or an owner group required** `owner_shortname`, `owner_group_shortname`, or both. With neither, or only an empty `owner_shortname` → `MISSING_DATA` ("The owner_shortname or owner_group_shortname is required").
 
-**The record answers first** The caller's `assign` on the ticket is checked before the new owner is looked up, so a caller without it gets `NOT_ALLOWED` whether or not the ticket or the new owner exists (see [Row filters](/access-control#row-filters)).
+**The record answers first** The caller's `assign` on the ticket is checked before the new owner or group is looked up, so a caller without it gets `NOT_ALLOWED` whether or not the ticket, the new owner or the group exists (see [Row filters](/access-control#row-filters)).
 
-**Target must exist** The new owner must be a real user in `management/users` → otherwise `OBJECT_NOT_FOUND`.
+**Targets must exist** A new owner must be a real user in `management/users`, and a new owner group a group that exists → otherwise `OBJECT_NOT_FOUND`. An empty or `null` `owner_group_shortname` takes the ticket out of its group.
 
-**Only ownership changes** The patch stores `owner_shortname` alone. Any other attribute in the record, `collaborators` included, is ignored, and every other field stays untouched; `collaborators` changes through an `update`.
+**Only ownership changes** The patch stores `owner_shortname` and `owner_group_shortname`, each only when the request names it. Any other attribute in the record, `collaborators` included, is ignored, and every other field stays untouched; `collaborators` changes through an `update`.
 
 ## Reporter & Provenance
 

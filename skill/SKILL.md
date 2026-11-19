@@ -57,6 +57,7 @@ dm "$DMART/user/profile" | jq -c '{status, shortname: .records[0].shortname}'
 - **Update merges.** Fields you send replace those fields. `payload.body` merges key by key, like a JSON merge patch: a key set to `null` is removed, keys you leave out stay. Lists such as `tags` are replaced whole.
 - A create answers with the records it wrote; an update answers with none. Read the entry back if you need it.
 - `move` renames or moves: `attributes: {src_subpath, src_shortname, dest_subpath, dest_shortname}`.
+- `assign` hands an entry over: `attributes: {owner_shortname}`, `{owner_group_shortname}` or both. It needs `assign` on the entry, and an empty or `null` group takes the entry out of its group.
 - `delete` of a non-empty folder needs `"force": true` at the top level. Add `"dry_run": true` first to see what would go.
 
 ## Reading

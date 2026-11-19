@@ -76,7 +76,7 @@ The primary endpoint for CRUD operations is `POST /managed/request`. It accepts 
 | `update` | Update existing entities (partial or full) |
 | `delete` | Remove entities |
 | `move` | Move entities to a different space or subpath, or rename them |
-| `assign` | Change an entry's owner (`owner_shortname`), and nothing else |
+| `assign` | Change an entry's owner (`owner_shortname`), its owner group (`owner_group_shortname`), or both, and nothing else |
 | `update_acl` | Modify Access Control Lists |
 | `patch` | Same handling as `update` |
 
@@ -101,7 +101,7 @@ An `update` changes only what it names, and `patch` is handled exactly the same 
 - **`displayname` and `description` merge per language:** `{"ar": "…"}` changes only the Arabic text. A plain string is stored as `en`, and drops the other languages.
 - **`relationships` is replaced** as a whole list. To add one link, send the full list.
 - **`collaborators` is replaced** as a whole map, as `relationships` is: send every key you want kept. A record that does not name it keeps the stored map, and `"collaborators": null` or `{}` clears it. Values that are not strings are dropped. The grant's field limits judge the map as it lands: a stored key the update leaves out counts as written, and as set to null, and `{}` counts as a write of `collaborators`. Each change is written to the history, one key per collaborator (`collaborators.processed_by`). The map grants no access of its own.
-- **`owner_shortname` and `acl` are ignored;** use `assign` and `update_acl`. `owner_group_shortname` and `reporter` never change after the entry is created.
+- **`owner_shortname`, `owner_group_shortname` and `acl` are ignored;** use `assign` for the owner and the owner group, and `update_acl` for the ACL. `reporter` never changes after the entry is created.
 
 An attachment's update differs. A `payload` it sends replaces the whole stored payload. It accepts `acl`, which may hold only actions the writer holds itself. It changes `owner_group_shortname` when the caller also holds `assign` on the attachment.
 
@@ -248,7 +248,7 @@ Its own records that point at each other, and a folder of only its own entries, 
 
 #### Reassigning Ownership: `assign`
 
-The `assign` request type transfers an entry's owner to another user, and changes nothing else. `owner_shortname` is required in `attributes` (`MISSING_DATA` without it) and the target user must already exist (`OBJECT_NOT_FOUND`), looked up only once the caller's `assign` on the entry has been checked. Any other attribute in the record, a `collaborators` map included, is ignored; collaborators change through an `update`. The permission check uses the dedicated `assign` action (not `update`), so an admin can grant "edit but not transfer ownership" separately, and another user's lock does not block it. `assign` reaches entries only: an attachment's owner does not change, and its owner group changes through an `update` by a caller who holds `assign`.
+The `assign` request type hands an entry to another owner, another owner group, or both, and changes nothing else. `attributes` names `owner_shortname`, `owner_group_shortname` or both (`MISSING_DATA` with neither), and the one it leaves out stays as it was. A named user and a named group must already exist (`OBJECT_NOT_FOUND`), looked up only once the caller's `assign` on the entry has been checked. An empty or `null` `owner_group_shortname` takes the entry out of its group. Holding `assign` on the entry is enough to name any group: the caller need not belong to it. Any other attribute in the record, a `collaborators` map included, is ignored; collaborators change through an `update`. The permission check uses the dedicated `assign` action (not `update`), so an admin can grant "edit but not transfer ownership" separately, and another user's lock does not block it. `assign` reaches entries only: an attachment's owner does not change, and its owner group changes through an `update` by a caller who holds `assign`.
 
 ```json
 {
@@ -260,7 +260,8 @@ The `assign` request type transfers an entry's owner to another user, and change
       "shortname": "my_new_article",
       "subpath": "/articles",
       "attributes": {
-        "owner_shortname": "alice"
+        "owner_shortname": "alice",
+        "owner_group_shortname": "editors"
       }
     }
   ]
