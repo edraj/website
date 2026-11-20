@@ -15,7 +15,7 @@ Locator = ( resource_type , space_name , subpath , shortname )
 
 | Part | Analogy | Rules |
 |---|---|---|
-| `resource_type` | File type / class | One of the 30 resource types (see §6). Discriminates the entry's shape and which table/validation applies. |
+| `resource_type` | File type / class | One of the 31 resource types (see §6). Discriminates the entry's shape and which table/validation applies. |
 | `space_name` | Drive / tenant | Top-level container. Every entry belongs to exactly one space. The shortname characters, 1–32 chars. |
 | `subpath` | Folder path | Hierarchical, slash-separated (e.g. `/users/employees`). The shortname characters plus `/`, 1–128 chars. Stored with a leading slash internally; the leading slash is stripped on the wire. |
 | `shortname` | Filename | Unique within `(space, subpath)`. Allowed characters: `a–z A–Z 0–9 _` plus Arabic letters, Arabic-Indic digits and Arabic diacritics, 1–64 chars. |
@@ -203,7 +203,7 @@ Selected resource types add their own fields on top of Meta:
 
 ## 6. Resource-type catalog
 
-There are 30 resource types. They all share the Meta base; the type only changes which extra fields exist, which table stores the entry, and which validation runs.
+There are 31 resource types. They all share the Meta base; the type only changes which extra fields exist, which table stores the entry, and which validation runs.
 
 **Identity** `user`, `group`
 
@@ -219,13 +219,15 @@ There are 30 resource types. They all share the Meta base; the type only changes
 
 **Logs** `log`, `history`
 
-**Management** `role`, `permission`, `acl`
+**Management** `role`, `permission`, `acl`, `integration`
 
 **Extensions** `locator`, `plugin_wrapper`
 
 On the wire, resource types are lowercase snake_case strings (`plugin_wrapper`, `data_asset`).
 
 Ten of them are stored as attachments of another record, in the `attachments` table: `comment`, `reply`, `reaction`, `media`, `json`, `share`, `relationship`, `alteration`, `lock` and `data_asset`. Users, groups, roles, permissions and spaces have tables of their own; every other type is a row in `entries`.
+
+An `integration` record describes a service that deals with DMART, an OAuth client, a resource taking DMART's tokens, or both. It lives in `management/integrations` alone, under the built-in `integration` schema, and only an admin-type global admin reaches it (see [Integration records](/api-docs#integration-records)).
 
 Only `/managed/request` writes a user, group, role, permission or space, each to its own table. The routes that write entries (MCP's `dmart_create` and `dmart_update`, the CSV import, and the file upload for anything but an attachment) refuse those types, and the CSV import and MCP the attachment types too, with `NOT_SUPPORTED_TYPE` (217). A row in `entries` whose stored type is one of them cannot be updated or moved there either, only deleted.
 

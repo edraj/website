@@ -117,7 +117,7 @@ With `DATA_ASSET_SQL=true`, a SQLite database stored as a `data_asset` attachmen
 
 ## Security & Authentication
 
-Authentication is JWT Bearer (HS256, symmetric key from `JWT_SECRET`) with Argon2id password hashing. With `ENABLE_MCP=true` DMART also runs an OAuth 2.1 authorization server for MCP clients, and with `OIDC_ISSUER` set, an OpenID Connect provider that signs its tokens with its own RSA key. DMART's own tokens are always HS256; that is not configurable.
+Authentication is JWT Bearer with Argon2id password hashing. Session tokens are signed HS256 with `JWT_SECRET`, or RS256 with the OpenID Connect provider's key under `JWT_SIGNING_ALG=RS256`, which lets other services verify them without being able to sign one (see [Moving to RS256](#moving-to-rs256)). With `ENABLE_MCP=true` DMART also runs an OAuth 2.1 authorization server for MCP clients, and with `OIDC_ISSUER` set, an OpenID Connect provider that signs its tokens with its own RSA key and issues services their own tokens.
 
 ### JWT & Sessions
 
@@ -129,11 +129,28 @@ Authentication is JWT Bearer (HS256, symmetric key from `JWT_SECRET`) with Argon
 | `JWT_ACCESS_EXPIRES` | Access-token lifetime (seconds) | `2592000` (30d) |
 | `JWT_REFRESH_DAYS` | Refresh-token lifetime (days). Only `/oauth/token` issues refresh tokens; `/user/login` gives one long-lived access token. | `30` |
 | `JWT_REQUIRE_TOKEN_USE` | Reject JWTs lacking the `token_use` claim (access vs refresh separation) | `false` |
+| `JWT_SIGNING_ALG` | How session tokens are signed: `HS256` with `JWT_SECRET`, or `RS256` with `OIDC_SIGNING_KEY_FILE`, whose public half `/oidc/jwks` publishes. `RS256` needs `OIDC_ISSUER`. RS256 session tokens are accepted whenever the provider is on, whatever this says, so going back to `HS256` ends no session. | `HS256` |
+| `JWT_ACCEPT_HS256` | Whether an HS256 session token is accepted. `false` needs `JWT_SIGNING_ALG=RS256`, and makes a copy of `JWT_SECRET` sign nothing DMART takes. | `true` |
 | `MAX_SESSIONS_PER_USER` | Max concurrent sessions per user; past it the oldest sessions end | `5` |
 | `SESSION_INACTIVITY_TTL` | Idle seconds before a JWT is rejected and its session deleted (0 = disabled) | `0` |
 | `SESSION_MAX_LIFETIME_SECONDS` | Hard cap on the refresh-token chain from original login (0 = disabled) | `0` |
 | `LOGOUT_ON_PWD_CHANGE` | Invalidate all sessions on password change | `true` |
 | `CSRF_PROTECT_COOKIE_AUTH` | Gate cookie-borne auth against cross-site requests (bearer-header callers unaffected) | `true` |
+
+#### Moving to RS256
+
+A service that verifies DMART's tokens with `JWT_SECRET` can also sign one, for any account, a global admin included. Under `JWT_SIGNING_ALG=RS256` it verifies them with the public key from `{OIDC_ISSUER}/oidc/jwks` instead, which signs nothing (see [Verifying DMART's tokens in another service](/api-docs#verifying-dmarts-tokens-in-another-service)). Moving a deployment, one service at a time:
+
+1. Turn on the OpenID Connect provider (`OIDC_ISSUER`, `OIDC_SIGNING_KEY_FILE`) if it is not on. **Every server of the deployment holds the same key file**: a server that finds none creates its own, and then refuses the tokens its peers sign.
+2. Each service accepts both: RS256 from the JWKS, and HS256 with the secret it holds.
+3. Set `JWT_SIGNING_ALG=RS256`. New tokens are RS256; those already issued keep working.
+4. Each service drops HS256 and deletes its copy of the secret.
+5. Once no service signs tokens with the secret either, set `JWT_ACCEPT_HS256=false`. A copy of the secret then signs nothing DMART accepts. `JWT_SECRET` still keys the session and code hashes, so changing it ends every session and every pending code.
+
+Going back to `HS256` keeps every RS256 token already issued working while the provider is on.
+
+- **Changing the key.** Put the new key in `OIDC_SIGNING_KEY_FILE` and name the old one in `OIDC_SIGNING_KEY_PREVIOUS_FILE`, on every server, then restart. The old key is published and verifies what it signed, but signs nothing. Remove it once the tokens it signed have expired (`JWT_ACCESS_EXPIRES` and `JWT_REFRESH_DAYS` for session tokens, `OIDC_TOKEN_SECONDS` and the clients' `token_seconds` for the provider's own).
+- **On the host.** `dmart cli` and `dmart selfcheck`, given no password, sign their token as the server does, so under RS256 they read the key file: run them as the account DMART runs as. They never create a key.
 
 ### Brute-force & Rate Limiting
 
@@ -141,7 +158,7 @@ Authentication is JWT Bearer (HS256, symmetric key from `JWT_SECRET`) with Argon
 |---|---|---|
 | `MAX_FAILED_LOGIN_ATTEMPTS` | Wrong passwords and codes before an account is auto-locked (0 = never lock) | `5` |
 | `LOCKOUT_COOLDOWN_SECONDS` | Seconds with no sign-in attempt before a locked account unlocks (0 = locked until an admin unlocks) | `900` |
-| `AUTH_RATE_LIMIT_PER_MINUTE` | Per-address cap per 60s (HTTP 429 beyond it) on every route that takes a credential or sends a code — sign-in, codes, password reset, registration, social sign-in, `/oauth/*`, the OIDC sign-in form — plus `/public/submit` and anonymous uploads. The LDAP face allows as many failed binds per address. At least 1. | `10` |
+| `AUTH_RATE_LIMIT_PER_MINUTE` | Per-address cap per 60s (HTTP 429 beyond it) on every route that takes a credential or sends a code — sign-in, codes, password reset, registration, social sign-in, `/oauth/*`, the OIDC sign-in form, `/oidc/token` and `/oidc/introspect` — plus `/public/submit` and anonymous uploads. The LDAP face allows as many failed binds per address. At least 1. | `10` |
 | `PUBLIC_RATE_LIMIT_PER_MINUTE` | Per-address cap on all `/public` calls per 60s. Behind a proxy it needs `TRUSTED_PROXIES`, or every visitor shares one bucket. 0 disables. | `600` |
 | `MAX_OTP_VERIFY_ATTEMPTS` | Guesses allowed against one OTP code, live or expired. Past them, every guess at it, the right code included, answers as a wrong code. 0 means 5: no code takes unlimited guesses. | `5` |
 | `LOCK_PERIOD` | Seconds a `PUT /managed/lock` stays held before another user can take it | `300` |
@@ -369,8 +386,9 @@ DMART can serve its users as a read-only LDAP directory, keep a replica of anoth
 | `DIRECTORY_REPLICA_INTERVAL_SECONDS` | Seconds between polls of the primary | `30` |
 | `DIRECTORY_REPLICA_MAX_STALENESS_HOURS` | Hours a replica keeps answering binds after its last good sync. 0 = no limit. | `24` |
 | `OIDC_ISSUER` | Public base URL of the OpenID Connect provider, `https` unless it is a loopback address. Empty = off. | `""` |
-| `OIDC_SIGNING_KEY_FILE` | PEM RSA key that signs ID and access tokens; created on first start when missing | `""` |
-| `OIDC_CLIENTS_FILE` | JSON file of relying parties (see [below](#openid-connect-clients)); re-read when it changes | `""` |
+| `OIDC_SIGNING_KEY_FILE` | PEM RSA key that signs ID and access tokens, and session tokens under `JWT_SIGNING_ALG=RS256`; created on first start when missing. Every server of a deployment needs the same file. | `""` |
+| `OIDC_SIGNING_KEY_PREVIOUS_FILE` | The key `OIDC_SIGNING_KEY_FILE` held before a change: published in `/oidc/jwks` and accepted on what it signed, never used to sign. Must name an existing file, of 2048 bits at least; needs `OIDC_ISSUER`. | `""` |
+| `OIDC_CLIENTS_FILE` | JSON file of relying parties (see [below](#openid-connect-clients)); re-read when it changes. Optional: a relying party may be an [integration record](/api-docs#integration-records) instead. | `""` |
 | `OIDC_TOKEN_SECONDS` | Lifetime of ID and access tokens, 60–86400 | `3600` |
 
 A user's `mailbox`, `mail_aliases` and `services` are described under [Mailbox, Aliases and Services](/access-control#mailbox-aliases-and-services).
@@ -411,7 +429,9 @@ A user's `mailbox`, `mail_aliases` and `services` are described under [Mailbox, 
 - **`services`** gates who may sign in: a user must hold one of them. Empty admits any active user.
 - **A bad file.** A reload that fails keeps the previous list and logs why; at startup, a bad file stops the server.
 
-With `OIDC_ISSUER` set, startup also requires `OIDC_SIGNING_KEY_FILE`, whose directory must exist (the key is created on first start), and an `OIDC_CLIENTS_FILE` that exists.
+With `OIDC_ISSUER` set, startup also requires `OIDC_SIGNING_KEY_FILE`, whose directory must exist (the key is created on first start). An `OIDC_CLIENTS_FILE`, when set, must exist.
+
+**Relying parties as integration records.** A relying party may instead be a record in `management/integrations` allowed `authorization_code`, with its `redirect_uris` and `services` under the file's rules, its secret made by `POST /oidc/clients/{client_id}/secrets` and kept as a hash, or `"public_client": true` (see [Integration records](/api-docs#integration-records)). A `client_id` in both the file and the records signs nobody in, and the server logs it, until one of them goes. To move a client from the file, create its record under the same `client_id`, make it a secret, give the relying party the new secret and remove the client from the file, all at once: in between, the `client_id` is in both. A deployment whose relying parties have all moved leaves `OIDC_CLIENTS_FILE` unset.
 
 ### Channel Authentication
 

@@ -2,7 +2,7 @@ A **ticket** is an ordinary DMART entry that additionally carries _workflow stat
 
 ## What Is a Ticket
 
-A ticket is an entry whose `resource_type` is `ticket` (one of the 30 resource types). On top of the usual Meta fields (`shortname`, `owner_shortname`, `acl`, `payload` …) the entry row carries a handful of ticket-specific columns, defined on `Dmart.Models.Core.Entry`:
+A ticket is an entry whose `resource_type` is `ticket` (one of the 31 resource types). On top of the usual Meta fields (`shortname`, `owner_shortname`, `acl`, `payload` …) the entry row carries a handful of ticket-specific columns, defined on `Dmart.Models.Core.Entry`:
 
 | Field | Type | Meaning |
 |---|---|---|

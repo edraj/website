@@ -35,9 +35,9 @@ graph TD
 
 - **Data Persistence:** one SQL database is the single source of truth for all runtime data: **PostgreSQL** (via Npgsql) for the full tier, or **SQLite** for a single node, the edge and development — ACID compliant with relational integrity. There is no Redis and no filesystem runtime store; caches are in-process only.
 
-- **Authentication:** JWT Bearer (HS256, Argon2id-hashed passwords), sign-in with a password or a one-time code by email or SMS, and Google, Facebook and Apple sign-in. Administrator accounts sign in with a password **and** a one-time code, and can be limited to listed addresses (`ADMIN_IP_ALLOWLIST`). Self-registration is off unless an instance enables it (`IS_REGISTRABLE=true`), and then proves each email or phone with a code. No admin's request sets a user's password or marks an address verified: the user's own codes do, or the server's operator on the host.
+- **Authentication:** JWT Bearer (HS256 with `JWT_SECRET`, or RS256 with a key other services verify from `/oidc/jwks`; Argon2id-hashed passwords), sign-in with a password or a one-time code by email or SMS, and Google, Facebook and Apple sign-in. Administrator accounts sign in with a password **and** a one-time code, and can be limited to listed addresses (`ADMIN_IP_ALLOWLIST`). Self-registration is off unless an instance enables it (`IS_REGISTRABLE=true`), and then proves each email or phone with a code. No admin's request sets a user's password or marks an address verified: the user's own codes do, or the server's operator on the host.
 
-- **Identity for other systems:** DMART can also be an OAuth 2.1 authorization server for MCP clients (`ENABLE_MCP=true`), an OpenID Connect provider with single sign-on (`OIDC_ISSUER`), and a read-only LDAPv3 directory of its users and groups (`LDAP_PORT`, with StartTLS or LDAPS). A **directory replica** on another host keeps a read-only copy of the users and groups, password hashes included, and answers LDAP binds on its own while the primary is down. `dmart import-ldif` moves an existing LDAP directory into DMART's users.
+- **Identity for other systems:** DMART can also be an OAuth 2.1 authorization server for MCP clients (`ENABLE_MCP=true`), an OpenID Connect provider with single sign-on (`OIDC_ISSUER`) that also gives services their own tokens (`client_credentials`, token exchange, introspection, `private_key_jwt`), each service a record in `management/integrations`, and a read-only LDAPv3 directory of its users and groups (`LDAP_PORT`, with StartTLS or LDAPS). A **directory replica** on another host keeps a read-only copy of the users and groups, password hashes included, and answers LDAP binds on its own while the primary is down. `dmart import-ldif` moves an existing LDAP directory into DMART's users.
 
 - **Interoperability:** Built-in MCP server at `/mcp` (Streamable HTTP; off by default, enable with `ENABLE_MCP=true`) and WebSocket endpoints for realtime updates.
 
@@ -193,7 +193,7 @@ REST-like and resource-oriented. Key routers:
 
 - **`/mcp`**: Model Context Protocol server (Streamable HTTP) exposing DMART tools to AI clients, paired with the OAuth 2.1 Authorization Server for client onboarding. Requires `ENABLE_MCP=true`; off by default.
 
-- **`/oidc`**: OpenID Connect provider, with discovery at `/.well-known/openid-configuration`. Requires `OIDC_ISSUER`; off by default.
+- **`/oidc`**: OpenID Connect provider and OAuth 2 server for services, with discovery at `/.well-known/openid-configuration`, token introspection at `/oidc/introspect`, and an integration client's secrets at `/oidc/clients/{client_id}/secrets`. Requires `OIDC_ISSUER`; off by default.
 
 - **`/docs`**: Swagger UI and OpenAPI schema (`/docs/openapi.json`).
 
@@ -238,6 +238,7 @@ Several dmart processes may share one PostgreSQL database, for example behind a 
 - **Startup:** a database that cannot be reached yet is retried for about a minute (after 1, 2, 4 and 8 seconds, then every 10). If schema initialization still fails, dmart stops. The packaged unit restarts it; a unit or supervisor of your own needs `Restart=on-failure` too.
 - **Schema steps that block no one:** on PostgreSQL, schema initialization builds a missing index `CONCURRENTLY`, and adds a missing `query_policies` check constraint without scanning the table, then validates it, so neither blocks reads or writes. Adding the constraint takes a brief lock that gives up after 2 seconds and leaves the constraint to the next start. A start with nothing to add takes no table lock, so restarting one node does not hold up another's requests. Both run before the node starts serving, and on a large `entries` table they take a while. An index build that fails leaves the node working without that index, and the next start builds it again.
 - **Telling nodes apart:** each node names its database sessions `dmart@<host>`, the `application_name` in `pg_stat_activity` (see [Session name](/settings#postgresql-connection)).
+- **One signing key:** with the OpenID Connect provider on, every node holds the same `OIDC_SIGNING_KEY_FILE`. A node that finds none creates its own, and then refuses the tokens the others sign, session tokens included under `JWT_SIGNING_ALG=RS256`.
 - **After a rollback:** after rolling back and upgrading again, or restoring a database taken before the upgrade, delete the `query_policies_v2` row from `maintenance_runs`, or run [`dmart update_query_policies --all-tables`](/cli#12-update_query_policies).
 
 Each process keeps some state to itself:
@@ -247,6 +248,7 @@ Each process keeps some state to itself:
 | WebSocket connections | a notification reaches only the clients connected to the node that handled the write |
 | MCP sessions, and MCP OAuth client registrations and codes | keep each MCP client on one node: sticky sessions for `/mcp` and `/oauth/*` |
 | OIDC authorization codes (60 seconds) | route `/oidc/*` to one node |
+| `private_key_jwt` assertions taken (5 minutes) | another node could take one assertion once more within its five minutes |
 | rate limiters | each node counts only its own requests |
 | sign-in and permission caches | a change made through another node applies here within `AUTH_CACHE_TTL` (5 s) and `AUTHZ_CACHE_TTL` (60 s); see [Settings](/settings) |
 
