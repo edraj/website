@@ -57,7 +57,7 @@ dm "$DMART/user/profile" | jq -c '{status, shortname: .records[0].shortname}'
 - **Update merges.** Fields you send replace those fields. `payload.body` merges key by key, like a JSON merge patch: a key set to `null` is removed, keys you leave out stay. Lists such as `tags` are replaced whole.
 - A create answers with the records it wrote; an update answers with none. Read the entry back if you need it.
 - `move` renames or moves: `attributes: {src_subpath, src_shortname, dest_subpath, dest_shortname}`.
-- `assign` hands an entry over: `attributes: {owner_shortname}`, `{owner_group_shortname}` or both. It needs `assign` on the entry, and an empty or `null` group takes the entry out of its group.
+- `assign` hands an entry over: `attributes: {owner_shortname}`, `{owner_group_shortname}` or both. It needs `assign` on the entry. Changing the group also needs the caller in both the old and the new group, or `assign` through a grant with no row filter or condition. An empty or `null` group takes the entry out of its group.
 - `delete` of a non-empty folder needs `"force": true` at the top level. Add `"dry_run": true` first to see what would go.
 
 ## Reading
@@ -221,7 +221,7 @@ No request sets a password: a `password` in a user's attributes is refused with 
 printf '%s\n' 'Reader-pass-42' | dmart passwd reader1
 ```
 
-A permission on a folder covers everything below it. For the reader to fetch attachments or read history, add their types (`media`, …, `history`) to `resource_types`. A password must meet the server's rule (by default 8 to 64 characters with a digit and a capital letter). No request marks an email or phone verified either: a code does, or `dmart mark-verified` on the host. For conditions (`own`, `is_active`), field limits and row filters, read `references/access-control.md`.
+A permission on a folder covers everything below it. For the reader to fetch attachments or read history, add their types (`media`, …, `history`) to `resource_types`. A password must meet the server's rule (by default 8 to 64 characters with a digit and a capital letter). No request marks an email or phone verified either: a code does, or `dmart mark-verified` on the host. `conditions` take `is_active`, and `own` (the caller owns the record by name) or `own_group` (one of the caller's groups owns it), never both; any other is refused. For conditions, field limits and row filters, read `references/access-control.md`.
 
 ### Deleting safely
 

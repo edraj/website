@@ -103,7 +103,7 @@ An `update` changes only what it names, and `patch` is handled exactly the same 
 - **`collaborators` is replaced** as a whole map, as `relationships` is: send every key you want kept. A record that does not name it keeps the stored map, and `"collaborators": null` or `{}` clears it. Values that are not strings are dropped. The grant's field limits judge the map as it lands: a stored key the update leaves out counts as written, and as set to null, and `{}` counts as a write of `collaborators`. Each change is written to the history, one key per collaborator (`collaborators.processed_by`). The map grants no access of its own.
 - **`owner_shortname`, `owner_group_shortname` and `acl` are ignored;** use `assign` for the owner and the owner group, and `update_acl` for the ACL. `reporter` never changes after the entry is created.
 
-An attachment's update differs. A `payload` it sends replaces the whole stored payload. It accepts `acl`, which may hold only actions the writer holds itself. It changes `owner_group_shortname` when the caller also holds `assign` on the attachment.
+An attachment's update differs. A `payload` it sends replaces the whole stored payload. It accepts `acl`, which may hold only actions the writer holds itself. It changes `owner_group_shortname` when the caller also holds `assign` on the attachment, and the caller must be in both the group the attachment leaves and the one it names, or hold `assign` there through a grant with no row filter and no condition (a global admin's carries neither).
 
 A user's, role's, group's, permission's or space's update deep-merges a `payload` it sends into the stored one, as an entry's does, and checks the result against its schema before writing it. In a `/managed/request` create or update, a `payload` sent as a JSON string is read as the object it holds before any check, so the grant's field limits judge what is stored; a string that holds no object is refused (`INVALID_DATA`).
 
@@ -248,7 +248,7 @@ Its own records that point at each other, and a folder of only its own entries, 
 
 #### Reassigning Ownership: `assign`
 
-The `assign` request type hands an entry to another owner, another owner group, or both, and changes nothing else. `attributes` names `owner_shortname`, `owner_group_shortname` or both (`MISSING_DATA` with neither), and the one it leaves out stays as it was. A named user and a named group must already exist (`OBJECT_NOT_FOUND`), looked up only once the caller's `assign` on the entry has been checked. An empty or `null` `owner_group_shortname` takes the entry out of its group. Holding `assign` on the entry is enough to name any group: the caller need not belong to it. Any other attribute in the record, a `collaborators` map included, is ignored; collaborators change through an `update`. The permission check uses the dedicated `assign` action (not `update`), so an admin can grant "edit but not transfer ownership" separately, and another user's lock does not block it. `assign` reaches entries only: an attachment's owner does not change, and its owner group changes through an `update` by a caller who holds `assign`.
+The `assign` request type hands an entry to another owner, another owner group, or both, and changes nothing else. `attributes` names `owner_shortname`, `owner_group_shortname` or both (`MISSING_DATA` with neither), and the one it leaves out stays as it was. A named user and a named group must already exist (`OBJECT_NOT_FOUND`), looked up only once the caller's `assign` on the entry has been checked. An empty or `null` `owner_group_shortname` takes the entry out of its group. To change the group, the caller must be in both the group the entry leaves and the one it names, or hold `assign` there through a grant with no row filter and no condition (a global admin's carries neither); otherwise the request is refused with `NOT_ALLOWED` ("no assign access to change the owner group"), and a group the caller may not name is refused before anyone checks that it exists. Any other attribute in the record, a `collaborators` map included, is ignored; collaborators change through an `update`. The permission check uses the dedicated `assign` action (not `update`), so an admin can grant "edit but not transfer ownership" separately, and another user's lock does not block it. `assign` reaches entries only: an attachment's owner does not change, and its owner group changes through an `update` by a caller who holds `assign`.
 
 ```json
 {
@@ -402,7 +402,7 @@ Defines granular access controls (Actions, Conditions, Restrictions).
 
 ### Group Example
 
-A named set of users. Groups carry no roles; a user's access comes from the roles on the user. A group's members share ownership of entries whose `owner_group_shortname` names it.
+A named set of users. Groups carry no roles; a user's access comes from the roles on the user. A group's members share ownership of entries whose `owner_group_shortname` names it, wherever a grant says `own_group`.
 
 ```json
 {

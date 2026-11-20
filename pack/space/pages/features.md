@@ -107,7 +107,11 @@ sequenceDiagram
 
 - **AI Agents (MCP):** An optional MCP server lets AI agents query, read and write entries as a signed-in DMART user, within that user's permissions.
 
+- **MCP Clients Learn DMART From the Server:** The MCP server's `initialize` answer carries short instructions for the model, and DMART's agent skill is served as resources, `dmart://skill/SKILL.md` and `dmart://skill/references/<page>.md`. The skill is embedded in the binary, built for the release that serves it, so it needs no network.
+
 - **Single Sign-On & Directory:** DMART can be the OpenID Connect provider for your other applications, and serve its users and groups over LDAP to mail servers and other directory clients. A directory replica on another host keeps answering LDAP sign-ins while the primary is down.
+
+- **Service Accounts Without Passwords:** A service that calls DMART is a record in `management/integrations` and gets a short-lived token for its bot from the OpenID Connect provider (`client_credentials`), with a secret DMART keeps only as a hash, or with a key pair (`private_key_jwt`). It can ask for a token addressed to one other service, act for one of its users (token exchange), and check whether a token still counts (introspection). With session tokens signed RS256, services verify DMART's tokens with its public key instead of holding `JWT_SECRET`.
 
 - **Realtime Notifications:** The live notification path today is realtime WebSocket broadcast. The `realtime_updates_notifier` plugin runs on data changes and workflow events and pushes update messages to connected WebSocket clients subscribed to the relevant space/subpath channels — no polling required. Each listener hears only of records it may read.
 

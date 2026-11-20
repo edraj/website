@@ -4,7 +4,7 @@ Comprehensive reference for the DMART API. All endpoints, data structures, and u
 
 The API is served by the self-contained DMART binary (.NET 10 Native AOT) on ASP.NET Core / Kestrel. The base URL for all API requests is typically: `http://localhost:8282` (or as configured via `LISTENING_HOST` / `LISTENING_PORT`). `GET /` answers `{"status":"success","message":"DMART-CS API"}`.
 
-Most endpoints require authentication with a JWT bearer token (HS256), supplied either as a header or a cookie:
+Most endpoints require authentication with a JWT bearer token, supplied either as a header or a cookie. DMART signs it HS256 with `JWT_SECRET`, or RS256 with the OpenID Connect provider's key under `JWT_SIGNING_ALG=RS256`, so that other services can [verify it with the public key](#verifying-dmarts-tokens-in-another-service):
 
 **Header** `Authorization: Bearer <your_token>`
 
@@ -12,11 +12,11 @@ Most endpoints require authentication with a JWT bearer token (HS256), supplied 
 
 **A browser front end must be on its backend's site**, the same registrable domain (`cat.example.com` and `api.example.com` are one site; `example.com` and `example.org` are two), because a browser sends a `SameSite=Lax` cookie only there. cxb and catalog authenticate by the cookie alone, so the `backend` in their `config.json` (see [Settings](/settings#loading-order)) must be blank (the page's own origin), a path such as `/dmart` (the API under the page's own origin), or a sibling subdomain, with the page's origin listed in `ALLOWED_CORS_ORIGINS`. A catalog on another site signs in, then is anonymous on every later call. A client on another site sends a bearer token instead.
 
-Tokens are obtained via `/user/login` (password or OTP), `/user/create` (self-registration signs the new user in), or through OAuth social login (Google, Facebook, Apple). With `ENABLE_MCP=true`, DMART also runs an **OAuth 2.1 Authorization Server** for automatic onboarding of MCP clients: discovery at `/.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource`, Dynamic Client Registration at `/oauth/register`, and `/oauth/authorize` and `/oauth/token`.
+Tokens are obtained via `/user/login` (password or OTP), `/user/create` (self-registration signs the new user in), or through OAuth social login (Google, Facebook, Apple). A service gets one from the OpenID Connect provider as an [integration client](#a-services-own-token-client_credentials). With `ENABLE_MCP=true`, DMART also runs an **OAuth 2.1 Authorization Server** for automatic onboarding of MCP clients: discovery at `/.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource`, Dynamic Client Registration at `/oauth/register`, and `/oauth/authorize` and `/oauth/token`.
 
 Interactive API documentation is available as **Swagger UI** at `/docs`, with the raw OpenAPI schema at `/docs/openapi.json` (both served by ASP.NET Core).
 
-**Limits.** Every request runs under `REQUEST_TIMEOUT` (35 s by default) and is answered `504` when it runs out; WebSockets, `/mcp`, `/managed/import` and `/managed/export` have no such deadline. The sign-in, code and token routes, and the anonymous write routes, are limited per client address by `AUTH_RATE_LIMIT_PER_MINUTE` (10 a minute), and every `/public` route by `PUBLIC_RATE_LIMIT_PER_MINUTE` (600 a minute); past either the answer is HTTP `429`. The routes that take a file accept up to `MAX_UPLOAD_SIZE_MB` (50 MB by default).
+**Limits.** Every request runs under `REQUEST_TIMEOUT` (35 s by default) and is answered `504` when it runs out; WebSockets, `/mcp`, `/managed/import` and `/managed/export` have no such deadline. The sign-in, code and token routes, and the anonymous write routes, are limited per client address by `AUTH_RATE_LIMIT_PER_MINUTE` (10 a minute), every `/public` route by `PUBLIC_RATE_LIMIT_PER_MINUTE` (600 a minute), and token introspection by `INTROSPECT_RATE_LIMIT_PER_MINUTE` (600 a minute); past any of them the answer is HTTP `429`. The routes that take a file accept up to `MAX_UPLOAD_SIZE_MB` (50 MB by default).
 
 ## Common Data Structures
 
@@ -70,7 +70,7 @@ Represents a resource in the system. This is the primary object for creating or 
 }
 ```
 
-The server sets `owner_shortname`, `created_at` and `updated_at`; a write ignores them. A create makes the caller the owner, an update keeps the owner, and only an `assign` request changes it. `owner_group_shortname` is stored as sent, but a create may name only a group its creator belongs to: any other group needs `assign` at the record's address, through a grant without a row filter, or the create is refused with `NOT_ALLOWED` (see [Access Control](/access-control#3-contextual-conditions)). An update keeps it as stored, and an `assign` request moves the record to another group or out of one.
+The server sets `owner_shortname`, `created_at` and `updated_at`; a write ignores them. A create makes the caller the owner, an update keeps the owner, and only an `assign` request changes it. `owner_group_shortname` is stored as sent, but a create may name only a group its creator belongs to: any other group needs `assign` at the record's address, through a grant without a row filter, or the create is refused with `NOT_ALLOWED` (see [Access Control](/access-control#3-contextual-conditions)). An update keeps it as stored, and an `assign` request moves the record to another group or out of one, under the same rule for the group it leaves and the one it names.
 
 ### Request
 
@@ -140,7 +140,7 @@ A query that leaves out `limit` gets `DEFAULT_QUERY_LIMIT` rows (10 by default).
 
 | Enum | Values |
 |---|---|
-| **ResourceType** (30) | `user`, `group`, `folder`, `schema`, `content`, `log`, `acl`, `comment`, `media`, `data_asset`, `locator`, `relationship`, `alteration`, `history`, `space`, `permission`, `role`, `ticket`, `json`, `lock`, `post`, `reaction`, `reply`, `share`, `plugin_wrapper`, `notification`, `csv`, `jsonl`, `sqlite`, `parquet` |
+| **ResourceType** (31) | `user`, `group`, `folder`, `schema`, `content`, `log`, `acl`, `comment`, `media`, `data_asset`, `locator`, `relationship`, `alteration`, `history`, `space`, `permission`, `role`, `ticket`, `json`, `lock`, `post`, `reaction`, `reply`, `share`, `plugin_wrapper`, `notification`, `csv`, `jsonl`, `sqlite`, `parquet`, `integration` |
 | **RequestType** (7) | `create`, `update`, `patch`, `update_acl`, `assign`, `delete`, `move` |
 | **ContentType** (22) | `text`, `comment`, `reaction`, `markdown`, `html`, `json`, `image`, `image_jpeg`, `image_png`, `image_svg`, `image_gif`, `image_webp`, `python`, `pdf`, `audio`, `video`, `csv`, `parquet`, `jsonl`, `apk`, `sqlite`, `binary` |
 | **ActionType** (11) | `query`, `view`, `update`, `create`, `delete`, `attach`, `assign`, `move`, `progress_ticket`, `lock`, `unlock` |
@@ -157,11 +157,11 @@ A query that leaves out `limit` gets `DEFAULT_QUERY_LIMIT` rows (10 by default).
 
 ### String conventions (NOT typed enums)
 
-The following values are string **conventions** — they are validated/handled as plain strings and have _no_ backing C# enum. Only the two permission condition constants (`own`, `is_active`) are real string constants; reaction kinds, the lock action string, and notification type/priority are inherited Python-era conventions.
+The following values are string **conventions** — they are validated/handled as plain strings and have _no_ backing C# enum. Only the three permission condition constants (`own`, `own_group`, `is_active`) are real string constants; reaction kinds, the lock action string, and notification type/priority are inherited Python-era conventions.
 
 | Convention | Values |
 |---|---|
-| **Permission conditions** (real string constants) | `own`, `is_active` |
+| **Permission conditions** (real string constants) | `own`, `own_group`, `is_active`; a permission naming any other, or both `own` and `own_group`, is refused with `INVALID_DATA` |
 | **Reaction kinds** (convention) | `like`, `dislike`, `love`, `care`, `laughing`, `sad` |
 | **Lock action** (convention) | `lock`, `unlock` (acquire/release via the `/managed/lock` routes) |
 | **Notification type** (convention) | `admin`, `system` |
@@ -198,7 +198,7 @@ On queries, `total` is `-1` when the count was skipped (`retrieve_total: false`;
 
 As a rule the HTTP status follows `error.code`: `401` for authentication and permission refusals, `404` for a record that is not there, `409` for a name or unique value already taken or a record that changed under the request, `403` for a refused password change, `423` for an entry someone else has locked, `503` while the password-hashing budget is full, too many SQL queries over datasets are running, or `jq` is busy or missing, and `400` for anything else. The tables below give each code's status. `/user/login` and the social sign-in routes answer every refusal with HTTP `401`, whatever its code. `POST /managed/query` and `POST /public/query` answer some failures, such as a missing `space_name` or a malformed `join`, with HTTP `200` and the `failed` envelope, so a client reads `status` there. A failed `jq_filter` on them answers `400`, or `503` when jq is busy or missing.
 
-**A refused write answers as a missing record would, to a caller that cannot read the record.** Update, patch, assign, update_acl, move, delete, lock and unlock are judged first on the address, as if nothing were stored there. A caller the address refuses gets `NOT_ALLOWED`, whether or not the record exists. A caller the address admits, but refused for what is stored (the record's ACL denies it the action, an entry is stored as another type than the request names, or a [row filter](/access-control#row-filters) of its grants leaves the record out), gets what a missing record at that address gets (`OBJECT_NOT_FOUND`, `SHORTNAME_DOES_NOT_EXIST`, or a success that removes nothing) when it cannot read the record, and `NOT_ALLOWED` when it can; nothing is written either way. A user, role, group or permission is judged in its folder of the management space (`management:/users`, `/roles`, `/groups`, `/permissions`), its create included, and a space at its own root, whatever coordinates the request names. A refusal by a condition (`own`, `is_active`) or a field limit stays `NOT_ALLOWED`, as it is for a missing record. Reads by name work the same way: a record the caller may not read answers `404`.
+**A refused write answers as a missing record would, to a caller that cannot read the record.** Update, patch, assign, update_acl, move, delete, lock and unlock are judged first on the address, as if nothing were stored there. A caller the address refuses gets `NOT_ALLOWED`, whether or not the record exists. A caller the address admits, but refused for what is stored (the record's ACL denies it the action, an entry is stored as another type than the request names, or a [row filter](/access-control#row-filters) of its grants leaves the record out), gets what a missing record at that address gets (`OBJECT_NOT_FOUND`, `SHORTNAME_DOES_NOT_EXIST`, or a success that removes nothing) when it cannot read the record, and `NOT_ALLOWED` when it can; nothing is written either way. A user, role, group or permission is judged in its folder of the management space (`management:/users`, `/roles`, `/groups`, `/permissions`), its create included, and a space at its own root, whatever coordinates the request names. A refusal by a condition (`own`, `own_group`, `is_active`) or a field limit stays `NOT_ALLOWED`, as it is for a missing record. Reads by name work the same way: a record the caller may not read answers `404`.
 
 ### Error codes
 
@@ -790,7 +790,7 @@ Liveness and readiness probes, open without authentication. `ready` checks the d
 
 ## OpenID Connect
 
-With `OIDC_ISSUER` set, DMART is an OpenID Connect provider: discovery at `{issuer}/.well-known/openid-configuration`, and `/oidc/authorize`, `/oidc/token`, `/oidc/userinfo` and `/oidc/jwks`. Its relying parties are the clients listed in `OIDC_CLIENTS_FILE` (see [LDAP and OpenID Connect](/settings#directory-ldap-replicas-and-openid-connect)), and it issues them RS256 tokens of its own, never a DMART session token. It runs the authorization code flow, with PKCE for a client that has no secret.
+With `OIDC_ISSUER` set, DMART is an OpenID Connect provider, and the OAuth 2 server of the services that deal with it: discovery at `{issuer}/.well-known/openid-configuration`, and `/oidc/authorize`, `/oidc/token`, `/oidc/userinfo`, `/oidc/introspect` and `/oidc/jwks`, all under `OIDC_ISSUER`. Its relying parties are the clients listed in `OIDC_CLIENTS_FILE` (see [LDAP and OpenID Connect](/settings#directory-ldap-replicas-and-openid-connect)) and the [integration records](#integration-records) allowed `authorization_code`, and it issues them RS256 tokens of its own, never a DMART session token. It runs the authorization code flow, with PKCE for a client that has no secret. A service gets a token of its own with [`client_credentials`](#a-services-own-token-client_credentials), or one acting for a user with [token exchange](#acting-for-a-user-token-exchange).
 
 | Scope | Claims |
 |---|---|
@@ -800,13 +800,130 @@ With `OIDC_ISSUER` set, DMART is an OpenID Connect provider: discovery at `{issu
 | `phone` | `phone_number`, `phone_number_verified` |
 | `groups` | `groups`: the user's DMART groups |
 
-The claims are in the ID token as well as at `/oidc/userinfo`, which releases only those of the token's scopes. It answers only while the account is active and not deleted, still holds one of the client's `services`, and has no `force_password_change`, and never for a bot; otherwise it answers `invalid_token` (HTTP `401`). `/oidc/token` is rate-limited per client address, as the sign-in routes are.
+The claims are in the ID token as well as at `/oidc/userinfo`, which releases only those of the token's scopes. It answers only while the account is active and not deleted, still holds one of the client's `services`, and has no `force_password_change`, and never for a bot; otherwise it answers `invalid_token` (HTTP `401`). `/oidc/token` is rate-limited per client address, as the sign-in routes are (`AUTH_RATE_LIMIT_PER_MINUTE`, 10 a minute by default), and `/oidc/introspect` on its own (`INTROSPECT_RATE_LIMIT_PER_MINUTE`, 600 a minute).
 
 - **Single sign-on.** A browser with a live DMART session (the `auth_token` cookie) is not asked again, and a sign-in through the form opens that session. `prompt=login` and `max_age` force a fresh sign-in; `prompt=none` without a session answers `login_required`.
 - **The form** takes a shortname, contact email or hosted mailbox with the password. Under it, "Forgot password?" links to the catalog's reset page (`CAT_URL/reset-password`), and "Create account" to its sign-up page (`CAT_URL/register`), shown only while sign-up is open (`IS_REGISTRABLE` with a channel in `REGISTRATION_ENABLED_CHANNELS`). After either, the person goes back to the application and signs in.
 - **Who may sign in.** A client that lists `services` admits only users who hold one of them. An account with `force_password_change` set gets a page asking it to change its password in DMART first. Bots never sign in, and an admin only by single sign-on, from inside `ADMIN_IP_ALLOWLIST`, since the form takes no code.
 - **One instance.** Authorization codes live 60 seconds in the process's memory, so run the provider on one instance, or route `/oidc/*` to one.
 - **Not supported:** refresh tokens and a logout endpoint (`end_session_endpoint`).
+
+### Integration records
+
+Each service that deals with DMART can be a record in `management/integrations`, of type `integration`: an OAuth client, a resource that takes DMART's tokens, or both. Only an account of type `admin` that is also a global admin reads, lists or writes them (see [The Management Space](/access-control#the-management-space)). The record's shortname is the `client_id`, its `displayname` the name a relying party is shown by, and its payload is JSON under the built-in `integration` schema:
+
+| Field | Meaning |
+|---|---|
+| `user` | A client's account: a bot that holds no global admin's grant. Its tokens are that bot's, so its roles are what the service may do. |
+| `grant_types` | Any of `client_credentials`, `authorization_code` and `token_exchange`. |
+| `token_seconds` | Lifetime of the client's tokens, 60–86400; 600 when not set. |
+| `redirect_uris`, `services`, `public_client` | A relying party's, as in the [clients file](/settings#openid-connect-clients). `public_client: true` holds no secret and must use PKCE. |
+| `jwks` | Public keys, for a client that signs in with a [key pair](#signing-in-with-a-key-pair-private_key_jwt). |
+| `audience` | A resource's URI, which a [token for it](#tokens-for-one-service) carries in `aud`. |
+| `audiences` | The resources the client may ask tokens for. |
+| `act_for_roles` | With `token_exchange`: the roles a web user holds for the client to [act for them by name](#acting-for-a-user-token-exchange). |
+| `credentials` | DMART's own: the client's secrets as SHA-256 hashes, written by the [secrets endpoint](#client-secrets) alone. An update keeps them as stored, and a create naming them is refused. |
+
+```json
+{
+  "space_name": "management",
+  "request_type": "create",
+  "records": [{
+    "resource_type": "integration", "subpath": "/integrations", "shortname": "billing",
+    "attributes": {
+      "is_active": true,
+      "displayname": { "en": "Billing" },
+      "payload": {
+        "content_type": "json", "schema_shortname": "integration",
+        "body": { "user": "billing_bot", "grant_types": ["client_credentials"], "token_seconds": 600 }
+      }
+    }
+  }]
+}
+```
+
+A record is refused when its `user` is not a bot or holds a global admin's grant, when a public client is allowed `client_credentials` or `token_exchange`, when `act_for_roles` comes without `token_exchange`, and when one allowed `authorization_code` has no `redirect_uris`, or a redirect URI or service name the clients file would refuse. An inactive record issues no token, signs nobody in and may not introspect. In cxb, the create dialog of `management/integrations` offers the `integration` type with its schema.
+
+### Client secrets
+
+POST `/oidc/clients/{client_id}/secrets`
+
+Makes a secret for an integration client. The answer's `attributes` carry `client_id`, `secret_id` and `client_secret`, the secret itself, shown this once: DMART keeps only its SHA-256. A client holds two at most, so a service moves to a new secret before the old one goes; a third is refused with `INVALID_DATA`.
+
+DELETE `/oidc/clients/{client_id}/secrets/{secret_id}`
+
+Takes a secret away. Both routes need an account of type `admin` that is also a global admin (`NOT_ALLOWED` otherwise), and answer `OBJECT_NOT_FOUND` for a record or secret that is not there. They write the record through an ordinary update, so each change is in its history. In cxb, an integration record's **Secrets** tab does the same: it makes a secret, shown once with a copy button, lists those kept by id and date, and deletes one.
+
+### A service's own token (`client_credentials`)
+
+A service that calls DMART gets a token of its own instead of signing in with a password:
+
+```bash
+curl -s -u "billing:$CLIENT_SECRET" -d grant_type=client_credentials https://id.example.com/oidc/token
+# {"access_token": "<token>", "token_type": "Bearer", "expires_in": 600}
+```
+
+- **The client authenticates** with HTTP Basic, or with `client_id` and `client_secret` in the form, never both, or with a [key pair](#signing-in-with-a-key-pair-private_key_jwt). A failure answers `invalid_client` (HTTP `401`).
+- **The token** is an RS256 access token for the record's bot, typed `at+jwt` and naming the client in `client_id`, for the record's `token_seconds`. There is no refresh token: the service asks again. It is refused with `unauthorized_client` when the record is inactive, does not allow `client_credentials`, or names no usable bot, and when the bot has gained a global admin's grant since the record was saved.
+- **When it stops.** The token counts at DMART while the bot is usable and its sessions have not been ended, and while the record is active, still names the bot and still allows `client_credentials`, checked on every request (within `AUTH_CACHE_TTL`).
+
+### Tokens for one service
+
+A service that takes DMART's tokens can be a resource: a record naming its URI in `audience`. A client whose `audiences` lists that URI asks with `resource=<the URI>` beside `grant_type=client_credentials`, and the token's `aud` is the URI. DMART's own API refuses that token, since it requires `JWT_AUDIENCE`, and so does every other service that checks `aud`. One `resource` per token; one the client's `audiences` does not list, or that no active record, or more than one record, names answers `invalid_target`. Without `resource` the token is for DMART.
+
+### Signing in with a key pair (`private_key_jwt`)
+
+A client can hold no secret at all. Its record lists its public RSA keys in `jwks` (`{"keys": [{"kty": "RSA", "kid": "…", "n": "…", "e": "…"}]}`, 2048 bits at least), and at `/oidc/token` and `/oidc/introspect` it sends `client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer` and `client_assertion`, a JWT it signed RS256 with the private key:
+
+- `iss` and `sub` are its `client_id`, and `aud` is `OIDC_ISSUER` or the URL of `/oidc/token` or `/oidc/introspect`;
+- `exp` is no more than five minutes ahead, and an `nbf` is honoured;
+- `jti` is new each time: an assertion is taken once. The server that took it remembers it, so on several servers one assertion could be taken once on each within its five minutes;
+- a `kid` in its header, when a key in `jwks` names one too, picks that key.
+
+A secret and an assertion together are refused (`invalid_request`). A relying party (`authorization_code`) authenticates with its secret, or with PKCE alone.
+
+### Acting for a user (token exchange)
+
+A client allowed `token_exchange` gets a token for one of its users:
+
+```
+POST /oidc/token
+grant_type=urn:ietf:params:oauth:grant-type:token-exchange
+subject_token=<the user's DMART access token>
+subject_token_type=urn:ietf:params:oauth:token-type:access_token
+```
+
+It authenticates as for its own token, and sends no `actor_token`. The answer is an access token for the user, with the user's permissions, naming the client in `act` (`{"sub": "<client_id>"}`) and `client_id`, with `issued_token_type` `urn:ietf:params:oauth:token-type:access_token`. The subject is one of:
+
+- **The user's own token** (`urn:ietf:params:oauth:token-type:access_token`): a DMART access token, for DMART itself, that still counts and is not itself acting for someone. The new token lives no longer than it.
+- **The user's name** (`urn:dmart:params:oauth:token-type:shortname`, the shortname as `subject_token`), for a service that signs its users in itself. Only when the record lists `act_for_roles`, and only for a usable account of type `web` that holds one of those roles and no grant that reaches the management space (by name or `__all_spaces__`) or makes a global admin: never an admin-type account or a bot. The token lives ten minutes at most.
+
+Neither lives longer than the record's `token_seconds`. A refusal answers `invalid_grant`, or `unauthorized_client` for a record that does not allow `token_exchange`. Each token issued is logged (`OIDC: client <client_id> acts for <user>`). Such a token needs no session row: it counts while the user's sessions have not all been ended, and while the record stays active and allows `token_exchange`.
+
+### Introspection
+
+POST `/oidc/introspect`
+
+For a service that verifies DMART's tokens with the public key and must see a logout, a deactivation or a client turned off sooner than the token's `exp` (RFC 7662). The caller is an active integration client, authenticating as at `/oidc/token`, and sends `token` in a form. The answer is `{"active": false}`, or:
+
+```json
+{ "active": true, "token_type": "Bearer", "sub": "billing_bot", "username": "billing_bot",
+  "client_id": "billing", "iss": "dmart", "aud": "dmart", "exp": 1795000000 }
+```
+
+`sub` and `username` are the account's shortname, `client_id` is there for a token issued to a client or acting for a user, and `iss` is `JWT_ISSUER`. A token is active as it would be on a request to DMART: valid, of a usable account, and live, with its session row for a person's own token, or, for a bot's token or one acting for a user, the account's sessions not ended and its client active. A token for a resource is judged by that resource's audience while the record is active. The address an admin account is held to (`ADMIN_IP_ALLOWLIST`) is not judged: the token's holder is not the service asking. The route has its own limit per client address, `INTROSPECT_RATE_LIMIT_PER_MINUTE` (600 a minute by default, `429` past it), apart from the sign-in limit `/oidc/token` keeps, so a service may introspect on every request it serves.
+
+### Verifying DMART's tokens in another service
+
+With `JWT_SIGNING_ALG=RS256` (see [JWT & Sessions](/settings#jwt--sessions)), DMART signs its session tokens with the provider's key, and a service verifies them from `{issuer}/oidc/jwks` without holding `JWT_SECRET`, which would also let it sign a token for any account. A service checks:
+
+- the signature, with the key the header's `kid` names in the JWKS (cache the set; fetch it again on an unknown `kid`);
+- `alg` is `RS256` and `typ` is `at+jwt`;
+- `iss` is `JWT_ISSUER`, and `aud` is `JWT_AUDIENCE`, or the service's own URI for a [token for one service](#tokens-for-one-service);
+- `exp` is in the future, and `token_use` is `access`;
+- `sub` is the account.
+
+The usual libraries read a JWKS URL: `Microsoft.IdentityModel` in .NET, `PyJWT`'s `PyJWKClient` in Python, `jose`'s `createRemoteJWKSet` in Node. A token checked by its signature alone stays good until `exp`, after a logout too; [introspection](#introspection) sees one sooner. The provider signs its ID tokens and userinfo tokens with the same key, but DMART takes an RS256 token as a session token only when it is typed `at+jwt` and says `"token_use": "access"`, so neither opens its API. Tokens issued to integration clients, and tokens acting for a user, are RS256 whatever `JWT_SIGNING_ALG` says.
 
 ## Plugin Routes
 
@@ -922,4 +1039,10 @@ The MCP server exposes these tools to agents. Every tool runs under the caller's
 | `dmart://<space>/<subpath>/` | Up to 50 entries under the subpath. The trailing slash marks a listing. |
 | `dmart://<space>/<subpath>/<shortname>` | The entry of that shortname, of any type, at exactly that subpath, with its body; never one of the same name in a folder below. A `?…` suffix is part of the shortname. |
 
-`resources/list` returns only `dmart://spaces`.
+`resources/list` returns `dmart://spaces` and the agent skill's pages.
+
+**The agent skill.** A client learns how to use DMART from the server itself, with nothing to install:
+
+- **`instructions`** in the `initialize` answer: a short text with the rules that trip a model most often (how records are addressed, paging, the search syntax, shortnames, the management space, partial failures) and where the full guide is. Clients that support it put it in the model's context.
+- **The skill as resources:** `dmart://skill/SKILL.md` (rules and recipes) and `dmart://skill/references/<page>.md` (these documentation pages), read with `resources/read` as `text/markdown` by any signed-in caller. They are the [agent skill](https://dmart.cc/skill/dmart.zip) built for the release that serves them and kept inside the binary, so they need no network. Its build note names the release it describes.
+- A URI under `dmart://skill/` always names the skill, and one that names no page answers a JSON-RPC error. A space called `skill` is still listed at `dmart://skill`, and reached below its root through the tools.

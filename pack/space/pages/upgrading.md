@@ -22,6 +22,24 @@ sudo apk upgrade dmart && sudo rc-service dmart restart
 - **At its first start,** the new version runs schema initialization, the search-text fill and any one-time `query_policies` rewrite the release brings, and builds any index it adds, which on a large `entries` table takes a while. On PostgreSQL several nodes take turns at these; see [Running several nodes](/technical#running-several-nodes), which also covers rolling back.
 - **The repositories** carry the five most recent releases.
 
-## Before restarting on 1.7.19
+## Before restarting on 1.8.0
 
-Nothing needs doing first: 1.7.19 adds no setting and changes no schema, and rolling back to 1.7.18 needs nothing. A role whose grant has `own` without `is_active` lists more rows than before: those its holder's groups own, which the holder could already read by name.
+- **Change the grants that reach records through their owner group.** `own` now reaches only the records the caller owns by name. A grant that reached records through their owner group (`owner_group_shortname` among the caller's `groups`) needs `own_group` instead, or a second grant with `own_group` beside it to reach both (see [Conditions](/access-control#3-contextual-conditions)). Change those grants in the same upgrade. To find them, look for records with an owner group, on every table that has one (entries, attachments, users, roles, permissions, groups and spaces: an `own` grant on `management/users` reaches users a group owns), and the `own` grants of the roles that their groups' members hold. This counts them per table and group, on PostgreSQL and SQLite alike:
+
+  ```sql
+  SELECT 'entries' AS t, owner_group_shortname, count(*) FROM entries WHERE coalesce(owner_group_shortname, '') <> '' GROUP BY owner_group_shortname
+  UNION ALL SELECT 'attachments' AS t, owner_group_shortname, count(*) FROM attachments WHERE coalesce(owner_group_shortname, '') <> '' GROUP BY owner_group_shortname
+  UNION ALL SELECT 'users' AS t, owner_group_shortname, count(*) FROM users WHERE coalesce(owner_group_shortname, '') <> '' GROUP BY owner_group_shortname
+  UNION ALL SELECT 'roles' AS t, owner_group_shortname, count(*) FROM roles WHERE coalesce(owner_group_shortname, '') <> '' GROUP BY owner_group_shortname
+  UNION ALL SELECT 'permissions' AS t, owner_group_shortname, count(*) FROM permissions WHERE coalesce(owner_group_shortname, '') <> '' GROUP BY owner_group_shortname
+  UNION ALL SELECT 'groups' AS t, owner_group_shortname, count(*) FROM groups WHERE coalesce(owner_group_shortname, '') <> '' GROUP BY owner_group_shortname
+  UNION ALL SELECT 'spaces' AS t, owner_group_shortname, count(*) FROM spaces WHERE coalesce(owner_group_shortname, '') <> '' GROUP BY owner_group_shortname;
+  ```
+- **Four new settings, all optional:** `JWT_SIGNING_ALG` (default `HS256`), `JWT_ACCEPT_HS256` (default `true`), `OIDC_SIGNING_KEY_PREVIOUS_FILE` and `INTROSPECT_RATE_LIMIT_PER_MINUTE` (default `600`). The defaults keep today's tokens; [Moving to RS256](/settings#moving-to-rs256) has the steps for a deployment and its services. Like any new setting, they go into `config.env` only after the upgrade.
+- **The first start adds `management/integrations`**, the built-in `integration` schema, and the `integration` type in `super_manager`'s grant. Nothing issues a token from it until an account of type `admin` that is also a global admin creates a record there.
+- **Clients that read management** meet the new `integration` resource type there, though only admin-type global admins see it. CXB and the C# SDKs know it. A client built on another SDK that parses resource types strictly may fail on it until that SDK learns the type.
+- **Rolling back to 1.7.19:**
+  - Remove the new settings from `config.env` first, or 1.7.19 refuses to start.
+  - With `JWT_SIGNING_ALG=RS256`, every session ends, since 1.7.19 accepts only HS256 session tokens: everyone signs in again.
+  - 1.7.19 cannot read a record of type `integration`, so any read or listing that meets one fails. Delete the records in `management/integrations` before going back; the folder and the schema can stay.
+  - 1.7.19 does not know `own_group`, and lists every row an `own_group` grant would reach without the condition. Put those grants back to `own`.

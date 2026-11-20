@@ -2,7 +2,7 @@ A **ticket** is an ordinary DMART entry that additionally carries _workflow stat
 
 ## What Is a Ticket
 
-A ticket is an entry whose `resource_type` is `ticket` (one of the 30 resource types). On top of the usual Meta fields (`shortname`, `owner_shortname`, `acl`, `payload` …) the entry row carries a handful of ticket-specific columns, defined on `Dmart.Models.Core.Entry`:
+A ticket is an entry whose `resource_type` is `ticket` (one of the 31 resource types). On top of the usual Meta fields (`shortname`, `owner_shortname`, `acl`, `payload` …) the entry row carries a handful of ticket-specific columns, defined on `Dmart.Models.Core.Entry`:
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -252,6 +252,8 @@ The dispatcher's contract:
 **An owner or an owner group required** `owner_shortname`, `owner_group_shortname`, or both. With neither, or only an empty `owner_shortname` → `MISSING_DATA` ("The owner_shortname or owner_group_shortname is required").
 
 **The record answers first** The caller's `assign` on the ticket is checked before the new owner or group is looked up, so a caller without it gets `NOT_ALLOWED` whether or not the ticket, the new owner or the group exists (see [Row filters](/access-control#row-filters)).
+
+**A group the caller may name** To change the owner group, the caller must be in both the group the ticket leaves and the one it names, or hold `assign` there through a grant with no row filter and no condition (a global admin's carries neither) → otherwise `NOT_ALLOWED` ("no assign access to change the owner group"), asked before the new group is looked up.
 
 **Targets must exist** A new owner must be a real user in `management/users`, and a new owner group a group that exists → otherwise `OBJECT_NOT_FOUND`. An empty or `null` `owner_group_shortname` takes the ticket out of its group.
 
