@@ -211,7 +211,7 @@ DMART stores data files, and moves its own data in and out in tabular formats. I
 
 ## 7. Deployment
 
-- **Single Binary:** Native-AOT publish produces one self-contained `dmart` executable (about 70 MB; 77 MB for the fully static build). The static musl build has no runtime dependency at all — copy and run; the glibc tarballs ship `libe_sqlite3.so` and `libargon2.so.1` beside it. The embedded admin UIs and sample seed data ship inside it, and the same binary doubles as the [CLI](/cli) (`seed`, `import`, `export`, `migrate`, `check`, `selfcheck`, and an interactive client).
+- **Single Binary:** Native-AOT publish produces one self-contained `dmart` executable (about 70 MB; 77 MB for the fully static build). The static musl build has no runtime dependency at all — copy and run; the glibc tarballs ship the SQLite and Argon2 libraries beside it. The embedded admin UIs and sample seed data ship inside it, and the same binary doubles as the [CLI](/cli) (`seed`, `import`, `export`, `migrate`, `check`, `selfcheck`, and an interactive client).
 
 - **Packages:** RPM (Fedora and RHEL 9), DEB and APK (Alpine) packages from signed package repositories, plus tarballs for Linux on x86-64 and arm64 (glibc, and fully static musl). Zips for Windows x64 and macOS arm64 are built only while the csdmart repository is public. The tarballs and zips are on the repository's releases page, which is not public for now; see [Installation](/installation). Every release file is checksummed, signed and carries build provenance; see [Verifying a release](/installation#verifying-a-release).
 

@@ -588,8 +588,8 @@ GET `/managed/shortening/{space}/{**rest}`
 **Creates** a short link to an entry and returns a random `token` and its `short_url`. The caller must be able to read the entry, its ACL and the grant's conditions included: one that is missing or hidden answers `OBJECT_NOT_FOUND` (404). The link points at the entry's `/managed/entry/content/…` URL under `APP_URL` (a path on the API's own host when `APP_URL` is empty), and the token expires after `URL_SHORTER_EXPIRES` seconds (an hour by default).
 
 ```
-// -> attributes: { "token": "9f86d081884c7d659a2feaa0c55ad015",
-//                  "short_url": "https://app.example.com/managed/s/9f86d081884c7d659a2feaa0c55ad015" }
+// -> attributes: { "token": "<token>",
+//                  "short_url": "https://app.example.com/managed/s/<token>" }
 ```
 
 GET `/managed/directory-feed`
