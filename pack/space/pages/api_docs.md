@@ -808,6 +808,80 @@ The claims are in the ID token as well as at `/oidc/userinfo`, which releases on
 - **One instance.** Authorization codes live 60 seconds in the process's memory, so run the provider on one instance, or route `/oidc/*` to one.
 - **Not supported:** refresh tokens and a logout endpoint (`end_session_endpoint`).
 
+### Apps and services: from a shared secret to OAuth 2
+
+By default DMART signs every session token HS256 with `JWT_SECRET`, and a service that checks a token holds a copy of that secret, which also signs one for any account. Under `JWT_SIGNING_ALG=RS256`, with the OAuth 2 flows below, no service holds anything that signs. Apps sign in as before and carry RS256 tokens, and services verify those with the public key. A service gets a token of its own, and acts for a user only with a token DMART issues it for that. [Moving to RS256](/settings#moving-to-rs256) has the steps.
+
+```mermaid
+flowchart TB
+    subgraph HS["Shared secret: JWT_SIGNING_ALG=HS256"]
+        direction TB
+        A1["Web, mobile and SDK apps"] <-->|"POST /user/login<br/>HS256 session token"| D1["DMART<br/>signs with JWT_SECRET"]
+        A1 -->|"the user's token"| S1["Another service<br/>holds a copy of JWT_SECRET"]
+        S1 -->|"POST /user/login<br/>with a bot's password"| D1
+        S1 -.->|"can sign a token DMART takes,<br/>for any account"| D1
+    end
+    subgraph RS["Public key and OAuth 2: JWT_SIGNING_ALG=RS256"]
+        direction TB
+        R2["Third-party web app<br/>a relying party"] -->|"GET /oidc/authorize<br/>code with PKCE"| D2
+        A2["Web, mobile and SDK apps"] <-->|"POST /user/login, as before<br/>RS256 session token"| D2["DMART<br/>signs with the OIDC key"]
+        A2 -->|"the user's token"| S2["Another service<br/>an integration client,<br/>holds nothing that signs"]
+        S2 -->|"GET /oidc/jwks<br/>verifies, cannot sign"| D2
+        S2 -->|"POST /oidc/token<br/>its own token, or one<br/>acting for the user"| D2
+    end
+    HS ~~~ RS
+```
+
+**A person's app, and a service it calls.** The app signs in and carries its token as before. The service checks that token with the public key, asks DMART whether it still counts when it must see a logout sooner than `exp`, and calls DMART as the user only with a token from a token exchange:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant App as Web, mobile or SDK app
+    participant D as DMART
+    participant Svc as Orders service<br/>(integration client)
+    App->>D: POST /user/login, password or code
+    D-->>App: session token, RS256
+    App->>D: /managed/... with the token
+    App->>Svc: a request, with the same token
+    Svc->>D: GET /oidc/jwks, cached, fetched again on an unknown kid
+    Note left of Svc: checks signature, alg,<br/>typ, iss, aud and exp
+    opt it must see a logout sooner than exp
+        Svc->>D: POST /oidc/introspect, with its secret or key pair
+        D-->>Svc: active true, or active false
+    end
+    opt it calls DMART as the user
+        Svc->>D: POST /oidc/token, token exchange of the user's token
+        D-->>Svc: a token for the user, naming the service in act
+        Svc->>D: /managed/... as the user, within the user's permissions
+    end
+```
+
+**Service to service.** A service calls DMART with a token for its own bot instead of the bot's password, and calls another service with a token addressed to that one alone:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant A as Billing service<br/>(integration client)
+    participant D as DMART
+    participant B as Ledger service<br/>(integration resource)
+    A->>D: POST /oidc/token, client_credentials, with its secret or key pair
+    D-->>A: a token for its bot, for token_seconds, no refresh token
+    A->>D: /managed/... as its bot, within the bot's roles
+    A->>D: POST /oidc/token, client_credentials, resource=the ledger's URI
+    D-->>A: a token whose aud is the ledger's URI
+    A->>B: a request, with that token
+    B->>D: GET /oidc/jwks
+    Note left of B: checks the signature,<br/>and that aud is its own URI
+    Note over A,D: DMART's own API refuses a token addressed to the ledger
+```
+
+- **Apps** (web, mobile, the SDKs) sign in and send their token exactly as before; only its signature changes. A third-party web app that signs people in through DMART is a relying party instead: the authorization code flow, with PKCE, gives it an ID token, never a DMART session token.
+- **A service that checks DMART's tokens** verifies them with `/oidc/jwks` instead of a copy of `JWT_SECRET` (see [Verifying DMART's tokens in another service](#verifying-dmarts-tokens-in-another-service)), and asks [`/oidc/introspect`](#introspection) when it must see a logout, a deactivation or its client turned off before `exp`.
+- **A service that calls DMART** is an [integration record](#integration-records) with a bot. It gets that bot's token with [`client_credentials`](#a-services-own-token-client_credentials) instead of signing in with the bot's password, and calls DMART for one of its users only with a [token exchange](#acting-for-a-user-token-exchange), which names it in `act`.
+- **A service that calls another service** asks for a [token for that one](#tokens-for-one-service) (`resource`), which DMART's API and every service that checks `aud` refuse.
+- **Once no service holds the secret,** `JWT_ACCEPT_HS256=false` makes a copy of it sign nothing DMART accepts.
+
 ### Integration records
 
 Each service that deals with DMART can be a record in `management/integrations`, of type `integration`: an OAuth client, a resource that takes DMART's tokens, or both. Only an account of type `admin` that is also a global admin reads, lists or writes them (see [The Management Space](/access-control#the-management-space)). The record's shortname is the `client_id`, its `displayname` the name a relying party is shown by, and its payload is JSON under the built-in `integration` schema:
