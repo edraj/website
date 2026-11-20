@@ -859,7 +859,7 @@ Takes a secret away. Both routes need an account of type `admin` that is also a 
 A service that calls DMART gets a token of its own instead of signing in with a password:
 
 ```bash
-curl -s -u 'billing:<client-secret>' -d grant_type=client_credentials https://id.example.com/oidc/token
+curl -s -u "billing:$CLIENT_SECRET" -d grant_type=client_credentials https://id.example.com/oidc/token
 # {"access_token": "<token>", "token_type": "Bearer", "expires_in": 600}
 ```
 
