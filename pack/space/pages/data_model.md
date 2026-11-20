@@ -110,7 +110,7 @@ Regardless of resource type, every entry inherits this common set of fields (the
 | `description` | Translation | Per-language descriptions. |
 | `tags` | string[] | Free-form labels. Queryable with `@tags:foo`. |
 | `owner_shortname` | string | The user who owns the entry. |
-| `owner_group_shortname` | string | Owning group. Used by the `own` permission condition. A create may name a group its creator belongs to; any other needs `assign` at the record's address (see [Access Control](/access-control#3-contextual-conditions)). Later, an `assign` request moves an entry to another group, and an attachment's changes through an update that also needs `assign`. |
+| `owner_group_shortname` | string | Owning group. Used by the `own_group` permission condition. A create may name a group its creator belongs to; any other needs `assign` at the record's address (see [Access Control](/access-control#3-contextual-conditions)). Later, an `assign` request moves an entry to another group, and an attachment's changes through an update that also needs `assign`; either holds the group left and the group named to the create's rule. |
 | `created_at` | timestamp | Set on insert. |
 | `updated_at` | timestamp | Refreshed on every write. |
 | `payload` | Payload | Content type, schema reference, and body (see §5). |

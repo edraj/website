@@ -120,7 +120,7 @@ var entry = await adapter.LoadAsync("products", "/catalog", "widget_42",
 
 **Reads and listings** follow the server's permission rules:
 
-- **Owning a row does not list it.** A listing follows the grants' resource types and conditions. An `own` grant lists the actor's rows, its groups' included, but not its own user record, which `GetProfileAsync` serves without a grant.
+- **Owning a row does not list it.** A listing follows the grants' resource types and conditions. An `own` grant lists the rows the actor owns by name, an `own_group` grant those its groups own; neither lists the actor's own user record, which `GetProfileAsync` serves without a grant.
 - **An ACL that denies `view` or `query`** keeps a row or a space out of every listing, whatever grant admits it. The SDK exempts no one from a deny.
 - **A grant with `filter_fields_values`** lists no row, reads no record and admits no write, except on folders and spaces: the SDK does not evaluate row filters. Read and write those rows through the HTTP API.
 - **`__current_user__` and `__current_user__owner__`** resolve as on the server. Neither resolves for the anonymous actor or to a name of the form `__name__`, nor the owner word for an account no one owns, and a subpath that names one then reaches nothing.

@@ -253,6 +253,8 @@ The dispatcher's contract:
 
 **The record answers first** The caller's `assign` on the ticket is checked before the new owner or group is looked up, so a caller without it gets `NOT_ALLOWED` whether or not the ticket, the new owner or the group exists (see [Row filters](/access-control#row-filters)).
 
+**A group the caller may name** To change the owner group, the caller must be in both the group the ticket leaves and the one it names, or hold `assign` there through a grant with no row filter and no condition (a global admin's carries neither) → otherwise `NOT_ALLOWED` ("no assign access to change the owner group"), asked before the new group is looked up.
+
 **Targets must exist** A new owner must be a real user in `management/users`, and a new owner group a group that exists → otherwise `OBJECT_NOT_FOUND`. An empty or `null` `owner_group_shortname` takes the ticket out of its group.
 
 **Only ownership changes** The patch stores `owner_shortname` and `owner_group_shortname`, each only when the request names it. Any other attribute in the record, `collaborators` included, is ignored, and every other field stays untouched; `collaborators` changes through an `update`.

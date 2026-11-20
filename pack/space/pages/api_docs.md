@@ -70,7 +70,7 @@ Represents a resource in the system. This is the primary object for creating or 
 }
 ```
 
-The server sets `owner_shortname`, `created_at` and `updated_at`; a write ignores them. A create makes the caller the owner, an update keeps the owner, and only an `assign` request changes it. `owner_group_shortname` is stored as sent, but a create may name only a group its creator belongs to: any other group needs `assign` at the record's address, through a grant without a row filter, or the create is refused with `NOT_ALLOWED` (see [Access Control](/access-control#3-contextual-conditions)). An update keeps it as stored, and an `assign` request moves the record to another group or out of one.
+The server sets `owner_shortname`, `created_at` and `updated_at`; a write ignores them. A create makes the caller the owner, an update keeps the owner, and only an `assign` request changes it. `owner_group_shortname` is stored as sent, but a create may name only a group its creator belongs to: any other group needs `assign` at the record's address, through a grant without a row filter, or the create is refused with `NOT_ALLOWED` (see [Access Control](/access-control#3-contextual-conditions)). An update keeps it as stored, and an `assign` request moves the record to another group or out of one, under the same rule for the group it leaves and the one it names.
 
 ### Request
 
@@ -157,11 +157,11 @@ A query that leaves out `limit` gets `DEFAULT_QUERY_LIMIT` rows (10 by default).
 
 ### String conventions (NOT typed enums)
 
-The following values are string **conventions** — they are validated/handled as plain strings and have _no_ backing C# enum. Only the two permission condition constants (`own`, `is_active`) are real string constants; reaction kinds, the lock action string, and notification type/priority are inherited Python-era conventions.
+The following values are string **conventions** — they are validated/handled as plain strings and have _no_ backing C# enum. Only the three permission condition constants (`own`, `own_group`, `is_active`) are real string constants; reaction kinds, the lock action string, and notification type/priority are inherited Python-era conventions.
 
 | Convention | Values |
 |---|---|
-| **Permission conditions** (real string constants) | `own`, `is_active` |
+| **Permission conditions** (real string constants) | `own`, `own_group`, `is_active`; a permission naming any other, or both `own` and `own_group`, is refused with `INVALID_DATA` |
 | **Reaction kinds** (convention) | `like`, `dislike`, `love`, `care`, `laughing`, `sad` |
 | **Lock action** (convention) | `lock`, `unlock` (acquire/release via the `/managed/lock` routes) |
 | **Notification type** (convention) | `admin`, `system` |
@@ -198,7 +198,7 @@ On queries, `total` is `-1` when the count was skipped (`retrieve_total: false`;
 
 As a rule the HTTP status follows `error.code`: `401` for authentication and permission refusals, `404` for a record that is not there, `409` for a name or unique value already taken or a record that changed under the request, `403` for a refused password change, `423` for an entry someone else has locked, `503` while the password-hashing budget is full, too many SQL queries over datasets are running, or `jq` is busy or missing, and `400` for anything else. The tables below give each code's status. `/user/login` and the social sign-in routes answer every refusal with HTTP `401`, whatever its code. `POST /managed/query` and `POST /public/query` answer some failures, such as a missing `space_name` or a malformed `join`, with HTTP `200` and the `failed` envelope, so a client reads `status` there. A failed `jq_filter` on them answers `400`, or `503` when jq is busy or missing.
 
-**A refused write answers as a missing record would, to a caller that cannot read the record.** Update, patch, assign, update_acl, move, delete, lock and unlock are judged first on the address, as if nothing were stored there. A caller the address refuses gets `NOT_ALLOWED`, whether or not the record exists. A caller the address admits, but refused for what is stored (the record's ACL denies it the action, an entry is stored as another type than the request names, or a [row filter](/access-control#row-filters) of its grants leaves the record out), gets what a missing record at that address gets (`OBJECT_NOT_FOUND`, `SHORTNAME_DOES_NOT_EXIST`, or a success that removes nothing) when it cannot read the record, and `NOT_ALLOWED` when it can; nothing is written either way. A user, role, group or permission is judged in its folder of the management space (`management:/users`, `/roles`, `/groups`, `/permissions`), its create included, and a space at its own root, whatever coordinates the request names. A refusal by a condition (`own`, `is_active`) or a field limit stays `NOT_ALLOWED`, as it is for a missing record. Reads by name work the same way: a record the caller may not read answers `404`.
+**A refused write answers as a missing record would, to a caller that cannot read the record.** Update, patch, assign, update_acl, move, delete, lock and unlock are judged first on the address, as if nothing were stored there. A caller the address refuses gets `NOT_ALLOWED`, whether or not the record exists. A caller the address admits, but refused for what is stored (the record's ACL denies it the action, an entry is stored as another type than the request names, or a [row filter](/access-control#row-filters) of its grants leaves the record out), gets what a missing record at that address gets (`OBJECT_NOT_FOUND`, `SHORTNAME_DOES_NOT_EXIST`, or a success that removes nothing) when it cannot read the record, and `NOT_ALLOWED` when it can; nothing is written either way. A user, role, group or permission is judged in its folder of the management space (`management:/users`, `/roles`, `/groups`, `/permissions`), its create included, and a space at its own root, whatever coordinates the request names. A refusal by a condition (`own`, `own_group`, `is_active`) or a field limit stays `NOT_ALLOWED`, as it is for a missing record. Reads by name work the same way: a record the caller may not read answers `404`.
 
 ### Error codes
 
@@ -922,4 +922,10 @@ The MCP server exposes these tools to agents. Every tool runs under the caller's
 | `dmart://<space>/<subpath>/` | Up to 50 entries under the subpath. The trailing slash marks a listing. |
 | `dmart://<space>/<subpath>/<shortname>` | The entry of that shortname, of any type, at exactly that subpath, with its body; never one of the same name in a folder below. A `?…` suffix is part of the shortname. |
 
-`resources/list` returns only `dmart://spaces`.
+`resources/list` returns `dmart://spaces` and the agent skill's pages.
+
+**The agent skill.** A client learns how to use DMART from the server itself, with nothing to install:
+
+- **`instructions`** in the `initialize` answer: a short text with the rules that trip a model most often (how records are addressed, paging, the search syntax, shortnames, the management space, partial failures) and where the full guide is. Clients that support it put it in the model's context.
+- **The skill as resources:** `dmart://skill/SKILL.md` (rules and recipes) and `dmart://skill/references/<page>.md` (these documentation pages), read with `resources/read` as `text/markdown` by any signed-in caller. They are the [agent skill](https://dmart.cc/skill/dmart.zip) built for the release that serves them and kept inside the binary, so they need no network. Its build note names the release it describes.
+- A URI under `dmart://skill/` always names the skill, and one that names no page answers a JSON-RPC error. A space called `skill` is still listed at `dmart://skill`, and reached below its root through the tools.
