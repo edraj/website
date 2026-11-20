@@ -29,11 +29,21 @@ const base = (site.baseUrl || "https://dmart.cc").replace(/\/+$/, "");
 const docs = site.nav.flatMap((g) => g.items.map((i) => i.slug));
 const bySlug = new Map(index.map((p) => [p.slug, p]));
 
+// The release the pages describe, from the Upgrading page's one "Before
+// restarting on X" section. The note names it, since a copy of the skill can
+// outlive the site's version of it (dmart serves one over MCP).
+const release = readFileSync(join(CONTENT, "markdown", "upgrading.md"), "utf8")
+    .match(/^## Before restarting on (\d+\.\d+\.\d+)\s*$/m)?.[1];
+if (!release) {
+    console.error('build-skill: the upgrading page has no "## Before restarting on X.Y.Z" heading, so the skill cannot name its release');
+    process.exit(1);
+}
+
 let skill = readFileSync(join(ROOT, "../skill/SKILL.md"), "utf8");
 const built = new Date().toISOString().slice(0, 10);
 skill = skill.replace(
     "{{build_note}}",
-    `_Built from ${base} on ${built}. It describes the dmart release that site documents; the newest copy is always at ${base}/skill/dmart.zip._`,
+    `_Built from ${base} on ${built}. It describes dmart ${release}; the newest copy is always at ${base}/skill/dmart.zip._`,
 );
 
 const named = new Set([...skill.matchAll(/references\/([a-z0-9-]+)\.md/g)].map((m) => m[1]));
