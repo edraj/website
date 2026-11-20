@@ -158,8 +158,9 @@ Going back to `HS256` keeps every RS256 token already issued working while the p
 |---|---|---|
 | `MAX_FAILED_LOGIN_ATTEMPTS` | Wrong passwords and codes before an account is auto-locked (0 = never lock) | `5` |
 | `LOCKOUT_COOLDOWN_SECONDS` | Seconds with no sign-in attempt before a locked account unlocks (0 = locked until an admin unlocks) | `900` |
-| `AUTH_RATE_LIMIT_PER_MINUTE` | Per-address cap per 60s (HTTP 429 beyond it) on every route that takes a credential or sends a code — sign-in, codes, password reset, registration, social sign-in, `/oauth/*`, the OIDC sign-in form, `/oidc/token` and `/oidc/introspect` — plus `/public/submit` and anonymous uploads. The LDAP face allows as many failed binds per address. At least 1. | `10` |
+| `AUTH_RATE_LIMIT_PER_MINUTE` | Per-address cap per 60s (HTTP 429 beyond it) on every route that takes a credential or sends a code — sign-in, codes, password reset, registration, social sign-in, `/oauth/*`, the OIDC sign-in form and `/oidc/token` — plus `/public/submit` and anonymous uploads. The LDAP face allows as many failed binds per address. At least 1. | `10` |
 | `PUBLIC_RATE_LIMIT_PER_MINUTE` | Per-address cap on all `/public` calls per 60s. Behind a proxy it needs `TRUSTED_PROXIES`, or every visitor shares one bucket. 0 disables. | `600` |
+| `INTROSPECT_RATE_LIMIT_PER_MINUTE` | Per-address cap on `POST /oidc/introspect` per 60s, apart from the sign-in cap, since a service may introspect on every request it serves. Each call still authenticates its client. Behind a proxy it needs `TRUSTED_PROXIES`. 0 disables. | `600` |
 | `MAX_OTP_VERIFY_ATTEMPTS` | Guesses allowed against one OTP code, live or expired. Past them, every guess at it, the right code included, answers as a wrong code. 0 means 5: no code takes unlimited guesses. | `5` |
 | `LOCK_PERIOD` | Seconds a `PUT /managed/lock` stays held before another user can take it | `300` |
 | `REPAIR_LEGACY_LOCKOUTS_ON_START` | At startup, release the account locks an older release wrote as `is_active=false`. A no-op once repaired. | `true` |

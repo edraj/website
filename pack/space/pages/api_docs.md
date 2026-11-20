@@ -16,7 +16,7 @@ Tokens are obtained via `/user/login` (password or OTP), `/user/create` (self-re
 
 Interactive API documentation is available as **Swagger UI** at `/docs`, with the raw OpenAPI schema at `/docs/openapi.json` (both served by ASP.NET Core).
 
-**Limits.** Every request runs under `REQUEST_TIMEOUT` (35 s by default) and is answered `504` when it runs out; WebSockets, `/mcp`, `/managed/import` and `/managed/export` have no such deadline. The sign-in, code and token routes, and the anonymous write routes, are limited per client address by `AUTH_RATE_LIMIT_PER_MINUTE` (10 a minute), and every `/public` route by `PUBLIC_RATE_LIMIT_PER_MINUTE` (600 a minute); past either the answer is HTTP `429`. The routes that take a file accept up to `MAX_UPLOAD_SIZE_MB` (50 MB by default).
+**Limits.** Every request runs under `REQUEST_TIMEOUT` (35 s by default) and is answered `504` when it runs out; WebSockets, `/mcp`, `/managed/import` and `/managed/export` have no such deadline. The sign-in, code and token routes, and the anonymous write routes, are limited per client address by `AUTH_RATE_LIMIT_PER_MINUTE` (10 a minute), every `/public` route by `PUBLIC_RATE_LIMIT_PER_MINUTE` (600 a minute), and token introspection by `INTROSPECT_RATE_LIMIT_PER_MINUTE` (600 a minute); past any of them the answer is HTTP `429`. The routes that take a file accept up to `MAX_UPLOAD_SIZE_MB` (50 MB by default).
 
 ## Common Data Structures
 
@@ -800,7 +800,7 @@ With `OIDC_ISSUER` set, DMART is an OpenID Connect provider, and the OAuth 2 ser
 | `phone` | `phone_number`, `phone_number_verified` |
 | `groups` | `groups`: the user's DMART groups |
 
-The claims are in the ID token as well as at `/oidc/userinfo`, which releases only those of the token's scopes. It answers only while the account is active and not deleted, still holds one of the client's `services`, and has no `force_password_change`, and never for a bot; otherwise it answers `invalid_token` (HTTP `401`). `/oidc/token` and `/oidc/introspect` are rate-limited per client address, as the sign-in routes are (`AUTH_RATE_LIMIT_PER_MINUTE`, 10 a minute by default).
+The claims are in the ID token as well as at `/oidc/userinfo`, which releases only those of the token's scopes. It answers only while the account is active and not deleted, still holds one of the client's `services`, and has no `force_password_change`, and never for a bot; otherwise it answers `invalid_token` (HTTP `401`). `/oidc/token` is rate-limited per client address, as the sign-in routes are (`AUTH_RATE_LIMIT_PER_MINUTE`, 10 a minute by default), and `/oidc/introspect` on its own (`INTROSPECT_RATE_LIMIT_PER_MINUTE`, 600 a minute).
 
 - **Single sign-on.** A browser with a live DMART session (the `auth_token` cookie) is not asked again, and a sign-in through the form opens that session. `prompt=login` and `max_age` force a fresh sign-in; `prompt=none` without a session answers `login_required`.
 - **The form** takes a shortname, contact email or hosted mailbox with the password. Under it, "Forgot password?" links to the catalog's reset page (`CAT_URL/reset-password`), and "Create account" to its sign-up page (`CAT_URL/register`), shown only while sign-up is open (`IS_REGISTRABLE` with a channel in `REGISTRATION_ENABLED_CHANNELS`). After either, the person goes back to the application and signs in.
@@ -911,7 +911,7 @@ For a service that verifies DMART's tokens with the public key and must see a lo
   "client_id": "billing", "iss": "dmart", "aud": "dmart", "exp": 1795000000 }
 ```
 
-`sub` and `username` are the account's shortname, `client_id` is there for a token issued to a client or acting for a user, and `iss` is `JWT_ISSUER`. A token is active as it would be on a request to DMART: valid, of a usable account, and live, with its session row for a person's own token, or, for a bot's token or one acting for a user, the account's sessions not ended and its client active. A token for a resource is judged by that resource's audience while the record is active. The address an admin account is held to (`ADMIN_IP_ALLOWLIST`) is not judged: the token's holder is not the service asking. The route shares the sign-in rate limit, so cache an answer briefly.
+`sub` and `username` are the account's shortname, `client_id` is there for a token issued to a client or acting for a user, and `iss` is `JWT_ISSUER`. A token is active as it would be on a request to DMART: valid, of a usable account, and live, with its session row for a person's own token, or, for a bot's token or one acting for a user, the account's sessions not ended and its client active. A token for a resource is judged by that resource's audience while the record is active. The address an admin account is held to (`ADMIN_IP_ALLOWLIST`) is not judged: the token's holder is not the service asking. The route has its own limit per client address, `INTROSPECT_RATE_LIMIT_PER_MINUTE` (600 a minute by default, `429` past it), apart from the sign-in limit `/oidc/token` keeps, so a service may introspect on every request it serves.
 
 ### Verifying DMART's tokens in another service
 
