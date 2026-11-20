@@ -101,7 +101,7 @@ Each release also carries the files below, on the releases page of csdmart's Git
 
 | Files | Runs on |
 |---|---|
-| `dmart-<v>-linux-x64.tar.gz`, `dmart-<v>-linux-arm64.tar.gz` | glibc 2.34 or newer (RHEL 9 and later), with `libe_sqlite3.so` and `libargon2.so.1` beside the binary |
+| `dmart-<v>-linux-x64.tar.gz`, `dmart-<v>-linux-arm64.tar.gz` | glibc 2.34 or newer (RHEL 9 and later), with the SQLite and Argon2 libraries beside the binary |
 | `dmart-<v>-linux-musl-x64.tar.gz`, `dmart-<v>-linux-musl-arm64.tar.gz` | any Linux of that architecture: fully static |
 | RPM (`el9`, `fc44`) and DEB | x86-64 only |
 | APK | x86-64 and aarch64 |
@@ -110,8 +110,8 @@ Each release also carries the files below, on the releases page of csdmart's Git
 | `cxb-<v>.tar.gz`, `catalog-<v>.tar.gz` | the two admin UIs as static files; the binary already serves them |
 | `Dmart.*.nupkg` | the .NET libraries; see [Drivers & SDKs](/drivers) |
 
-- **libargon2:** the Linux builds hash passwords with libargon2, so a missing one is a server that starts and signs nobody in. The packages depend on it (`libargon2`, `libargon2-1`, `argon2-libs`); the RHEL 9 RPM bundles its own copy in `/usr/lib64/dmart/`, because RHEL carries libargon2 only in EPEL. The Windows and macOS builds use a managed Argon2 with the same output and need no library.
-- **The static musl build** links OpenSSL, SQLite and libargon2 into the binary, so distro security updates do not reach them: a fix in any of them needs a new dmart release. On the glibc builds, a distro OpenSSL update fixes the binary in place.
+- **Argon2:** the Linux builds hash passwords with the Argon2 library, so a missing one is a server that starts and signs nobody in. The packages depend on the distro's Argon2 package; the RHEL 9 RPM bundles its own copy in `/usr/lib64/dmart/`, because RHEL carries Argon2 only in EPEL. The Windows and macOS builds use a managed Argon2 with the same output and need no library.
+- **The static musl build** links OpenSSL, SQLite and Argon2 into the binary, so distro security updates do not reach them: a fix in any of them needs a new dmart release. On the glibc builds, a distro OpenSSL update fixes the binary in place.
 
 A package file installs as one from the repositories does (`sudo dnf install ./dmart-*.rpm`), then starts as in [First start](#first-start). A tarball holds the `dmart` binary with `config.env.sample` beside it. Unpack it and, from the directory that holds the binary:
 
@@ -126,7 +126,7 @@ vi ~/.dmart/config.env # choose the database (see below)
 
 ## From source
 
-The source is in csdmart's GitHub repository, which is not public for now. Building needs the .NET 10 SDK, and the server needs your distro's argon2 runtime package (`libargon2`, `libargon2-1` or `argon2-libs`).
+The source is in csdmart's GitHub repository, which is not public for now. Building needs the .NET 10 SDK, and the server needs your distro's Argon2 runtime package.
 
 ```bash
 git clone https://github.com/edraj/csdmart
