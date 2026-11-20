@@ -24,7 +24,17 @@ sudo apk upgrade dmart && sudo rc-service dmart restart
 
 ## Before restarting on 1.8.0
 
-- **Change the grants that reach records through their owner group.** `own` now reaches only the records the caller owns by name. A grant that reached records through their owner group (`owner_group_shortname` among the caller's `groups`) needs `own_group` instead, or a second grant with `own_group` beside it to reach both (see [Conditions](/access-control#3-contextual-conditions)). Change those grants in the same upgrade. To find them, look for records with an owner group (`owner_group_shortname` set on entries or attachments), and the `own` grants of the roles that their groups' members hold.
+- **Change the grants that reach records through their owner group.** `own` now reaches only the records the caller owns by name. A grant that reached records through their owner group (`owner_group_shortname` among the caller's `groups`) needs `own_group` instead, or a second grant with `own_group` beside it to reach both (see [Conditions](/access-control#3-contextual-conditions)). Change those grants in the same upgrade. To find them, look for records with an owner group, on every table that has one (entries, attachments, users, roles, permissions, groups and spaces: an `own` grant on `management/users` reaches users a group owns), and the `own` grants of the roles that their groups' members hold. This counts them per table and group, on PostgreSQL and SQLite alike:
+
+  ```sql
+  SELECT 'entries' AS t, owner_group_shortname, count(*) FROM entries WHERE coalesce(owner_group_shortname, '') <> '' GROUP BY owner_group_shortname
+  UNION ALL SELECT 'attachments' AS t, owner_group_shortname, count(*) FROM attachments WHERE coalesce(owner_group_shortname, '') <> '' GROUP BY owner_group_shortname
+  UNION ALL SELECT 'users' AS t, owner_group_shortname, count(*) FROM users WHERE coalesce(owner_group_shortname, '') <> '' GROUP BY owner_group_shortname
+  UNION ALL SELECT 'roles' AS t, owner_group_shortname, count(*) FROM roles WHERE coalesce(owner_group_shortname, '') <> '' GROUP BY owner_group_shortname
+  UNION ALL SELECT 'permissions' AS t, owner_group_shortname, count(*) FROM permissions WHERE coalesce(owner_group_shortname, '') <> '' GROUP BY owner_group_shortname
+  UNION ALL SELECT 'groups' AS t, owner_group_shortname, count(*) FROM groups WHERE coalesce(owner_group_shortname, '') <> '' GROUP BY owner_group_shortname
+  UNION ALL SELECT 'spaces' AS t, owner_group_shortname, count(*) FROM spaces WHERE coalesce(owner_group_shortname, '') <> '' GROUP BY owner_group_shortname;
+  ```
 - **Four new settings, all optional:** `JWT_SIGNING_ALG` (default `HS256`), `JWT_ACCEPT_HS256` (default `true`), `OIDC_SIGNING_KEY_PREVIOUS_FILE` and `INTROSPECT_RATE_LIMIT_PER_MINUTE` (default `600`). The defaults keep today's tokens; [Moving to RS256](/settings#moving-to-rs256) has the steps for a deployment and its services. Like any new setting, they go into `config.env` only after the upgrade.
 - **The first start adds `management/integrations`**, the built-in `integration` schema, and the `integration` type in `super_manager`'s grant. Nothing issues a token from it until an account of type `admin` that is also a global admin creates a record there.
 - **Clients that read management** meet the new `integration` resource type there, though only admin-type global admins see it. CXB and the C# SDKs know it. A client built on another SDK that parses resource types strictly may fail on it until that SDK learns the type.
