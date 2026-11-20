@@ -97,6 +97,20 @@ jobs:
         working-directory: app
         run: yarn build
 
+      # The agent skill as this PR builds it. dmart serves the skill over MCP
+      # from a copy in its binary, and the docs PR for a release comes before
+      # the release is tagged: csdmart takes the skill from that PR's run
+      # (gh run download <run> -R edraj/website -n dmart-skill), since
+      # dmart.cc describes the release only once it is out. Kept before the
+      # checks below: a recipe for a new feature fails there until
+      # the release is in the RPM repository.
+      - name: Keep the agent skill
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dmart-skill
+          path: app/dist/client/skill/dmart.zip
+          if-no-files-found: error
+
       - name: Type-check
         working-directory: app
         run: yarn run typecheck
