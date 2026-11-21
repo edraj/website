@@ -810,40 +810,71 @@ The claims are in the ID token as well as at `/oidc/userinfo`, which releases on
 
 ### Apps and services: from a shared secret to OAuth 2
 
-By default DMART signs its session tokens with one shared secret, `JWT_SECRET`, and a service that checks them keeps a copy, which can also make a token for any account. Under `JWT_SIGNING_ALG=RS256`, DMART signs with a key only it holds and publishes the public half. Nothing changes for an app. A service checks tokens with the public key, and gets a token of its own with a client secret instead of a password. [Moving to RS256](/settings#moving-to-rs256) has the steps.
+By default DMART signs its session tokens with one shared secret, `JWT_SECRET`, and a service that checks them keeps a copy, which can also sign a token DMART takes for any bot. Under `JWT_SIGNING_ALG=RS256`, DMART signs with a key only it holds and publishes the public half, and a service gets its own tokens from DMART through OAuth 2. [Moving to RS256](/settings#moving-to-rs256) has the steps.
 
-**Before: a shared secret** (`HS256`, the default).
+**An app, and a service it calls.** Nothing changes for the app. The service checks the user's token with DMART's public key instead of a copy of the secret.
+
+Before, with a shared secret (`HS256`, the default):
 
 ```mermaid
 flowchart TB
     App["Your app<br/>web, mobile or SDK"]
-    Svc["Your service<br/>checks tokens with<br/>a copy of JWT_SECRET"]
+    Svc["Your service<br/>checks the user's token<br/>with a copy of JWT_SECRET"]
     D["DMART<br/>signs with JWT_SECRET"]
     App <-->|"signs in,<br/>gets a token"| D
     App -->|"the user's token"| Svc
-    Svc -->|"signs in as its bot,<br/>with the bot's password"| D
+    Svc ~~~ D
 ```
 
-**After: a public key and OAuth 2** (`RS256`). The thick lines are what changes.
+After, with a public key and OAuth 2 (`RS256`); the thick lines are what changes:
 
 ```mermaid
 flowchart TB
     App["Your app<br/>web, mobile or SDK"]
-    Svc["Your service<br/>checks tokens with<br/>DMART's public key"]:::changed
+    Svc["Your service<br/>checks the user's token<br/>with DMART's public key"]:::changed
     D["DMART<br/>signs with a key<br/>only it holds"]:::changed
     App <-->|"signs in,<br/>gets a token"| D
     App -->|"the user's token"| Svc
-    Svc ==>|"gets the public key,<br/>and its bot's token<br/>with a client secret"| D
+    Svc ==>|"gets the public key"| D
     classDef changed stroke-width:3px
 ```
+
+**Service to service.** A billing service calls DMART as its own bot, and calls a ledger service. It gets both tokens from DMART with a client secret, instead of the bot's password or a token it signs itself, and the ledger's token works nowhere else.
+
+Before:
+
+```mermaid
+flowchart TB
+    A["Billing service<br/>keeps its bot's password<br/>or a copy of JWT_SECRET"]
+    B["Ledger service<br/>checks tokens with<br/>a copy of JWT_SECRET"]
+    D["DMART<br/>signs with JWT_SECRET"]
+    A -->|"calls as its bot, with a token<br/>from the bot's password<br/>or signed with the secret"| D
+    A -->|"the same token,<br/>which DMART takes too"| B
+    B ~~~ D
+```
+
+After:
+
+```mermaid
+flowchart TB
+    A["Billing service<br/>keeps a client secret"]:::changed
+    B["Ledger service<br/>checks tokens with<br/>DMART's public key"]:::changed
+    D["DMART<br/>signs with a key<br/>only it holds"]:::changed
+    A ==>|"gets its bot's token,<br/>and one for the ledger,<br/>with its client secret"| D
+    A ==>|"the ledger's token,<br/>which DMART refuses"| B
+    B ==>|"gets the public key"| D
+    classDef changed stroke-width:3px
+```
+
+What changes for whom:
 
 | Who | Shared secret | Public key and OAuth 2 |
 |---|---|---|
 | **An app** (web, mobile, the SDKs) | Signs in and sends its token | The same; only the token's signature differs |
-| **A service that checks a user's token** | With a copy of `JWT_SECRET`, which can also make a token for any account | With DMART's [public key](#verifying-dmarts-tokens-in-another-service), which makes none; [introspection](#introspection) sees a logout before `exp` |
-| **A service that calls DMART** | Signs in as a bot, with the bot's password | Is an [integration record](#integration-records), and gets its bot's token with [`client_credentials`](#a-services-own-token-client_credentials), from a client secret or a key pair |
+| **A service that checks a user's token** | With a copy of `JWT_SECRET`, which can also sign a token for any bot | With DMART's [public key](#verifying-dmarts-tokens-in-another-service), which signs nothing; [introspection](#introspection) sees a logout before `exp` |
+| **A service that calls DMART** | As its bot, with the bot's password or a token it signs with the secret | Is an [integration record](#integration-records), and gets its bot's token with [`client_credentials`](#a-services-own-token-client_credentials), from a client secret or a key pair |
 | **A service that calls DMART for a user** | Passes the user's token on | Exchanges it for a token naming the service ([token exchange](#acting-for-a-user-token-exchange)) |
-| **A service that calls another service** | Sends a token every service takes | Sends a [token for that service alone](#tokens-for-one-service) |
+| **A service that calls another service** | Sends a token DMART and every other service take | Sends a [token for that service alone](#tokens-for-one-service) |
 
 Once no service needs the secret, `JWT_ACCEPT_HS256=false` makes any copy of it sign nothing DMART takes.
 
@@ -954,7 +985,7 @@ For a service that verifies DMART's tokens with the public key and must see a lo
 
 ### Verifying DMART's tokens in another service
 
-With `JWT_SIGNING_ALG=RS256` (see [JWT & Sessions](/settings#jwt--sessions)), DMART signs its session tokens with the provider's key, and a service verifies them from `{issuer}/oidc/jwks` without holding `JWT_SECRET`, which would also let it sign a token for any account. A service checks:
+With `JWT_SIGNING_ALG=RS256` (see [JWT & Sessions](/settings#jwt--sessions)), DMART signs its session tokens with the provider's key, and a service verifies them from `{issuer}/oidc/jwks` without holding `JWT_SECRET`, which would also let it sign a token DMART takes for any bot. A service checks:
 
 - the signature, with the key the header's `kid` names in the JWKS (cache the set; fetch it again on an unknown `kid`);
 - `alg` is `RS256` and `typ` is `at+jwt`;
