@@ -101,7 +101,10 @@
         // "Space: managen"). SVG labels are wrapped by mermaid itself, at word
         // boundaries; the wider limit stops it breaking mid-word.
         htmlLabels: false,
-        flowchart: { htmlLabels: false, wrappingWidth: 400 }
+        flowchart: { htmlLabels: false, wrappingWidth: 400 },
+        // Mermaid fills an edge label's background at half opacity, so the
+        // edge runs visibly through the words; solid, in the panel's colour.
+        themeCSS: '.edgeLabel rect { opacity: 1; fill: var(--bg-color); }'
       });
       var result = mermaid.run({ nodes: diagrams });
       if (result && typeof result.then === 'function') {
