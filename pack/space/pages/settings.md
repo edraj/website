@@ -141,7 +141,7 @@ Authentication is JWT Bearer with Argon2id password hashing. Session tokens are 
 
 [Apps and services: from a shared secret to OAuth 2](/api-docs#apps-and-services-from-a-shared-secret-to-oauth-2) draws who holds what under each.
 
-A service that verifies DMART's tokens with `JWT_SECRET` can also sign one, for any account, a global admin included. Under `JWT_SIGNING_ALG=RS256` it verifies them with the public key from `{OIDC_ISSUER}/oidc/jwks` instead, which signs nothing (see [Verifying DMART's tokens in another service](/api-docs#verifying-dmarts-tokens-in-another-service)). Moving a deployment, one service at a time:
+A service that verifies DMART's tokens with `JWT_SECRET` can also sign one DMART takes for any bot, whatever its grants. Under `JWT_SIGNING_ALG=RS256` it verifies them with the public key from `{OIDC_ISSUER}/oidc/jwks` instead, which signs nothing (see [Verifying DMART's tokens in another service](/api-docs#verifying-dmarts-tokens-in-another-service)). Moving a deployment, one service at a time:
 
 1. Turn on the OpenID Connect provider (`OIDC_ISSUER`, `OIDC_SIGNING_KEY_FILE`) if it is not on. **Every server of the deployment holds the same key file**: a server that finds none creates its own, and then refuses the tokens its peers sign.
 2. Each service accepts both: RS256 from the JWKS, and HS256 with the secret it holds.

@@ -104,7 +104,11 @@
         flowchart: { htmlLabels: false, wrappingWidth: 400 },
         // Mermaid fills an edge label's background at half opacity, so the
         // edge runs visibly through the words; solid, in the panel's colour.
-        themeCSS: '.edgeLabel rect { opacity: 1; fill: var(--bg-color); }'
+        themeCSS: '.edgeLabel rect { opacity: 1; fill: var(--bg-color); }',
+        // Otherwise each diagram's id is Date.now(), and two drawn in the
+        // same millisecond share one, the second drawn into the first. Every
+        // run redraws all of them, so numbering from 0 again is safe.
+        deterministicIds: true
       });
       var result = mermaid.run({ nodes: diagrams });
       if (result && typeof result.then === 'function') {
