@@ -164,7 +164,7 @@ dmart settings
 
 ### 8. passwd
 
-Sets the password for a user (Argon2-hashed), held to the same password rule as every other way of setting one (`regex.json`). The shortname may be passed positionally; the password is read from standard input (a prompt at a terminal), never the command line, so a script can pipe it in. It also reactivates and unlocks the account (`is_active` true, `attempt_count` 0), clears `force_password_change` as a reset by code does, and ends all of its sessions. No request sets a password, so this is how a bot account gets one, or any account on a server that cannot send a reset code. With the flag cleared, the MCP sign-in accepts the account, and so does the OpenID Connect one unless it is a bot; an admin signs in through neither form (see [Account Types](/access-control#account-types)).
+Sets the password for a user (Argon2-hashed), held to the same password rule as every other way of setting one (`regex.json`). The shortname may be passed positionally; the password is read from standard input (a prompt at a terminal), never the command line, so a script can pipe it in. It also reactivates and unlocks the account (`is_active` true, `attempt_count` 0), clears `force_password_change` as a reset by code does, and ends all of its sessions. No request sets a password, so this is how a bot account gets one, or any account on a server that cannot send a reset code. With the flag cleared, the MCP sign-in accepts the account, and so does the OpenID Connect one unless it is a bot; an admin signs in through the OpenID Connect form only with a security key or an authenticator app, and never through the MCP one (see [Account Types](/access-control#account-types)).
 
 It sets the password of an account that exists, and exits with status 1 when there is none:
 
@@ -413,4 +413,12 @@ Marks an account's email (`--email`) or phone (`--msisdn`) verified, for a serve
 ```
 sudo dmart mark-verified jdoe --email
 sudo dmart mark-verified jdoe --msisdn
+```
+
+### 25. second-factor reset
+
+Removes an account's security keys, authenticator app, key-only sign-in and recovery codes, and ends its sessions, for an account that has lost every key and has no recovery code left, where no global admin can reset it (see [Security Keys and Passkeys](/api-docs#security-keys-and-passkeys)). Like `mark-verified`, it reads the server's `config.env` and database, so only whoever runs the server can use it, and it records a history row by `dmart`. An unknown account exits with status 1. The account then signs in with its password, as before it added a key.
+
+```
+sudo dmart second-factor reset jdoe
 ```

@@ -512,9 +512,11 @@ User managers are also held to these rules there. A global admin is held to none
 | `web` | A password, or a one-time code. With `WEB_DEVICE_OTP` on, a password or Google, Facebook or Apple sign-in works only from the account's trusted browser (see [Trusted Browser](#trusted-browser-web_device_otp)). |
 | `mobile` | As `web`, naming its device in `device_id` on every sign-in (or in an `X-DeviceId` header, when the body has none); one that names none is refused (`INVALID_DATA`, 402). A password or provider sign-in from a device other than the account's trusted one, or while it has none (its very first sign-in included), is asked for a code (`OTP_NEEDED`, 115), and the sign-in by code then trusts that device. |
 | `bot` | For integrations. Never locked by failed attempts and outside the session limit; its token works until it expires or is ended by a sign-out. |
-| `admin` | A password **and** a one-time code, both checked. Never through Google, Facebook, Apple, an LDAP bind, or the MCP and OpenID Connect sign-in forms. With `ADMIN_IP_ALLOWLIST` set, served only from those addresses, at sign-in and on every request. |
+| `admin` | A password **and** a one-time code, both checked, or once it has a security key or an authenticator app, the password and that in the code's place. Never through Google, Facebook, Apple, an LDAP bind or the MCP sign-in form, and through the OpenID Connect one only with a key or app. With `ADMIN_IP_ALLOWLIST` set, served only from those addresses, at sign-in and on every request. |
 
 The type grants no permissions; roles do. What it decides is whether grants on users, roles, permissions and groups count: for an `admin` account they do, and for other types only through an exemption, the built-in `dmart` aside (see [The Management Space](#the-management-space)). An admin account needs a phone or an email for its codes, which `/managed/request` enforces. It creates an admin without a password and with `force_password_change` on, so the admin sets its first password with a reset code sent there. Such an admin can be updated before its first reset, so a mistyped phone or email is corrected before the code goes out; what `/managed/request` refuses is making an existing account that has no password an admin. Making an account an admin ends its sessions. An admin resets its password by code only while a global admin, or the active admin that owns the account, has set `force_password_change` on it; the reset clears it. The built-in `dmart` account is held at every start to `ADMIN_USER_TYPE`: `web` (the default) or `admin`.
+
+**Second factors.** Any account but a bot may add a security key, a passkey or an authenticator app, as `PASSKEYS_FOR` and `TOTP_FOR` allow (see [Security Keys and Passkeys](/api-docs#security-keys-and-passkeys)). From then on it signs in with its password and that, and nothing weaker gets it in: a code sign-in and Google, Facebook or Apple answer `SECOND_FACTOR_REQUIRED` (116). The key or app takes the place of the code an admin would be sent, and of the code a `mobile` account's new device, or a web account's new browser under `WEB_DEVICE_OTP`, would be asked for. With `ADMIN_PASSKEY_REQUIRED` on, an admin without a key adds one at its next sign-in before it gets a session.
 
 ### Trusted Browser (`WEB_DEVICE_OTP`)
 
@@ -525,7 +527,7 @@ Off by default, for tightly secured instances. With `WEB_DEVICE_OTP=true`, an ac
 - **A sign-in by code** makes its browser the trusted one, with a new token. The browser trusted before needs a code next time.
 - **A verified email or phone is required.** A web account with neither cannot sign in by password or provider: once the credential checks out it gets `USER_ISNT_VERIFIED` (11), before the trusted-browser check. A code is the way in: a sign-in by code, or a password reset by code, marks the address the code went to verified, and the sign-in by code also trusts the browser. Where no code can be sent, `dmart mark-verified` on the host marks an address verified.
 - **The stored browser is guarded:** nobody sets their own account's `device_id` through `/managed/request`, and the profile does not change it.
-- **Other sign-in forms.** The MCP and OpenID Connect sign-in forms take a password only, so a web account signs in there only from its trusted browser. Apple's web sign-in always asks for a code, since its callback carries no `SameSite=Lax` cookie. A script or the `dmart` CLI signing in to a web account with a password must keep the cookie and handle the code step; a `bot` account is the type for those.
+- **Other sign-in forms.** The MCP and OpenID Connect sign-in forms take no code, so a web account without a security key or an authenticator app signs in there only from its trusted browser. Apple's web sign-in always asks for a code, since its callback carries no `SameSite=Lax` cookie. A script or the `dmart` CLI signing in to a web account with a password must keep the cookie and handle the code step; a `bot` account is the type for those.
 - **The built-in `dmart` account** is a web account unless `ADMIN_USER_TYPE=admin`, so give it a verified email or phone the server can send to before turning this on. `WEB_DEVICE_OTP=false` and a restart is the way back in.
 
 **Locked to a device.** `locked_to_device` works on an account of any type, and on password, code and Google, Facebook and Apple sign-in alike. The first sign-in that sends a `device_id` (in the body, or an `X-DeviceId` header) claims the device. After that, a sign-in with no `device_id`, or with another one, is refused with `USER_ACCOUNT_LOCKED` (110); unlike a `mobile` account's new device, it is not offered a code. A user who replaces the phone needs an admin to clear the account's `device_id` with a user update.
@@ -572,7 +574,7 @@ Two settings limit what a user's own email may be and do (see [Settings](/settin
 
 ### Lockout
 
-Wrong passwords and codes add to one counter per account: at sign-in, at password reset, on a profile password change, at `/user/validate_password`, on an email or phone change at `/user/verify-contact`, at the MCP and OpenID Connect sign-in forms, and on an LDAP bind. At `MAX_FAILED_LOGIN_ATTEMPTS` (5) the account is locked and refuses even the right password, until no attempt has been made for `LOCKOUT_COOLDOWN_SECONDS` (900) or a user update carrying `unlock: true` lifts it.
+Wrong passwords and codes, an authenticator app's included, add to one counter per account: at sign-in, at password reset, on a profile password change, at `/user/validate_password`, on an email or phone change at `/user/verify-contact`, at the MCP and OpenID Connect sign-in forms, on a change to the account's security keys or authenticator app, and on an LDAP bind. A refused key answer or recovery code does not count. At `MAX_FAILED_LOGIN_ATTEMPTS` (5) the account is locked and refuses even the right password, until no attempt has been made for `LOCKOUT_COOLDOWN_SECONDS` (900) or a user update carrying `unlock: true` lifts it.
 
 The lock stops guessing at the password. Anyone who knows a username can keep it in force, so it does not shut the owner out: a one-time code sent to the account's own phone or email still signs it in and still resets its password. While the cool-down has not run out:
 
@@ -583,8 +585,9 @@ The lock stops guessing at the password. Anyone who knows a username can keep it
 | `/user/otp-request` for `login` or `reset` | The code is sent as for any account; a deactivated or deleted one gets none. An admin gets no `login` code here, since only a password sign-in sends it, so a locked admin waits out the cool-down, or resets once a global admin or its owner has set `force_password_change`. |
 | `/user/otp-request` for `verify-contact` | Nothing is sent; the answer is the same 200. |
 | `/user/password-reset-confirm` | A right code sets the new password and clears the counter. A wrong code counts and answers `OTP_INVALID` (307); the expired code itself counts and answers `OTP_EXPIRED` (308). |
-| A password a session presents: `/user/validate_password`, `old_password` on `/user/profile`, `password` on `/user/verify-contact` | Refused as locked; the password is not checked. |
+| A password a session presents: `/user/validate_password`, `old_password` on `/user/profile`, `password` on `/user/verify-contact`, and the proof a change to the account's keys or app carries | Refused as locked; the password is not checked. |
 | LDAP bind | Refused as a wrong password is (`invalidCredentials`); the password is not checked. |
+| Key-only sign-in: `/user/login` with a key's answer alone | Not stopped: a key's answer is not a guess. |
 | `/oauth/token`, both grants | `invalid_grant`. |
 | A token issued before the lock | Works until it expires. |
 
@@ -592,7 +595,7 @@ Guesses at a code are capped by that code's own `MAX_OTP_VERIFY_ATTEMPTS`, lock 
 
 ### Sessions
 
-Each sign-in issues a token valid for `JWT_ACCESS_EXPIRES` (30 days) and records a session, and every request checks that the session is still there. Signing out ends it. An account keeps at most `MAX_SESSIONS_PER_USER` (5) sessions; a sign-in past that ends the oldest, and 0 means no limit. With `SESSION_INACTIVITY_TTL` set, a session unused for that many seconds ends. A bot keeps no session, so neither limit applies to it. A password change or reset ends the account's sessions while `LOGOUT_ON_PWD_CHANGE` is on (the default), and so do deactivating the account, making it an admin, and switching it to or from `bot`.
+Each sign-in issues a token valid for `JWT_ACCESS_EXPIRES` (30 days) and records a session, and every request checks that the session is still there. Signing out ends it. An account keeps at most `MAX_SESSIONS_PER_USER` (5) sessions; a sign-in past that ends the oldest, and 0 means no limit. With `SESSION_INACTIVITY_TTL` set, a session unused for that many seconds ends. A bot keeps no session, so neither limit applies to it. A password change or reset ends the account's sessions while `LOGOUT_ON_PWD_CHANGE` is on (the default), and so do deactivating the account, making it an admin, switching it to or from `bot`, removing its last security key, and a reset of its keys by a global admin or `dmart second-factor reset`.
 
 ### An Account's History
 
@@ -601,6 +604,7 @@ An account's history (a [`history`](/query-search#history) query under `manageme
 - **Each sign-in**, by the account: `last_login`, from the previous sign-in's time to this one's, and `login_method`, from the previous sign-in's way to this one's: `password`, `code`, `password+code` (an admin), `provider` (Google, Facebook or Apple) or `registration` (the sign-in that ends a self-registration). When the sign-in made a device the trusted one, `device_id`, masked `********`, with no `old` value for the account's first trusted device: the row says that it changed, never to what. When its code verified an address, `is_email_verified` or `is_msisdn_verified`.
 - **A password reset by code**, by the account: `password`, masked, with the verified flag and `force_password_change` it changed.
 - **`dmart mark-verified`**, by `dmart`: the flag it set.
+- **`dmart second-factor reset`**, by `dmart`: `passkeys`, from the number of keys it removed to `0`.
 - **An import that overwrites the account** (`dmart import`, `/managed/import`, a pack install), by the account that ran it, `dmart` for the commands run on the host: what it changed. Roles, groups and permissions get the same row (see [History & alterations](/data-model#8-history--alterations)).
 
 No row holds a code or a password. [`prune-login-histories`](/cli#23-prune-login-histories) removes old rows that record only a sign-in, and keeps one that trusted a device or verified an address.

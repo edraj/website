@@ -270,7 +270,7 @@ A lock does not sign the user out: access tokens already issued keep working unt
 
 ### Admin Accounts
 
-Accounts of type `admin` sign in with their password and a one-time code, both checked: once the password checks out, the server sends the code. An admin resets its password by code only while `force_password_change` is set on the account, which only a global admin, or the active admin that created the account, may set.
+Accounts of type `admin` sign in with their password and a one-time code, both checked: once the password checks out, the server sends the code. An admin with a security key or an authenticator app is sent no code; the key or app takes its place (see [Security Keys and Authenticator Apps](#security-keys-and-authenticator-apps)). An admin resets its password by code only while `force_password_change` is set on the account, which only a global admin, or the active admin that created the account, may set.
 
 Management's users, roles, permissions and groups are for accounts of type `admin` and the built-in `dmart`. Another account's grants on them count only through the two exemptions below (see [The Management Space](/access-control#the-management-space)). At every start the log names, as `MANAGEMENT_ADMIN_ONLY`, each role whose grants there the rule limits, and `dmart check management hard` counts the accounts that hold each.
 
@@ -280,6 +280,26 @@ Management's users, roles, permissions and groups are for accounts of type `admi
 | `ADMIN_USER_TYPE` | Type the built-in `dmart` account is held to at every start: `web` or `admin`. As `admin` it signs in with its password and a code, so it needs an email or phone the server can send to; becoming one ends its sessions. Setting `web` again and restarting is the way back in when codes stop arriving. As `web` it is held to `WEB_DEVICE_OTP`, so it needs a verified email or phone before that is turned on. | `"web"` |
 | `MANAGEMENT_EXEMPT_ACCOUNTS` | Comma-separated accounts, such as a bot, whose grants on management's users, roles, permissions and groups count although they are not of type `admin`. Naming `anonymous` stops startup. | `""` |
 | `MANAGEMENT_EXEMPT_ROLES` | Comma-separated roles whose grants on management's users, roles, permissions and groups count for every account that holds them. Naming `world`, `logged_in` or the `USER_CREATE_DEFAULT_ROLE` role stops startup: what every caller holds never reaches the management space. | `""` |
+
+### Security Keys and Authenticator Apps
+
+A security key, a passkey or an authenticator app is an account's second factor, with its password. Each is opt-in: nothing changes for an account until it adds one (see [Security Keys and Passkeys](/api-docs#security-keys-and-passkeys) and [Authenticator Apps](/api-docs#authenticator-apps)). Keys work only on a domain name over HTTPS, or `http://localhost`. A value the server cannot read stops startup.
+
+| Setting | Description | Default |
+|---|---|---|
+| `PASSKEYS_FOR` | Who may add a security key or passkey: `all`, or `admins` for a deployment whose users sign in through a mobile app that cannot use keys yet. Narrowing it takes no key away. A bot never adds one. | `all` |
+| `TOTP_FOR` | Who may add an authenticator app: `all`, `admins` or `none`. Narrowing it takes no app away. | `all` |
+| `ADMIN_PASSKEY_REQUIRED` | An admin without a key adds one to finish signing in, and gets no session until it does; while it is on, an admin keeps its last key. Needs `APP_URL` on `https`. Turn it on once the admins have keys, or when each can add one at its next sign-in. | `false` |
+| `WEBAUTHN_RP_ID` | The domain keys belong to. Empty, it is the host of `APP_URL`, and on the OpenID Connect and MCP sign-in pages the host of `OIDC_ISSUER`. Set it to a parent domain the two share when one key should serve both; a domain that is not the host or a parent of it turns keys off there. Changing it later means every account adds its keys again. | `""` |
+| `WEBAUTHN_ANDROID_APPS` | Android apps that sign in with the account's keys, comma-separated, each the package and the SHA-256 fingerprint of its signing certificate as `keytool -list -v` prints it (`com.example.app:AB:CD:…`). DMART serves `/.well-known/assetlinks.json` for them. | `""` |
+| `WEBAUTHN_IOS_APPS` | iOS apps that sign in with the account's keys, comma-separated, each `TEAMID.bundle.id`. DMART serves `/.well-known/apple-app-site-association` for them. | `""` |
+
+The phone reads the two `/.well-known/` files from `https://<the key's domain>/.well-known/`, so a proxy in front of DMART must pass that path through (see [Keys in Mobile Apps](/api-docs#keys-in-mobile-apps)).
+
+**The authenticator apps' key.** Each app's secret is stored sealed (AES-GCM) under a key kept outside the database, in `totp-key` in the keys directory ([`KEYS_DIR`](#jwt--sessions)): 32 random bytes in base64, mode 0600. DMART creates the file at first start when it is missing, and logs its id at every start (`keys: authenticator-app key <id> in <file>`).
+
+- **Every server of a deployment needs the same file.** Copy the first server's to the others, or write the same one to each, before they serve sign-ins with an app, and compare the ids they log. A server whose key differs answers an app's code with a server error (HTTP `500`) and does not count it as a wrong one. Key-only sign-in's decoys are made with the same key, so they match from server to server only when the file does.
+- **Back it up apart from the database.** Without it no app's secret opens, and every account adds its app again; a copy of the database alone opens none.
 
 ### Password Hashing
 
