@@ -4,7 +4,7 @@ Comprehensive reference for the DMART API. All endpoints, data structures, and u
 
 The API is served by the self-contained DMART binary (.NET 10 Native AOT) on ASP.NET Core / Kestrel. The base URL for all API requests is typically: `http://localhost:8282` (or as configured via `LISTENING_HOST` / `LISTENING_PORT`). `GET /` answers `{"status":"success","message":"DMART-CS API"}`.
 
-Most endpoints require authentication with a JWT bearer token, supplied either as a header or a cookie. DMART signs it HS256 with `JWT_SECRET`, or RS256 with the OpenID Connect provider's key under `JWT_SIGNING_ALG=RS256`, so that other services can [verify it with the public key](#verifying-dmarts-tokens-in-another-service):
+Most endpoints require authentication with a JWT bearer token, supplied either as a header or a cookie. DMART signs it RS256 with a key of its own, so that other services can [verify it with the public key](#verifying-dmarts-tokens-in-another-service), or HS256 with `JWT_SECRET` under the deprecated `JWT_SIGNING_ALG=HS256`:
 
 **Header** `Authorization: Bearer <your_token>`
 
@@ -810,11 +810,11 @@ The claims are in the ID token as well as at `/oidc/userinfo`, which releases on
 
 ### Apps and services: from a shared secret to OAuth 2
 
-By default DMART signs its session tokens with one shared secret, `JWT_SECRET`, and a service that checks them keeps a copy, which can also sign a token DMART takes for any bot. Under `JWT_SIGNING_ALG=RS256`, DMART signs with a key only it holds and publishes the public half, and a service gets its own tokens from DMART through OAuth 2. [Moving to RS256](/settings#moving-to-rs256) has the steps.
+DMART signs its session tokens with a key only it holds and publishes the public half, and a service gets its own tokens from DMART through OAuth 2. Under the deprecated `JWT_SIGNING_ALG=HS256`, which 1.9.0 removes, it signs them with one shared secret, `JWT_SECRET`, and a service that checks them keeps a copy, which can also sign a token DMART takes for any bot. [Moving off HS256](/settings#moving-off-hs256) has the steps.
 
 **An app, and a service it calls.** Nothing changes for the app. The service checks the user's token with DMART's public key instead of a copy of the secret.
 
-Before, with a shared secret (`HS256`, the default):
+Before, with a shared secret (`JWT_SIGNING_ALG=HS256`, deprecated):
 
 ```mermaid
 flowchart TB
@@ -826,7 +826,7 @@ flowchart TB
     Svc ~~~ D
 ```
 
-After, with a public key and OAuth 2 (`RS256`); the thick lines are what changes:
+After, with a public key and OAuth 2 (`RS256`, the default); the thick lines are what changes:
 
 ```mermaid
 flowchart TB
@@ -876,7 +876,7 @@ What changes for whom:
 | **A service that calls DMART for a user** | Passes the user's token on | Exchanges it for a token naming the service ([token exchange](#acting-for-a-user-token-exchange)) |
 | **A service that calls another service** | Sends a token DMART and every other service take | Sends a [token for that service alone](#tokens-for-one-service) |
 
-Once no service needs the secret, `JWT_ACCEPT_HS256=false` makes any copy of it sign nothing DMART takes.
+Under the default `JWT_ACCEPT_HS256=sessions` a copy of the secret signs nothing DMART takes: an HS256 token counts only with its session row, as a person's sign-in has.
 
 ### Integration records
 
@@ -985,9 +985,9 @@ For a service that verifies DMART's tokens with the public key and must see a lo
 
 ### Verifying DMART's tokens in another service
 
-With `JWT_SIGNING_ALG=RS256` (see [JWT & Sessions](/settings#jwt--sessions)), DMART signs its session tokens with the provider's key, and a service verifies them from `{issuer}/oidc/jwks` without holding `JWT_SECRET`, which would also let it sign a token DMART takes for any bot. A service checks:
+DMART signs its session tokens with each node's own key (see [Keys](/settings#keys)), and a service verifies them from DMART's `/oidc/jwks`, served whether or not the OpenID Connect provider is on, holding nothing that signs. A service checks:
 
-- the signature, with the key the header's `kid` names in the JWKS (cache the set; fetch it again on an unknown `kid`);
+- the signature, with the key the header's `kid` names in the JWKS (cache the set; fetch it again on an unknown `kid`, as a new node's key appears there);
 - `alg` is `RS256` and `typ` is `at+jwt`;
 - `iss` is `JWT_ISSUER`, and `aud` is `JWT_AUDIENCE`, or the service's own URI for a [token for one service](#tokens-for-one-service);
 - `exp` is in the future, and `token_use` is `access`;
@@ -1115,4 +1115,4 @@ The MCP server exposes these tools to agents. Every tool runs under the caller's
 
 - **`instructions`** in the `initialize` answer: a short text with the rules that trip a model most often (how records are addressed, paging, the search syntax, shortnames, the management space, partial failures) and where the full guide is. Clients that support it put it in the model's context.
 - **The skill as resources:** `dmart://skill/SKILL.md` (rules and recipes) and `dmart://skill/references/<page>.md` (these documentation pages), read with `resources/read` as `text/markdown` by any signed-in caller. They are the [agent skill](https://dmart.cc/skill/dmart.zip) built for the release that serves them and kept inside the binary, so they need no network. Its build note names the release it describes.
-- A URI under `dmart://skill/` always names the skill, and one that names no page answers a JSON-RPC error. A space called `skill` is still listed at `dmart://skill`, and reached below its root through the tools.
+- Only a URI under `dmart://skill/` ending in `.md` names the skill; one that names no page answers a JSON-RPC error. No record's path ends in `.md`, so a space called `skill` is reached as any other, `dmart://skill/<subpath>/<shortname>`.

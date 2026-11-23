@@ -85,7 +85,7 @@ The primary endpoint for CRUD operations is `POST /managed/request`. It accepts 
 #### What a create stores
 
 - **The owner is the caller.** An `owner_shortname` in the attributes is ignored; `assign` changes the owner afterwards.
-- **`owner_group_shortname`** may name only a group the creator belongs to; any other needs `assign` at the record's address, or the create is refused with `NOT_ALLOWED`.
+- **`owner_group_shortname`** may name only a group the creator belongs to; any other needs `assign` at the record's address, or the create is refused with `NOT_ALLOWED`. A group that does not exist is refused with `OBJECT_NOT_FOUND`.
 - **`collaborators`** keeps only string values.
 - **`is_active`** is `true` unless the request sets it to `false`.
 - **`uuid`** may be supplied by the client; otherwise dmart generates one.
