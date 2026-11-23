@@ -145,7 +145,7 @@ DMART makes the keys it needs itself at its first start, in `KEYS_DIR`: the dire
 - **The signing key, one per node:** an RSA key in `KEYS_DIR/signing-key.pem`, or in `OIDC_SIGNING_KEY_FILE` when a deployment names one it already has. It signs session tokens, and the OpenID Connect provider's tokens when that is on.
 - **Every node's public key, in the database:** each node registers its own at start and every five minutes, every node accepts a token any registered key signed, and `/oidc/jwks` lists them all. Nodes behind one load balancer share nothing but the database: a new node registers and is trusted, and no secret is copied between them. A key no node has registered again for longer than any token it signed can live, plus a day, drops out.
 - **The authenticator apps' key,** `KEYS_DIR/totp-key`, which every node needs the same copy of: see [Security Keys and Authenticator Apps](#security-keys-and-authenticator-apps).
-- **The one-time codes' hashing key,** in the database, made by the first node and shared by all. Session tokens are stored as a SHA-256 and need no key.
+- **The one-time codes' hashing key,** in the database, made by the first node and shared by all. Session tokens are stored as a SHA-256 and need no key. Under `JWT_SIGNING_ALG=HS256` both are stored as an HMAC keyed from `JWT_SECRET` instead, for a service that looks a session or a code up itself.
 
 Keep `KEYS_DIR` with the backups: a node that loses its signing key makes a new one at its next start, and the tokens it signed end.
 
@@ -158,7 +158,7 @@ Keep `KEYS_DIR` with the backups: a node that loses its signing key makes a new 
 
 A service that verifies DMART's tokens with `JWT_SECRET` can also sign one, and with `JWT_ACCEPT_HS256=true` DMART takes it for any bot, whatever its grants. Under the default `sessions` a copy of the secret signs nothing DMART takes, but a service that still verifies or signs tokens with it stops working. It verifies them from `/oidc/jwks` instead, served whether or not the OpenID Connect provider is on (see [Verifying DMART's tokens in another service](/api-docs#verifying-dmarts-tokens-in-another-service)).
 
-An install whose services still use the secret sets `JWT_SIGNING_ALG=HS256`. That line alone signs and accepts tokens as HS256 always did, bots' and services' included. Then, one service at a time:
+An install whose services still use the secret sets `JWT_SIGNING_ALG=HS256`. That line alone signs and accepts tokens as HS256 always did, bots' and services' included, and stores sessions and one-time codes under hashes keyed from `JWT_SECRET`, for a service that looks a session up in `sessions`, or a code in `otps`, itself. Then, one service at a time:
 
 1. Each service accepts RS256 from the JWKS as well as HS256.
 2. A service that signs its own tokens with the secret moves to a token of its own ([`client_credentials`](/api-docs#a-services-own-token-client_credentials)).
