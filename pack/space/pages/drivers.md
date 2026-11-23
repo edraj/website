@@ -297,7 +297,7 @@ The token is kept like a login's, and a call made when less than min(30 s, half 
 
 ## Dart / Flutter
 
-**dmart** Native Dart package for cross-platform apps.
+**dmart** Flutter package for cross-platform apps; it needs the Flutter SDK 3.41 or later.
 
 ```
 flutter pub add dmart
@@ -322,5 +322,23 @@ for (final record in resp?.records ?? []) {
   print(record.shortname);
 }
 ```
+
+Second factors at sign-in (dmart 3.0.1)
+
+`loginWithSecurityKey` signs in with the password, then with the account's security key or passkey through the device's own passkey API when it has one. An authenticator app's code is the second step's other answer:
+
+```dart
+final request = LoginRequest(shortname: 'alice', password: password);
+final (resp, error) = await Dmart.loginWithSecurityKey(request);
+if (error?.secondFactor?.wantsAppCode ?? false) {
+  await Dmart.login(LoginRequest.withSecondFactor(
+      shortname: 'alice', password: password, totp: codeFromTheApp));
+}
+```
+
+- **The device's keys.** `PlatformPasskeys`, the default, is Android's Credential Manager, AuthenticationServices on iOS and macOS, Windows Hello, or the browser's WebAuthn on the web. It offers security keys over USB and NFC as well as passkeys. A phone offers the keys only to an app the server names in `WEBAUTHN_ANDROID_APPS` or `WEBAUTHN_IOS_APPS`. Another `PasskeyDevice` stands in for it in tests.
+- **The step.** `Error.secondFactor` reads it from a `DmartErrorCode.otpNeeded` (115) or `secondFactorRequired` (116) answer: `factors` lists `passkey`, `totp`, `recovery` or `passkey_setup`. `LoginRequest.withSecondFactor` carries the answer with the same password: `webauthn`, `totp` or `recoveryCode`. A refused answer is `secondFactorInvalid` (117).
+- **Key-only sign-in,** for an account that turned it on: `Dmart.loginWithKeyAlone(shortname: 'alice')`, the key and its PIN with no password.
+- **The signed-in account's factors:** `getSecondFactors()`, `addSecurityKey(proof, name: …)`, `removeSecurityKey(id, proof)`, `newRecoveryCodes`, `setKeyOnly`, and an authenticator app's `totpBegin`, `totpConfirm` and `totpRemove`. The proof is `SecondFactorProof(password: …)`, or, once the account has a key, what `securityKeyProof(password: …)` returns after asking the key. The account's first key, or first app, comes with ten recovery codes, shown once.
 
 [pub.dev →](https://pub.dev/packages/dmart)
