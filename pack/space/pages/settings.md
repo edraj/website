@@ -144,7 +144,7 @@ DMART makes the keys it needs itself at its first start, in `KEYS_DIR`: the dire
 
 - **The signing key, one per node:** an RSA key in `KEYS_DIR/signing-key.pem`, or in `OIDC_SIGNING_KEY_FILE` when a deployment names one it already has. It signs session tokens, and the OpenID Connect provider's tokens when that is on.
 - **Every node's public key, in the database:** each node registers its own at start and every five minutes, every node accepts a token any registered key signed, and `/oidc/jwks` lists them all. Nodes behind one load balancer share nothing but the database: a new node registers and is trusted, and no secret is copied between them. A key no node has registered again for longer than any token it signed can live, plus a day, drops out.
-- **The authenticator apps' key,** `KEYS_DIR/totp-key`, which every node needs the same copy of: see [Second Factors](#second-factors).
+- **The authenticator apps' key,** `KEYS_DIR/totp-key`, which every node needs the same copy of: see [Security Keys and Authenticator Apps](#security-keys-and-authenticator-apps).
 - **The one-time codes' hashing key,** in the database, made by the first node and shared by all. Session tokens are stored as a SHA-256 and need no key.
 
 Keep `KEYS_DIR` with the backups: a node that loses its signing key makes a new one at its next start, and the tokens it signed end.

@@ -310,7 +310,7 @@ Accounts of type `admin` sign in with their password **and** a one-time code. Th
 
 An account with a security key or an authenticator app signs in with its password and that. The right password answers `OTP_NEEDED` (115) with the step in `error.info`, and the sign-in completes with the password and the key's answer (`webauthn`), the app's code (`totp`) or a recovery code (`recovery_code`). It takes the place of an admin's code, which is then not sent, and of the code a `mobile` account's new device or a web account's new browser would be asked for. See [Security Keys and Passkeys](#security-keys-and-passkeys) and [Authenticator Apps](#authenticator-apps).
 
-The access token has no `kid` header. Its claims are `sub` (the shortname), `iss` (`JWT_ISSUER`), `aud` (`JWT_AUDIENCE`), `iat`, `exp`, `token_use` (`access`), `jti`, `roles`, `data` (`shortname`, `type`) and `expires`. `/user/login` issues no refresh token.
+The access token's header is `{"alg":"RS256","typ":"at+jwt","kid":…}`, naming the node's key (an HS256 one, under `JWT_SIGNING_ALG=HS256`, has no `kid`). Its claims are `sub` (the shortname), `iss` (`JWT_ISSUER`), `aud` (`JWT_AUDIENCE`), `iat`, `exp`, `token_use` (`access`), `jti`, `roles`, `data` (`shortname`, `type`) and `expires`. `/user/login` issues no refresh token.
 
 GET `/user/profile`
 
