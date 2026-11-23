@@ -27,6 +27,40 @@ for record in resp.records:
     print(record.shortname)
 ```
 
+Second factors at sign-in (pydmart 2.9.0)
+
+An account with a security key or an authenticator app answers its password with `OTP_NEEDED` (115), and `DmartException.second_factor` reads the step it asks for:
+
+```python
+from pydmart import DmartException
+
+try:
+    await dmart.login("alice", password)
+except DmartException as e:
+    step = e.second_factor  # None unless the account has a key or an app
+    if not step or "totp" not in step["factors"]:
+        raise
+    await dmart.login("alice", password, totp=input("Code from the app: "))
+```
+
+- **The step** lists in `factors` what the account may use: `passkey`, `totp`, `recovery`, or `passkey_setup` (an admin who must add a key, with `SECOND_FACTOR_REQUIRED`, 116). With `passkey` or `passkey_setup`, `step["webauthn"]` holds the key's challenge (`challenge_id`, `options`).
+- **`login`** takes the answer with the same password: `totp`, `recovery_code`, or `webauthn`, the key's answer as `{"challenge_id", "credential"}`, signed by a tool that talks to the key, such as python-fido2. `login_by` takes the same fields in its `credentials`. A refused answer is `SECOND_FACTOR_INVALID` (117).
+- **Key-only sign-in,** for an account that turned it on: `key_only_challenge(shortname=...)` gives the challenge, and `login_with_key_alone(webauthn, shortname=...)` signs in with the key's answer and no password. Every refusal is 117.
+- **The signed-in account's factors:** `get_second_factors()`, `totp_begin`, `totp_confirm(setup_id, code)`, `totp_remove`, `new_recovery_codes`, `set_key_only(enabled, ...)` and `passkey_proof_challenge()`. A change carries `password=`, plus `webauthn=` (the key's answer to `passkey_proof_challenge()`) once the account has a key, or `totp=` with an app and no key. `totp_begin` answers `setup_id`, `secret` and `uri` (`otpauth://`, for a QR code), and `totp_confirm` returns the ten recovery codes when the app is the account's first second factor. pydmart doesn't add or remove keys.
+
+A service's own token
+
+A service with an [integration record](/api-docs#integration-records) signs in with its client id and secret instead of a bot's password ([`client_credentials`](/api-docs#a-services-own-token-client_credentials)):
+
+```python
+import os
+
+dmart = DmartService("https://dmart.example.com")
+await dmart.login_client_credentials(os.environ["DMART_CLIENT_ID"], os.environ["DMART_CLIENT_SECRET"])
+```
+
+The token is kept like a login's, and a request made when less than min(30 s, half its lifetime) remains gets a new one first, so a long-running service needs nothing else. `resource=` asks for a [token for one service](/api-docs#tokens-for-one-service), and `token_url=` defaults to `/oidc/token` under the base URL. A refusal raises `DmartException` with the endpoint's OAuth error (`invalid_client: …`). Setting `auth_token`, a password login or `logout()` ends the renewal.
+
 [PyPI →](https://pypi.org/project/pydmart/)
 
 ## C# / .NET
@@ -63,6 +97,25 @@ Password resets and health checks
 
 - **A password reset by code:** `PasswordResetRequestAsync` sends the code, and `PasswordResetConfirmAsync(otp, password, …)` redeems it and sets the new password, naming the same shortname, phone or email. No admin call sets a password (see [Managing User Accounts](/access-control#managing-user-accounts)).
 - **`GetSpaceHealthAsync(space)`** runs the `soft` health check of a space (`/managed/health/soft/{space}`, global admins only), and `GetSpaceHealthAsync(space, "hard")` or `"all"` adds up to 10 sample shortnames for each check.
+
+A service's own token
+
+A service with an [integration record](/api-docs#integration-records) signs in with its client id and secret instead of a bot's password ([`client_credentials`](/api-docs#a-services-own-token-client_credentials)):
+
+```csharp
+using var client = new DmartClient("https://dmart.example.com");
+await client.LoginWithClientCredentialsAsync(
+    Environment.GetEnvironmentVariable("DMART_CLIENT_ID")!,
+    Environment.GetEnvironmentVariable("DMART_CLIENT_SECRET")!);
+```
+
+- **Renewal.** The client keeps the token like a login's, and a request made when less than min(30 s, half its lifetime) remains gets a new one first, so a long-running service needs nothing else. Setting `AuthToken`, logging in with a password, or logging out ends it.
+- **Options.** `resource` asks for a [token for one service](/api-docs#tokens-for-one-service), which DMART's own API refuses, and `tokenUrl` defaults to `/oidc/token` under the base URL.
+- **A refusal** throws `DmartException` with the endpoint's OAuth error, such as `invalid_client: …`.
+
+Second factors
+
+`Dmart.Client` has no calls for security keys or authenticator apps. An account with either answers `LoginAsync` with a `DmartException` whose `Error.Code` is `OTP_NEEDED` (115), with the step it asks for in `Error.Info[0]`. `LoginByAsync` can send an authenticator app's `totp`, or a `recovery_code`, beside the account's name and password, but not a key's answer.
 
 Errors and retired calls
 
@@ -148,8 +201,8 @@ var entry = await adapter.LoadAsync("products", "/catalog", "widget_42",
 **Writes** follow the server's write rules:
 
 - **Field limits** (`restricted_fields`, `allowed_fields_values`) apply to creates, updates and moves, to every element of an array. Removing a limited field counts as writing it as null.
-- **The ACL, the owner and the collaborators.** An update that changes the ACL is judged as an ACL update, and may hand out only actions the writer holds. Changing the owner takes `assign` and an owner that exists, and changes nothing else. A create's owner is the caller, and naming another takes `assign`; so does naming an owner group the caller does not belong to. Changing `collaborators` takes `update`, under the field limits on `collaborators` and `collaborators.<key>`; the map is written whole.
-- **Times and fixed fields.** An update keeps `uuid`, `created_at`, `resource_type`, `owner_group_shortname`, `last_checksum_history` and the payload's `client_checksum` and `content_sub_type` as stored, and stamps `updated_at`. A JSON payload's `checksum` is the SHA-256 of its body as compact JSON: an update that changes the body sets a new one, in the system context too, and one that leaves it keeps the stored value. A create is stamped with the current time, writes no `client_checksum` or `content_sub_type`, and gives a JSON body its checksum. A system-context create keeps the times and fields it is given.
+- **The ACL, the owner, the owner group and the collaborators.** An update that changes the ACL is judged as an ACL update, and may hand out only actions the writer holds. Changing the owner takes `assign` and an owner that exists, and changes nothing else. Changing the owner group is an assignment too: `assign` on the record, with the group it leaves and the one it names each held to the create rule, and the one it names must exist. An owner group left `null` keeps the stored one, and an empty one removes it. A create's owner is the caller, and naming another takes `assign`; so does naming an owner group the caller does not belong to, and the group must exist. Changing `collaborators` takes `update`, under the field limits on `collaborators` and `collaborators.<key>`; the map is written whole.
+- **Times and fixed fields.** An update keeps `uuid`, `created_at`, `resource_type`, `last_checksum_history` and the payload's `client_checksum` and `content_sub_type` as stored, and stamps `updated_at`. A JSON payload's `checksum` is the SHA-256 of its body as compact JSON: an update that changes the body sets a new one, in the system context too, and one that leaves it keeps the stored value. A create is stamped with the current time, writes no `client_checksum` or `content_sub_type`, and gives a JSON body its checksum. A system-context create keeps the times and fields it is given.
 - **Missing and forbidden alike.** A caller without the right gets the same answer whether or not the record exists: `UpdateAsync`, `DeleteAsync`, `MoveAsync`, `TryLockAsync` and `AppendHistoryAsync` throw the refusal, and `CreateAsync` checks `create` before the name conflict. A caller with the right still hears that the record is missing.
 - **Moves** take `update` at the source and `create` at the destination, and regenerate the row's `query_policies` so it lists in its new folder.
 - **Deletes and moves carry what hangs off the record,** in one transaction and in the system context too: a delete takes the record's attachments, history and lock, a move carries them, and a folder's delete or move takes everything beneath it.
@@ -171,7 +224,7 @@ What each refusal throws:
 | A relationship target the caller cannot read, or that is not there | `DmartValidationException`, `INVALID_DATA`, "relationship target not found" |
 | A folder that holds records, deleted without `DeleteAsync(locator, force: true, actor)`, in the system context too; under RBAC, a record another record's relationship points at | `DmartException`, `CANNT_DELETE` (204) |
 | A folder moved into itself or beneath it, in the system context too | `DmartValidationException`, `INVALID_DATA` |
-| An owner that does not exist | `DmartNotFoundException` |
+| An owner, or an owner group, that does not exist | `DmartNotFoundException` |
 
 **Trimmed and Native AOT hosts.** The rule checks serialize through a source-generated context of the SDK's own, chained before the host's resolver, and need no reflection. Pass `JsonSerializerOptions` whose resolver covers the `Dmart.Models` records the adapter reads and writes (`Entry`, `User`, `Space`, `Dictionary<string, object>`).
 
@@ -201,6 +254,44 @@ const resp = await Dmart.query({
 });
 console.log(resp?.records?.map((r) => r.shortname));
 ```
+
+Second factors at sign-in (@edraj/tsdmart 5.12.0)
+
+In a browser, `loginWithSecurityKey` signs in with the password, then with the account's security key or passkey when it has one. An authenticator app's code is the second step's other answer:
+
+```typescript
+import { Dmart, secondFactorStep } from "@edraj/tsdmart";
+
+try {
+  await Dmart.loginWithSecurityKey("alice", password);
+} catch (error) {
+  const step = secondFactorStep(error);
+  if (!step?.factors.includes("totp")) throw error;
+  await Dmart.login("alice", password, { totp: codeFromTheApp });
+}
+```
+
+- **The step.** `secondFactorStep(error)` reads it from an `OTP_NEEDED` (115) or `SECOND_FACTOR_REQUIRED` (116) answer: `factors` lists `passkey`, `totp`, `recovery` or `passkey_setup`, and `webauthn` holds the key's challenge. `login` and `loginBy` take the answer with the same password: `{webauthn}`, `{totp}` or `{recovery_code}`. A refused answer is `SECOND_FACTOR_INVALID` (117).
+- **Key-only sign-in,** for an account that turned it on: `Dmart.loginWithKeyAlone({shortname: "alice"})` asks the key in this browser, with no password. `keyOnlyChallenge` gives the challenge, for a key asked elsewhere.
+- **The signed-in account's factors:** `getSecondFactors()`; the keys (`passkeyRegisterChallenge`, `passkeyRegister`, `passkeyRename`, `passkeyRemove`); `newRecoveryCodes`, `setKeyOnly`; and an authenticator app's `totpBegin`, `totpConfirm` and `totpRemove`. A change carries `{password}`, plus `webauthn` (the key's answer to `passkeyProofChallenge()`) once the account has a key, or `totp` with an app and no key. The account's first key, or first app, comes with ten recovery codes, shown once.
+- **In the browser,** `signChallenge`, `makeKey` and `keysSupported` (also from `@edraj/tsdmart/webauthn`) turn DMART's challenges into `navigator.credentials` calls and the answers back:
+
+  ```typescript
+  import { makeKey } from "@edraj/tsdmart/webauthn";
+
+  const challenge = await Dmart.passkeyRegisterChallenge({ password });
+  const { recovery_codes } = await Dmart.passkeyRegister(await makeKey(challenge), "YubiKey");
+  ```
+
+A service's own token
+
+A service with an [integration record](/api-docs#integration-records), never a browser or an app, signs in with its client id and secret instead of a bot's password ([`client_credentials`](/api-docs#a-services-own-token-client_credentials)):
+
+```typescript
+await Dmart.loginClientCredentials(process.env.DMART_CLIENT_ID!, process.env.DMART_CLIENT_SECRET!);
+```
+
+The token is kept like a login's, and a call made when less than min(30 s, half its lifetime) remains gets a new one first. `{resource}` asks for a [token for one service](/api-docs#tokens-for-one-service), and `{tokenUrl}` defaults to `oidc/token` under the base URL. A refusal throws with the endpoint's OAuth error as its message (`invalid_client: …`) and its `status`. `setToken`, `clearToken`, a password login or `logout` ends the renewal.
 
 [NPM →](https://www.npmjs.com/package/@edraj/tsdmart)
 
