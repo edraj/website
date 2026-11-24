@@ -52,10 +52,10 @@ The RPM and DEB packages are for x86-64; the APK for x86-64 and aarch64.
 
 ### First start
 
-The package writes `/etc/dmart/config.env` on the first install only, so an upgrade keeps your edits. It runs on SQLite at `/var/lib/dmart/dmart.db`, and the file explains how to switch to PostgreSQL. dmart will not start until `JWT_SECRET` holds a secret of at least 32 bytes that does not contain `change-me`. The first start creates the database, the `management` space with its `users`, `roles`, `groups`, `permissions` and `schema` folders, and the built-in `dmart` admin, with no password; every start creates any of these that is missing.
+The package writes `/etc/dmart/config.env` on the first install only, so an upgrade keeps your edits. It runs on SQLite at `/var/lib/dmart/dmart.db`, and the file explains how to switch to PostgreSQL. The first start makes dmart's signing key, in `/var/lib/dmart/keys` for the RPM and DEB packages (see [Keys](/settings#keys)); keep that directory with your backups. It also creates the database, the `management` space with its `users`, `roles`, `groups`, `permissions` and `schema` folders, and the built-in `dmart` admin, with no password; every start creates any of these that is missing.
 
 ```bash
-sudo vi /etc/dmart/config.env      # set JWT_SECRET, e.g. from: openssl rand -base64 48
+sudo vi /etc/dmart/config.env      # review it: SQLite unless you switch
 sudo systemctl enable --now dmart  # Alpine: rc-update add dmart && rc-service dmart start
 sudo dmart passwd dmart            # once it has started: set the admin's password
 ```
@@ -89,8 +89,8 @@ podman exec -it dmart dmart passwd dmart   # once it is up: its first start crea
 ```
 
 - **Port:** 8000, not 8282.
-- **Storage:** `config.env`, the `dmart.db` database, the UIs' `config.json` and the first-run marker all live in `/root/.dmart`. Mount a volume there, or a new container starts empty.
-- **First run:** writes a random `JWT_SECRET`, `DATABASE_DRIVER=sqlite` and `SQLITE_PATH=/root/.dmart/dmart.db`. It also sets `IS_SMPP_ENABLED=true`, `MOCK_SMPP_API=true` and `MOCK_SMPP_LOG_OTP=true`: SMS codes are not sent, and each appears only in `podman logs <container>`. For real delivery, set `SEND_SMS_OTP_API` and `SMPP_AUTH_KEY` and turn the mock off (`MOCK_SMPP_API=false`).
+- **Storage:** `config.env`, the `dmart.db` database, the signing keys (`keys/`), the UIs' `config.json` and the first-run marker all live in `/root/.dmart`. Mount a volume there, or a new container starts empty.
+- **First run:** writes `DATABASE_DRIVER=sqlite` and `SQLITE_PATH=/root/.dmart/dmart.db`, and no `JWT_SECRET`: DMART makes its signing key in `/root/.dmart/keys`. It also sets `IS_SMPP_ENABLED=true`, `MOCK_SMPP_API=true` and `MOCK_SMPP_LOG_OTP=true`: SMS codes are not sent, and each appears only in `podman logs <container>`. For real delivery, set `SEND_SMS_OTP_API` and `SMPP_AUTH_KEY` and turn the mock off (`MOCK_SMPP_API=false`).
 - **Admin password:** the `dmart` admin has none until you run `dmart passwd dmart` in the container, as above. Do it before the container is reachable.
 - **PostgreSQL:** `config.env` pins the driver, so to move to PostgreSQL change the `DATABASE_DRIVER` line to `postgresql` as well as adding `DATABASE_HOST`, `DATABASE_NAME`, `DATABASE_USERNAME` and `DATABASE_PASSWORD`.
 - **Tags:** `latest` and `<version>` cover amd64 and arm64; `<version>-amd64` and `<version>-arm64` name one architecture.
@@ -122,7 +122,7 @@ vi ~/.dmart/config.env # choose the database (see below)
 ./dmart passwd dmart   # in another terminal, once it is up
 ```
 
-`dmart init` copies the sample, which selects PostgreSQL, and gives it a fresh random `JWT_SECRET`. For SQLite, set `DATABASE_DRIVER="sqlite"` and `SQLITE_PATH` instead of the `DATABASE_*` connection settings; see [Database & Storage](/settings#database--storage). The server reads `~/.dmart/config.env` when `BACKEND_ENV` names no other file; a `config.env` in the current directory is never read. The server listens on port 8282 unless `LISTENING_PORT` says otherwise.
+`dmart init` copies the sample, which selects PostgreSQL. For SQLite, set `DATABASE_DRIVER="sqlite"` and `SQLITE_PATH` instead of the `DATABASE_*` connection settings; see [Database & Storage](/settings#database--storage). The server reads `~/.dmart/config.env` when `BACKEND_ENV` names no other file; a `config.env` in the current directory is never read. The server listens on port 8282 unless `LISTENING_PORT` says otherwise.
 
 ## From source
 

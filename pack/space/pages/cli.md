@@ -164,7 +164,7 @@ dmart settings
 
 ### 8. passwd
 
-Sets the password for a user (Argon2-hashed), held to the same password rule as every other way of setting one (`regex.json`). The shortname may be passed positionally; the password is read from standard input (a prompt at a terminal), never the command line, so a script can pipe it in. It also reactivates and unlocks the account (`is_active` true, `attempt_count` 0), clears `force_password_change` as a reset by code does, and ends all of its sessions. No request sets a password, so this is how a bot account gets one, or any account on a server that cannot send a reset code. With the flag cleared, the MCP sign-in accepts the account, and so does the OpenID Connect one unless it is a bot; an admin signs in through neither form (see [Account Types](/access-control#account-types)).
+Sets the password for a user (Argon2-hashed), held to the same password rule as every other way of setting one (`regex.json`). The shortname may be passed positionally; the password is read from standard input (a prompt at a terminal), never the command line, so a script can pipe it in. It also reactivates and unlocks the account (`is_active` true, `attempt_count` 0), clears `force_password_change` as a reset by code does, and ends all of its sessions. No request sets a password, so this is how a bot account gets one, or any account on a server that cannot send a reset code. With the flag cleared, the MCP sign-in accepts the account, and so does the OpenID Connect one unless it is a bot; an admin signs in through the OpenID Connect form only with a security key or an authenticator app, and never through the MCP one (see [Account Types](/access-control#account-types)).
 
 It sets the password of an account that exists, and exits with status 1 when there is none:
 
@@ -196,7 +196,7 @@ dmart check management hard
 
 Smoke-tests a running server over HTTP. It asks `/health/ready` first, and stops there with the server's reason (`database unreachable`, a directory replica not synced yet) when the server is not ready. Then it signs in, reads `/info/manifest` and prints the server's version, lists spaces, creates, queries, updates and deletes a test entry, and signs out. It signs in as `--admin` (default `ADMIN_SHORTNAME`, else `dmart`), which must be a global admin.
 
-Given no password (`--password`, `--password-stdin` or `DMART_PWD`), it signs in without one, as `dmart cli` does: a token minted from `JWT_SECRET` in config.env, with a session row it removes when it exits. That needs read access to config.env and the database, PostgreSQL or SQLite, and under `JWT_SIGNING_ALG=RS256` to `OIDC_SIGNING_KEY_FILE`, which signs the token instead: run it as the account DMART runs as. It never creates that key. The token goes only to this host's own dmart: a `--url` (or `DMART_URL`) that is not a loopback address (`localhost`, `127.0.0.0/8`, `::1`) or the configuration's `LISTENING_HOST`:`LISTENING_PORT` is refused, with status 1, before any token is minted. Check another server with a password.
+Given no password (`--password`, `--password-stdin` or `DMART_PWD`), it signs in without one, as `dmart cli` does: a token signed as the server signs its own, with the node's key in `KEYS_DIR` (`JWT_SECRET` under `JWT_SIGNING_ALG=HS256`), with a session row it removes when it exits. That needs read access to config.env, the database, PostgreSQL or SQLite, and the key: run it as the account DMART runs as (`sudo -u dmart` for the packages), or set `KEYS_DIR` to the server's. It never creates a key. The token goes only to this host's own dmart: a `--url` (or `DMART_URL`) that is not a loopback address (`localhost`, `127.0.0.0/8`, `::1`) or the configuration's `LISTENING_HOST`:`LISTENING_PORT` is refused, with status 1, before any token is minted. Check another server with a password.
 
 - `--ready-only`: only the readiness check — no sign-in, and no database access from this host.
 
@@ -295,7 +295,7 @@ dmart prune-tombstones --older-than 90 --dry-run
 
 ### 18. init
 
-Initializes `~/.dmart`: a `config.env` with a fresh random `JWT_SECRET`, the `config.json` the web UIs read, and a `cli.ini` pointing at the configured port. `config.env` and `cli.ini` are readable by their owner only; a file that is already there is left as it is.
+Initializes `~/.dmart`: a `config.env` copied from the `config.env.sample` beside the binary, the `config.json` the web UIs read, and a `cli.ini` pointing at the configured port. `config.env` and `cli.ini` are readable by their owner only; a file that is already there is left as it is.
 
 - **`config.env`** is a copy of `config.env.sample` when that file sits beside the binary, as in the tarballs. Otherwise (the packages keep the sample in `/usr/share/dmart/`) it is a short file of PostgreSQL connection settings. Either way it selects PostgreSQL. The sample's values are not all the built-in defaults: among others it sets `JWT_ACCESS_EXPIRES=3600` (built in: 30 days), `DATABASE_DRIVER="postgresql"` (built in: inferred) and `ADMIN_EMAIL="admin@example.com"` (built in: none).
 - **`cli.ini`** holds no password: a commented `# password=` line says where one goes. Without one (or `DMART_PASSWORD`), `dmart cli` signs in from the server's configuration, which works on the server's own host.
@@ -308,7 +308,7 @@ dmart init
 
 Interactive CLI client for talking to a running DMART server: a REPL, a single command, or a script.
 
-It reads `cli.ini` (the first of `$DMART_CLI_CONFIG`, `./cli.ini` and `~/.dmart/cli.ini`, refused unless only its owner has access, as with mode 0600), overridden by `DMART_URL`, `DMART_SHORTNAME` and `DMART_PASSWORD`. With no password from either, it signs in where the server runs: it mints a token from `JWT_SECRET` in the server's config.env, with a session row in the database that it removes when it exits, and, given no URL, talks to that configuration's own server (`LISTENING_HOST`:`LISTENING_PORT`, a wildcard host read as 127.0.0.1). That needs read access to config.env and the database, which can already sign any token, and under `JWT_SIGNING_ALG=RS256` to `OIDC_SIGNING_KEY_FILE`, whose key signs the token instead (it is never created here). A URL it is given (`URL` in `cli.ini`, or `DMART_URL`) must be that server too: a loopback address (`localhost`, `127.0.0.0/8`, `::1`) or that listen address. Any other is refused, with why and status 1, before a token is minted; sign in there with a password.
+It reads `cli.ini` (the first of `$DMART_CLI_CONFIG`, `./cli.ini` and `~/.dmart/cli.ini`, refused unless only its owner has access, as with mode 0600), overridden by `DMART_URL`, `DMART_SHORTNAME` and `DMART_PASSWORD`. With no password from either, it signs in where the server runs: it signs a token as the server does, with the node's key in `KEYS_DIR` (`JWT_SECRET` under `JWT_SIGNING_ALG=HS256`), with a session row in the database that it removes when it exits, and, given no URL, talks to that configuration's own server (`LISTENING_HOST`:`LISTENING_PORT`, a wildcard host read as 127.0.0.1). That needs read access to config.env, the database and the key, so run it as the account DMART runs as (`sudo -u dmart` for the packages); the key is never created here. A URL it is given (`URL` in `cli.ini`, or `DMART_URL`) must be that server too: a loopback address (`localhost`, `127.0.0.0/8`, `::1`) or that listen address. Any other is refused, with why and status 1, before a token is minted; sign in there with a password.
 
 `dmart cli c <space> [/subpath] <command>` runs the command in that folder, as if you had switched and `cd`'d there. A space is named exactly, or by a prefix only one space has; an unknown or ambiguous name exits with status 1 and runs nothing. `switch`, `cd @space` and `ls @space` likewise refuse such a name rather than carry on in the current space. `ls` lists the folder's own entries (up to `QUERY_LIMIT` from `cli.ini`, 100 by default), not those of the folders below, and `cd`, `cat`, `print` and `rm` look names up in that listing. `--json` prints data only.
 
@@ -367,6 +367,7 @@ Keys are matched whatever their case, and a line starting with `#` is a comment.
 - **Exit status:** a single command (`dmart cli c …`) exits with status 1 when it fails: the server answers `failed` (as `/managed/request` does when any record fails, though the others are written), an HTTP error comes back that is not JSON, or an export writes no file.
 - **Scripts:** `VAR <name> <value>` declares a variable and `${name}` uses it; `#` and `//` lines and `/* … */` blocks are comments. A script runs every line and exits 0 even when commands fail, unless `--strict` (`dmart cli --strict s <file>`) stops it at the first failure with status 1.
 - **Session:** a 401 in the middle of a session signs in again and retries once, without a word. The REPL keeps 1,000 lines of history in `~/.dmart/cli_history`.
+- **Without a terminal:** with its input redirected (a pipe, a file, a service), the REPL reads plain lines from it and exits at the end of input.
 
 ### 20. version
 
@@ -413,4 +414,12 @@ Marks an account's email (`--email`) or phone (`--msisdn`) verified, for a serve
 ```
 sudo dmart mark-verified jdoe --email
 sudo dmart mark-verified jdoe --msisdn
+```
+
+### 25. second-factor reset
+
+Removes an account's security keys, authenticator app, key-only sign-in and recovery codes, and ends its sessions, for an account that has lost every key and has no recovery code left, where no global admin can reset it (see [Security Keys and Passkeys](/api-docs#security-keys-and-passkeys)). Like `mark-verified`, it reads the server's `config.env` and database, so only whoever runs the server can use it, and it records a history row by `dmart`. An unknown account exits with status 1. The account then signs in with its password, as before it added a key.
+
+```
+sudo dmart second-factor reset jdoe
 ```

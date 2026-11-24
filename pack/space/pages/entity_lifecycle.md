@@ -85,7 +85,7 @@ The primary endpoint for CRUD operations is `POST /managed/request`. It accepts 
 #### What a create stores
 
 - **The owner is the caller.** An `owner_shortname` in the attributes is ignored; `assign` changes the owner afterwards.
-- **`owner_group_shortname`** may name only a group the creator belongs to; any other needs `assign` at the record's address, or the create is refused with `NOT_ALLOWED`.
+- **`owner_group_shortname`** may name only a group the creator belongs to; any other needs `assign` at the record's address, or the create is refused with `NOT_ALLOWED`. A group that does not exist is refused with `OBJECT_NOT_FOUND`.
 - **`collaborators`** keeps only string values.
 - **`is_active`** is `true` unless the request sets it to `false`.
 - **`uuid`** may be supplied by the client; otherwise dmart generates one.
@@ -205,7 +205,7 @@ A single entry's delete takes with it, in one transaction, its attachments, the 
 
 #### Deleting a user
 
-How a user is deleted depends on `USER_DELETION_MODE` (see [Settings](/settings)). In the default `soft` mode the user row is kept, marked deleted and stripped of its contacts and password, and nothing the user owns is touched, so `force` has no effect. A soft delete cannot be undone:
+How a user is deleted depends on `USER_DELETION_MODE` (see [Settings](/settings)). In the default `soft` mode the user row is kept, marked deleted and stripped of its contacts and password, and of the `payload.body` fields the users folder's `unique_fields` names, so a new account can take those values; nothing the user owns is touched, so `force` has no effect. A soft delete cannot be undone:
 
 - **The account is closed.** It cannot sign in (it gets the same `INVALID_USERNAME_AND_PASS`, code 10, as an unknown name), refresh a token, or be edited or renamed. Its sessions end at once.
 - **It leaves the user listings and counts,** and a read by name answers not found, but exports and uniqueness checks still see the row.

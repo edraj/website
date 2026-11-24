@@ -12,15 +12,15 @@ The `config.env` file is located with a first-match-wins lookup:
 
 3. `/etc/dmart/config.env` — system-wide RPM/DEB install
 
-A cwd-relative `./config.env` is _not_ looked up implicitly. Because the file may carry `JWT_SECRET` and `DATABASE_PASSWORD`, DMART refuses to read it when it is world-writable, and warns at every start when it is world-readable.
+A cwd-relative `./config.env` is _not_ looked up implicitly. Because the file may carry secrets such as `DATABASE_PASSWORD`, DMART refuses to read it when it is world-writable, and warns at every start when it is world-readable.
 
-**Where the first file comes from.** `dmart init` writes `~/.dmart/config.env` from the `config.env.sample` shipped beside the binary, with a fresh random `JWT_SECRET`, and leaves an existing file alone. The sample's values are not all the defaults in the tables below: it sets `JWT_ACCESS_EXPIRES=3600`, `DATABASE_DRIVER="postgresql"` with `DATABASE_PASSWORD="somepassword"`, and `ADMIN_EMAIL="admin@example.com"`, among others. The RPM, DEB and APK packages instead seed `/etc/dmart/config.env` from `config.env.packaged`: SQLite at `/var/lib/dmart/dmart.db`, `SPACES_FOLDER="/var/lib/dmart/spaces"`, JSON logs, and the placeholder `JWT_SECRET`, which must be replaced before the server starts.
+**Where the first file comes from.** `dmart init` writes `~/.dmart/config.env` from the `config.env.sample` shipped beside the binary, and leaves an existing file alone. The sample's values are not all the defaults in the tables below: it sets `JWT_ACCESS_EXPIRES=3600`, `DATABASE_DRIVER="postgresql"` with `DATABASE_PASSWORD="somepassword"`, and `ADMIN_EMAIL="admin@example.com"`, among others. The RPM, DEB and APK packages instead seed `/etc/dmart/config.env` from `config.env.packaged`: SQLite at `/var/lib/dmart/dmart.db`, `SPACES_FOLDER="/var/lib/dmart/spaces"`, and JSON logs. Neither needs a `JWT_SECRET`: DMART makes its signing key itself (see [Keys](#keys)).
 
 **Strict validation.** Configuration is bound and validated at startup (`ValidateOnStart`). Any **unknown key in `config.env` is rejected** and aborts startup — there is no silent fallthrough for typos. (Environment variables are not checked this way.) Keys of settings that no longer exist — `REDIS_HOST`/`PORT`/`PASSWORD`/`CONNECTION`, `ACTIVE_DATA_DB`, `WEBSITE_URL` and `WEBSITE_DIR` — are unknown keys and stop the boot. `ALLOW_PASSWORD_RESET_RESEND_AFTER` is ignored with a warning. `MANAGEMENT_SPACE` is retired: the management space is always `management`. `MANAGEMENT_SPACE="management"` still starts, with a warning to remove the line; any other value refuses to start.
 
-**Frontends read the server's values.** The `config.json` DMART serves cxb and catalog carries `OTP_LENGTH`, `ALLOW_OTP_RESEND_AFTER`, `OTP_TOKEN_TTL`, `MAX_UPLOAD_SIZE_MB`, `DEFAULT_QUERY_LIMIT`, `MAX_QUERY_LIMIT`, `UI_LIST_LIMIT`, and whether the password and username rules are custom (`password_rule_custom`, `username_rule_custom`), with their hints (`password_hint`, `username_hint`). A frontend DMART does not serve can read the same from `GET /public/client-config`. The `backend_timeout` in that `config.json` is at least `REQUEST_TIMEOUT` + 5 seconds, so the server's own timeout answer arrives before the frontend gives up.
+**Frontends read the server's values.** The `config.json` DMART serves cxb and catalog carries `OTP_LENGTH`, `ALLOW_OTP_RESEND_AFTER`, `OTP_TOKEN_TTL`, `MAX_UPLOAD_SIZE_MB`, `DEFAULT_QUERY_LIMIT`, `MAX_QUERY_LIMIT`, `UI_LIST_LIMIT`, and whether the password and username rules are custom (`password_rule_custom`, `username_rule_custom`), with their hints (`password_hint`, `username_hint`), and `sign_up_open`, true with `IS_REGISTRABLE` and a channel in `REGISTRATION_ENABLED_CHANNELS`: catalog offers sign-up only then. A frontend DMART does not serve can read the same from `GET /public/client-config`. The `backend_timeout` in that `config.json` is at least `REQUEST_TIMEOUT` + 5 seconds, so the server's own timeout answer arrives before the frontend gives up.
 
-**The frontends' own `config.json`.** DMART serves cxb and catalog the first it finds of: the file named by `--cxb-config` (or `DMART_CXB_CONFIG`), `./config.json`, `~/.dmart/config.json`, and the copy built into each app. Its keys are `title`, `footer`, `short_name`, `display_name`, `description`, `default_language`, `languages` and `backend`, plus catalog's switches `enable_websocket`, `enable_messaging`, `enable_surveys`, `enable_poll`, `enable_reaction_and_comment`, `enable_public_view` and `enable_notifications`. A blank `backend` means the page's own origin. Any other value must be on the page's own site, because both apps authenticate by a `SameSite=Lax` cookie (see [Base URL & Authentication](/api-docs#base-url--authentication)). cxb draws schema and workflow diagrams by sending their text to `https://www.plantuml.com/plantuml`, unless `plantuml_server` names another server.
+**The frontends' own `config.json`.** DMART serves cxb and catalog the first it finds of: the file named by `--cxb-config` (or `DMART_CXB_CONFIG`), `./config.json`, `~/.dmart/config.json`, and the copy built into each app. Its keys are `title`, `footer`, `short_name`, `display_name`, `description`, `default_language`, `languages` and `backend`, plus catalog's switches `enable_websocket`, `enable_messaging`, `enable_surveys`, `enable_poll`, `enable_reaction_and_comment`, `enable_public_view` and `enable_notifications`. A catalog DMART does not serve offers sign-up only when its own file says `"sign_up_open": true`. A blank `backend` means the page's own origin. Any other value must be on the page's own site, because both apps authenticate by a `SameSite=Lax` cookie (see [Base URL & Authentication](/api-docs#base-url--authentication)). cxb draws schema and workflow diagrams by sending their text to `https://www.plantuml.com/plantuml`, unless `plantuml_server` names another server.
 
 ## General Configuration
 
@@ -117,42 +117,53 @@ With `DATA_ASSET_SQL=true`, a SQLite database stored as a `data_asset` attachmen
 
 ## Security & Authentication
 
-Authentication is JWT Bearer with Argon2id password hashing. Session tokens are signed HS256 with `JWT_SECRET`, or RS256 with the OpenID Connect provider's key under `JWT_SIGNING_ALG=RS256`, which lets other services verify them without being able to sign one (see [Moving to RS256](#moving-to-rs256)). With `ENABLE_MCP=true` DMART also runs an OAuth 2.1 authorization server for MCP clients, and with `OIDC_ISSUER` set, an OpenID Connect provider that signs its tokens with its own RSA key and issues services their own tokens.
+Authentication is JWT Bearer with Argon2id password hashing. Session tokens are signed RS256 with a key DMART makes itself, which lets other services verify them from `/oidc/jwks` without being able to sign one (see [Keys](#keys)). HS256 with `JWT_SECRET` is deprecated, and 1.9.0 removes it (see [Moving off HS256](#moving-off-hs256)). With `ENABLE_MCP=true` DMART also runs an OAuth 2.1 authorization server for MCP clients, and with `OIDC_ISSUER` set, an OpenID Connect provider that signs its tokens with its own RSA key and issues services their own tokens.
 
 ### JWT & Sessions
 
 | Setting | Description | Default |
 |---|---|---|
-| `JWT_SECRET` | Symmetric signing key: at least 32 bytes and 10 distinct characters (e.g. `openssl rand -hex 32`). **Required — the server refuses to start on the placeholder value.** | `"change-me…"` |
+| `JWT_SECRET` | **Deprecated; 1.9.0 removes it.** Signs session tokens only under `JWT_SIGNING_ALG=HS256`, which needs it. While set, the HS256 tokens it signed and the session and code hashes made with it still count, as `JWT_ACCEPT_HS256` says, so nobody is signed out. A new install leaves it out. Set, it must be at least 32 bytes and 10 distinct characters, and not the `change-me` placeholder. | `""` |
 | `JWT_ISSUER` | Expected `iss` claim. When it is an absolute `http(s)` URL, it is also the public base of the MCP OAuth discovery URLs, so behind a path prefix set it to the public URL (`https://host.example/dmart`). Changing it invalidates every token already issued. | `"dmart"` |
 | `JWT_AUDIENCE` | Expected `aud` claim | `"dmart"` |
 | `JWT_ACCESS_EXPIRES` | Access-token lifetime (seconds) | `2592000` (30d) |
 | `JWT_REFRESH_DAYS` | Refresh-token lifetime (days). Only `/oauth/token` issues refresh tokens; `/user/login` gives one long-lived access token. | `30` |
 | `JWT_REQUIRE_TOKEN_USE` | Reject JWTs lacking the `token_use` claim (access vs refresh separation) | `false` |
-| `JWT_SIGNING_ALG` | How session tokens are signed: `HS256` with `JWT_SECRET`, or `RS256` with `OIDC_SIGNING_KEY_FILE`, whose public half `/oidc/jwks` publishes. `RS256` needs `OIDC_ISSUER`. RS256 session tokens are accepted whenever the provider is on, whatever this says, so going back to `HS256` ends no session. | `HS256` |
-| `JWT_ACCEPT_HS256` | Whether an HS256 session token is accepted. `false` needs `JWT_SIGNING_ALG=RS256`, and makes a copy of `JWT_SECRET` sign nothing DMART takes. | `true` |
+| `JWT_SIGNING_ALG` | How session tokens are signed: `RS256` with the node's own key (see [Keys](#keys)), whose public half `/oidc/jwks` publishes, or `HS256` with `JWT_SECRET`, deprecated, for an install whose services still verify or sign tokens with the secret (see [Moving off HS256](#moving-off-hs256)). `HS256` needs `JWT_ACCEPT_HS256=true`, which it implies when that is left out. RS256 tokens are accepted under either. | `RS256` |
+| `JWT_ACCEPT_HS256` | Which HS256 session tokens still count: `sessions`, one with a session row, as every person's sign-in has, so `JWT_SECRET` alone forges nothing; `false`, none; `true`, any, a bot's or a service's with no session row too, only while a service still signs tokens with `JWT_SECRET` itself. Read in any case. Under `sessions`, each refused token logs a warning naming its account, at most once an hour per account: "Refused an HS256 token with no session row". | `sessions`; `true` under `JWT_SIGNING_ALG=HS256` |
+| `KEYS_DIR` | Where DMART keeps the keys it makes (see [Keys](#keys)), as an absolute path. Empty: `keys` in systemd's state directory (`/var/lib/dmart/keys` for the RPM and DEB packages), else `/var/lib/dmart/keys` when it exists and the account may enter it, else `keys` beside the `config.env` that `BACKEND_ENV` names when that directory may be written, else `~/.dmart/keys`. | `""` |
 | `MAX_SESSIONS_PER_USER` | Max concurrent sessions per user; past it the oldest sessions end | `5` |
 | `SESSION_INACTIVITY_TTL` | Idle seconds before a JWT is rejected and its session deleted (0 = disabled) | `0` |
 | `SESSION_MAX_LIFETIME_SECONDS` | Hard cap on the refresh-token chain from original login (0 = disabled) | `0` |
 | `LOGOUT_ON_PWD_CHANGE` | Invalidate all sessions on password change | `true` |
 | `CSRF_PROTECT_COOKIE_AUTH` | Gate cookie-borne auth against cross-site requests (bearer-header callers unaffected) | `true` |
 
-#### Moving to RS256
+#### Keys
+
+DMART makes the keys it needs itself at its first start, in `KEYS_DIR`: the directory `0700` and each file `0600`, owned by the account DMART runs as. A key or directory others may read is closed to them when DMART owns it, and refused when it does not.
+
+- **The signing key, one per node:** an RSA key in `KEYS_DIR/signing-key.pem`, or in `OIDC_SIGNING_KEY_FILE` when a deployment names one it already has. It signs session tokens, and the OpenID Connect provider's tokens when that is on.
+- **Every node's public key, in the database:** each node registers its own at start and every five minutes, every node accepts a token any registered key signed, and `/oidc/jwks` lists them all. Nodes behind one load balancer share nothing but the database: a new node registers and is trusted, and no secret is copied between them. A key no node has registered again for longer than any token it signed can live, plus a day, drops out.
+- **The authenticator apps' key,** `KEYS_DIR/totp-key`, which every node needs the same copy of: see [Security Keys and Authenticator Apps](#security-keys-and-authenticator-apps).
+- **The one-time codes' hashing key,** in the database, made by the first node and shared by all. Session tokens are stored as a SHA-256 and need no key. Under `JWT_SIGNING_ALG=HS256` both are stored as an HMAC keyed from `JWT_SECRET` instead, for a service that looks a session or a code up itself.
+
+Keep `KEYS_DIR` with the backups: a node that loses its signing key makes a new one at its next start, and the tokens it signed end.
+
+- **Changing a node's key.** Move `signing-key.pem` aside and restart. The node makes a new key and registers it, and the old one, no longer registered again, keeps verifying what it signed until those tokens have expired. `OIDC_SIGNING_KEY_PREVIOUS_FILE` can name it as well: published and verifying, never signing.
+- **On the host.** `dmart cli` and `dmart selfcheck`, given no password, sign their token with the node's key, so run them as the account DMART runs as (`sudo -u dmart` for the packages), with the same `KEYS_DIR`. They never create a key.
+
+#### Moving off HS256
 
 [Apps and services: from a shared secret to OAuth 2](/api-docs#apps-and-services-from-a-shared-secret-to-oauth-2) draws who holds what under each.
 
-A service that verifies DMART's tokens with `JWT_SECRET` can also sign one DMART takes for any bot, whatever its grants. Under `JWT_SIGNING_ALG=RS256` it verifies them with the public key from `{OIDC_ISSUER}/oidc/jwks` instead, which signs nothing (see [Verifying DMART's tokens in another service](/api-docs#verifying-dmarts-tokens-in-another-service)). Moving a deployment, one service at a time:
+A service that verifies DMART's tokens with `JWT_SECRET` can also sign one, and with `JWT_ACCEPT_HS256=true` DMART takes it for any bot, whatever its grants. Under the default `sessions` a copy of the secret signs nothing DMART takes, but a service that still verifies or signs tokens with it stops working. It verifies them from `/oidc/jwks` instead, served whether or not the OpenID Connect provider is on (see [Verifying DMART's tokens in another service](/api-docs#verifying-dmarts-tokens-in-another-service)).
 
-1. Turn on the OpenID Connect provider (`OIDC_ISSUER`, `OIDC_SIGNING_KEY_FILE`) if it is not on. **Every server of the deployment holds the same key file**: a server that finds none creates its own, and then refuses the tokens its peers sign.
-2. Each service accepts both: RS256 from the JWKS, and HS256 with the secret it holds.
-3. Set `JWT_SIGNING_ALG=RS256`. New tokens are RS256; those already issued keep working.
-4. Each service drops HS256 and deletes its copy of the secret.
-5. Once no service signs tokens with the secret either, set `JWT_ACCEPT_HS256=false`. A copy of the secret then signs nothing DMART accepts. `JWT_SECRET` still keys the session and code hashes, so changing it ends every session and every pending code.
+An install whose services still use the secret sets `JWT_SIGNING_ALG=HS256`. That line alone signs and accepts tokens as HS256 always did, bots' and services' included, and stores sessions and one-time codes under hashes keyed from `JWT_SECRET`, for a service that looks a session up in `sessions`, or a code in `otps`, itself. Then, one service at a time:
 
-Going back to `HS256` keeps every RS256 token already issued working while the provider is on.
-
-- **Changing the key.** Put the new key in `OIDC_SIGNING_KEY_FILE` and name the old one in `OIDC_SIGNING_KEY_PREVIOUS_FILE`, on every server, then restart. The old key is published and verifies what it signed, but signs nothing. Remove it once the tokens it signed have expired (`JWT_ACCESS_EXPIRES` and `JWT_REFRESH_DAYS` for session tokens, `OIDC_TOKEN_SECONDS` and the clients' `token_seconds` for the provider's own).
-- **On the host.** `dmart cli` and `dmart selfcheck`, given no password, sign their token as the server does, so under RS256 they read the key file: run them as the account DMART runs as. They never create a key.
+1. Each service accepts RS256 from the JWKS as well as HS256.
+2. A service that signs its own tokens with the secret moves to a token of its own ([`client_credentials`](/api-docs#a-services-own-token-client_credentials)).
+3. Once every service has moved, remove `JWT_SIGNING_ALG=HS256` and restart. New tokens are RS256. People's HS256 tokens keep working while their sessions last, and a bot or service holding an HS256 token signs in again for an RS256 one.
+4. Each service deletes its copy of the secret. `JWT_SECRET` stays in `config.env` until 1.9.0 removes it, since the session and code hashes made with it still match through it.
 
 ### Brute-force & Rate Limiting
 
@@ -220,7 +231,7 @@ A lock does not sign the user out: access tokens already issued keep working unt
 | Setting | Description | Default |
 |---|---|---|
 | `WEB_DEVICE_OTP` | A trusted browser for accounts of type `web`, for tightly secured instances. On, a web account signs in with its password, or through Google, Facebook or Apple, only from the browser it last signed in to with a one-time code, and only once its email or phone is verified. See [Trusted Browser](/access-control#trusted-browser-web_device_otp). | `false` |
-| `IS_REGISTRABLE` | Allow self-registration via `POST /user/create`, and the accounts `ENABLE_OTP_IMPLICIT_REGISTRATION` creates | `false` |
+| `IS_REGISTRABLE` | Allow self-registration via `POST /user/create`, and the accounts `ENABLE_OTP_IMPLICIT_REGISTRATION` creates. Catalog links to its sign-up page only while it is on and `REGISTRATION_ENABLED_CHANNELS` names a channel. | `false` |
 | `IS_OTP_FOR_CREATE_REQUIRED` | Require a verified OTP for account creation, so each address a registrant gives is proved by a code. The server refuses to start with it off while `IS_REGISTRABLE=true`: anyone could then claim someone else's address before its owner registers. | `true` |
 | `OTP_TOKEN_TTL` | One-time-password time-to-live (seconds). An expired code is never redeemed: sent after it, the code that was issued answers `OTP_EXPIRED` (308), and any other code answers as a wrong one. | `300` |
 | `OTP_LENGTH` | Digits in a one-time code, 4–9. Each digit fewer makes a code ten times easier to guess, so startup warns below 6. | `6` |
@@ -235,10 +246,10 @@ A lock does not sign the user out: access tokens already issued keep working unt
 | `REGEX_CONFIG_PATH` | JSON file overriding the `email` and `msisdn` patterns, the password rule (`password`, with the `password_hint` a refused password is told) and the username rule (`username`, with its `username_hint`); see the rules file below. Empty = `~/.dmart/regex.json`. The built-in password rule is 8–64 characters with a digit and an uppercase letter. | `""` |
 | `USER_CREATE_DEFAULT_ROLE` | Single role assigned to every self-created user (self-service create ignores roles in the body) | `""` (none) |
 | `USER_CREATE_DEFAULT_GROUP` | Single group assigned to every self-created user | `""` (none) |
-| `USER_PROFILE_PAYLOAD_PROTECTED_FIELDS` | CSV of payload fields users cannot update via `POST /user/profile` | `""` |
+| `USER_PROFILE_PAYLOAD_PROTECTED_FIELDS` | CSV of payload fields users cannot set on their own account: at sign-up, through `POST /user/profile`, or through `/managed/request` with a grant on their own record. One sent back with the value it holds is accepted. A global admin is not held. | `""` |
 | `USER_PAYLOAD_SCHEMA` | The payload schema (in `management/schema`) a self-registered account gets, at `/user/create` and when a code sign-in creates the account (`ENABLE_OTP_IMPLICIT_REGISTRATION`). It is the only schema a user's own request may name: at sign-up, and on the profile while the record has none. Empty: users name no schema, and only an admin gives a user one. A value that is not a valid shortname stops the server from starting. See [User Profile Protection](/access-control#6-user-profile-protection). | `""` |
 | `ALLOWED_SUBMIT_MODELS` | CSV of `space.schema` pairs allowed for `/public/submit` and anonymous uploads, matched exactly, case included (empty = none) | `""` |
-| `USER_DELETION_MODE` | `soft` keeps a deleted user's row, marked deleted and stripped of contacts, password, mailbox, aliases and services: the account leaves user listings and their totals, and stays in exports. `hard` deletes it with the entries and attachments the user owns (an entry with every attachment beneath it, whoever owns that), their history and the account's own, its sessions and locks; the history the user wrote on records that stay is kept, and the spaces, roles, groups, permissions and users it owned pass to `dmart`, as does a folder of its that holds another owner's entry. An admin's hard delete of a user who has created records needs `force: true`. `POST /user/delete`, a user deleting themself, takes only the records the user may delete, each judged as their own delete request would be; if any they own are left, the account is soft-deleted instead, and the answer says how many (`records_kept`). See [Deleting a user](/entity-lifecycle#deleting-a-user). | `"soft"` |
+| `USER_DELETION_MODE` | `soft` keeps a deleted user's row, marked deleted and stripped of contacts, password, mailbox, aliases, services and the `payload.body` fields the users folder's `unique_fields` names: the account leaves user listings and their totals, and stays in exports. `hard` deletes it with the entries and attachments the user owns (an entry with every attachment beneath it, whoever owns that), their history and the account's own, its sessions and locks; the history the user wrote on records that stay is kept, and the spaces, roles, groups, permissions and users it owned pass to `dmart`, as does a folder of its that holds another owner's entry. An admin's hard delete of a user who has created records needs `force: true`. `POST /user/delete`, a user deleting themself, takes only the records the user may delete, each judged as their own delete request would be; if any they own are left, the account is soft-deleted instead, and the answer says how many (`records_kept`). See [Deleting a user](/entity-lifecycle#deleting-a-user). | `"soft"` |
 
 **The rules file.** The JSON file at `REGEX_CONFIG_PATH` may hold `email`, `msisdn`, `password`, `password_hint`, `username` and `username_hint`:
 
@@ -259,7 +270,7 @@ A lock does not sign the user out: access tokens already issued keep working unt
 
 ### Admin Accounts
 
-Accounts of type `admin` sign in with their password and a one-time code, both checked: once the password checks out, the server sends the code. An admin resets its password by code only while `force_password_change` is set on the account, which only a global admin, or the active admin that created the account, may set.
+Accounts of type `admin` sign in with their password and a one-time code, both checked: once the password checks out, the server sends the code. An admin with a security key or an authenticator app is sent no code; the key or app takes its place (see [Security Keys and Authenticator Apps](#security-keys-and-authenticator-apps)). An admin resets its password by code only while `force_password_change` is set on the account, which only a global admin, or the active admin that created the account, may set.
 
 Management's users, roles, permissions and groups are for accounts of type `admin` and the built-in `dmart`. Another account's grants on them count only through the two exemptions below (see [The Management Space](/access-control#the-management-space)). At every start the log names, as `MANAGEMENT_ADMIN_ONLY`, each role whose grants there the rule limits, and `dmart check management hard` counts the accounts that hold each.
 
@@ -269,6 +280,26 @@ Management's users, roles, permissions and groups are for accounts of type `admi
 | `ADMIN_USER_TYPE` | Type the built-in `dmart` account is held to at every start: `web` or `admin`. As `admin` it signs in with its password and a code, so it needs an email or phone the server can send to; becoming one ends its sessions. Setting `web` again and restarting is the way back in when codes stop arriving. As `web` it is held to `WEB_DEVICE_OTP`, so it needs a verified email or phone before that is turned on. | `"web"` |
 | `MANAGEMENT_EXEMPT_ACCOUNTS` | Comma-separated accounts, such as a bot, whose grants on management's users, roles, permissions and groups count although they are not of type `admin`. Naming `anonymous` stops startup. | `""` |
 | `MANAGEMENT_EXEMPT_ROLES` | Comma-separated roles whose grants on management's users, roles, permissions and groups count for every account that holds them. Naming `world`, `logged_in` or the `USER_CREATE_DEFAULT_ROLE` role stops startup: what every caller holds never reaches the management space. | `""` |
+
+### Security Keys and Authenticator Apps
+
+A security key, a passkey or an authenticator app is an account's second factor, with its password. Each is opt-in: nothing changes for an account until it adds one (see [Security Keys and Passkeys](/api-docs#security-keys-and-passkeys) and [Authenticator Apps](/api-docs#authenticator-apps)). Keys work only on a domain name over HTTPS, or `http://localhost`. A value the server cannot read stops startup.
+
+| Setting | Description | Default |
+|---|---|---|
+| `PASSKEYS_FOR` | Who may add a security key or passkey: `all`, or `admins` for a deployment whose users sign in through a mobile app that cannot use keys yet. Narrowing it takes no key away. A bot never adds one. | `all` |
+| `TOTP_FOR` | Who may add an authenticator app: `all`, `admins` or `none`. Narrowing it takes no app away. | `all` |
+| `ADMIN_PASSKEY_REQUIRED` | An admin without a key adds one to finish signing in, and gets no session until it does; while it is on, an admin keeps its last key. Needs `APP_URL` on `https`. Turn it on once the admins have keys, or when each can add one at its next sign-in. | `false` |
+| `WEBAUTHN_RP_ID` | The domain keys belong to. Empty, it is the host of `APP_URL`, and on the OpenID Connect and MCP sign-in pages the host of `OIDC_ISSUER`. Set it to a parent domain the two share when one key should serve both; a domain that is not the host or a parent of it turns keys off there. Changing it later means every account adds its keys again. | `""` |
+| `WEBAUTHN_ANDROID_APPS` | Android apps that sign in with the account's keys, comma-separated, each the package and the SHA-256 fingerprint of its signing certificate as `keytool -list -v` prints it (`com.example.app:AB:CD:…`). DMART serves `/.well-known/assetlinks.json` for them. | `""` |
+| `WEBAUTHN_IOS_APPS` | iOS apps that sign in with the account's keys, comma-separated, each `TEAMID.bundle.id`. DMART serves `/.well-known/apple-app-site-association` for them. | `""` |
+
+The phone reads the two `/.well-known/` files from `https://<the key's domain>/.well-known/`, so a proxy in front of DMART must pass that path through (see [Keys in Mobile Apps](/api-docs#keys-in-mobile-apps)).
+
+**The authenticator apps' key.** Each app's secret is stored sealed (AES-GCM) under a key kept outside the database, in `totp-key` in the keys directory ([`KEYS_DIR`](#jwt--sessions)): 32 random bytes in base64, mode 0600. DMART creates the file at first start when it is missing, and logs its id at every start (`keys: authenticator-app key <id> in <file>`).
+
+- **Every server of a deployment needs the same file.** Copy the first server's to the others, or write the same one to each, before they serve sign-ins with an app, and compare the ids they log. A server whose key differs answers an app's code with a server error (HTTP `500`) and does not count it as a wrong one. Key-only sign-in's decoys are made with the same key, so they match from server to server only when the file does.
+- **Back it up apart from the database.** Without it no app's secret opens, and every account adds its app again; a copy of the database alone opens none.
 
 ### Password Hashing
 
@@ -389,8 +420,8 @@ DMART can serve its users as a read-only LDAP directory, keep a replica of anoth
 | `DIRECTORY_REPLICA_INTERVAL_SECONDS` | Seconds between polls of the primary | `30` |
 | `DIRECTORY_REPLICA_MAX_STALENESS_HOURS` | Hours a replica keeps answering binds after its last good sync. 0 = no limit. | `24` |
 | `OIDC_ISSUER` | Public base URL of the OpenID Connect provider, `https` unless it is a loopback address. Empty = off. | `""` |
-| `OIDC_SIGNING_KEY_FILE` | PEM RSA key that signs ID and access tokens, and session tokens under `JWT_SIGNING_ALG=RS256`; created on first start when missing. Every server of a deployment needs the same file. | `""` |
-| `OIDC_SIGNING_KEY_PREVIOUS_FILE` | The key `OIDC_SIGNING_KEY_FILE` held before a change: published in `/oidc/jwks` and accepted on what it signed, never used to sign. Must name an existing file, of 2048 bits at least; needs `OIDC_ISSUER`. | `""` |
+| `OIDC_SIGNING_KEY_FILE` | A PEM RSA key to sign with instead of `KEYS_DIR/signing-key.pem`, for a deployment that already has one: session tokens, and the provider's ID and access tokens. Created on first start when missing. Each node has its own (see [Keys](#keys)). | `""` |
+| `OIDC_SIGNING_KEY_PREVIOUS_FILE` | A key this node signed with before: published in `/oidc/jwks` and accepted on what it signed, never used to sign. Must name an existing file, of 2048 bits at least. | `""` |
 | `OIDC_CLIENTS_FILE` | JSON file of relying parties (see [below](#openid-connect-clients)); re-read when it changes. Optional: a relying party may be an [integration record](/api-docs#integration-records) instead. | `""` |
 | `OIDC_TOKEN_SECONDS` | Lifetime of ID and access tokens, 60–86400 | `3600` |
 
@@ -432,7 +463,7 @@ A user's `mailbox`, `mail_aliases` and `services` are described under [Mailbox, 
 - **`services`** gates who may sign in: a user must hold one of them. Empty admits any active user.
 - **A bad file.** A reload that fails keeps the previous list and logs why; at startup, a bad file stops the server.
 
-With `OIDC_ISSUER` set, startup also requires `OIDC_SIGNING_KEY_FILE`, whose directory must exist (the key is created on first start). An `OIDC_CLIENTS_FILE`, when set, must exist.
+With `OIDC_ISSUER` set, an `OIDC_SIGNING_KEY_FILE`, when named, must be in a directory that exists (the key is created on first start), and an `OIDC_CLIENTS_FILE`, when named, must exist.
 
 **Relying parties as integration records.** A relying party may instead be a record in `management/integrations` allowed `authorization_code`, with its `redirect_uris` and `services` under the file's rules, its secret made by `POST /oidc/clients/{client_id}/secrets` and kept as a hash, or `"public_client": true` (see [Integration records](/api-docs#integration-records)). A `client_id` in both the file and the records signs nobody in, and the server logs it, until one of them goes. To move a client from the file, create its record under the same `client_id`, make it a secret, give the relying party the new secret and remove the client from the file, all at once: in between, the `client_id` is in both. A deployment whose relying parties have all moved leaves `OIDC_CLIENTS_FILE` unset.
 

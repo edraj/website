@@ -4,7 +4,7 @@ Comprehensive reference for the DMART API. All endpoints, data structures, and u
 
 The API is served by the self-contained DMART binary (.NET 10 Native AOT) on ASP.NET Core / Kestrel. The base URL for all API requests is typically: `http://localhost:8282` (or as configured via `LISTENING_HOST` / `LISTENING_PORT`). `GET /` answers `{"status":"success","message":"DMART-CS API"}`.
 
-Most endpoints require authentication with a JWT bearer token, supplied either as a header or a cookie. DMART signs it HS256 with `JWT_SECRET`, or RS256 with the OpenID Connect provider's key under `JWT_SIGNING_ALG=RS256`, so that other services can [verify it with the public key](#verifying-dmarts-tokens-in-another-service):
+Most endpoints require authentication with a JWT bearer token, supplied either as a header or a cookie. DMART signs it RS256 with a key of its own, so that other services can [verify it with the public key](#verifying-dmarts-tokens-in-another-service), or HS256 with `JWT_SECRET` under the deprecated `JWT_SIGNING_ALG=HS256`:
 
 **Header** `Authorization: Bearer <your_token>`
 
@@ -16,7 +16,7 @@ Tokens are obtained via `/user/login` (password or OTP), `/user/create` (self-re
 
 Interactive API documentation is available as **Swagger UI** at `/docs`, with the raw OpenAPI schema at `/docs/openapi.json` (both served by ASP.NET Core).
 
-**Limits.** Every request runs under `REQUEST_TIMEOUT` (35 s by default) and is answered `504` when it runs out; WebSockets, `/mcp`, `/managed/import` and `/managed/export` have no such deadline. The sign-in, code and token routes, and the anonymous write routes, are limited per client address by `AUTH_RATE_LIMIT_PER_MINUTE` (10 a minute), every `/public` route by `PUBLIC_RATE_LIMIT_PER_MINUTE` (600 a minute), and token introspection by `INTROSPECT_RATE_LIMIT_PER_MINUTE` (600 a minute); past any of them the answer is HTTP `429`. The routes that take a file accept up to `MAX_UPLOAD_SIZE_MB` (50 MB by default).
+**Limits.** Every request runs under `REQUEST_TIMEOUT` (35 s by default) and is answered `504` when it runs out; WebSockets, `/mcp`, `/managed/import` and `/managed/export` have no such deadline. The sign-in, code and token routes, the routes that prove or change an account's security keys and authenticator app, and the anonymous write routes, are limited per client address by `AUTH_RATE_LIMIT_PER_MINUTE` (10 a minute), every `/public` route by `PUBLIC_RATE_LIMIT_PER_MINUTE` (600 a minute), and token introspection by `INTROSPECT_RATE_LIMIT_PER_MINUTE` (600 a minute); past any of them the answer is HTTP `429`. The routes that take a file accept up to `MAX_UPLOAD_SIZE_MB` (50 MB by default).
 
 ## Common Data Structures
 
@@ -239,7 +239,9 @@ Sign-in and tokens:
 | 13 | `PASSWORD_NOT_VALIDATED` | 401 | A code sign-in with a wrong password, or an admin's code without the right one (the code is then not checked, so not spent). |
 | 100 | `OTP_ISSUE` | 401 | A code sign-in naming no identifier or more than one, or a shortname while `OTP_SHORTNAME_CHANNELS=none`; an admin with no phone or email to send a code to. |
 | 110 | `USER_ACCOUNT_LOCKED` | 401 | The account is deactivated, locked by failed attempts, or locked to another device (`locked_to_device`). |
-| 115 | `OTP_NEEDED` | 401 | The sign-in needs a one-time code: an admin's right password (the code is sent), a `mobile` account on a device it does not trust yet (its first included), a web account outside its trusted browser under `WEB_DEVICE_OTP`, or an admin through a social provider. |
+| 115 | `OTP_NEEDED` | 401 | The sign-in needs a second step: an admin's right password (the code is sent), a `mobile` account on a device it does not trust yet (its first included), a web account outside its trusted browser under `WEB_DEVICE_OTP`, or an admin through a social provider. For an account with a security key or an authenticator app, its right password, and `error.info` carries the step (see [Security Keys and Passkeys](#security-keys-and-passkeys)). |
+| 116 | `SECOND_FACTOR_REQUIRED` | 401 | An account with a security key or an authenticator app came in a way that cannot carry it: a right code at a code sign-in, or Google, Facebook or Apple. Also an admin without a key under `ADMIN_PASSKEY_REQUIRED`, once its password and code check out; `error.info` then carries the challenge for a new key. |
+| 117 | `SECOND_FACTOR_INVALID` | 401 / 400 | A key's answer, an authenticator app's code or a recovery code that is refused, or a challenge that has expired or was used. `400` when it is the proof a change to the account's keys or app carries. |
 | 307 | `OTP_INVALID` | 401 / 400 | A wrong or spent code, one a newer code has replaced, or one out of guesses. `400` outside `/user/login`. |
 | 308 | `OTP_EXPIRED` | 401 / 400 | The code issued, sent after it expired. `400` outside `/user/login`. |
 | 50 | `SESSION` | 401 | `/user/create` refused: registration is off, a field is missing or invalid, or the code is wrong. |
@@ -265,7 +267,7 @@ Checks if a user with specific fields already exists. Open without a session, an
 
 POST `/user/create`
 
-Registers a new user and signs them in: the answer carries an `access_token` and sets the `auth_token` cookie. Self-registration is off unless `IS_REGISTRABLE=true`, and takes only the channels in `REGISTRATION_ENABLED_CHANNELS`. The server ignores roles and groups in the body (`USER_CREATE_DEFAULT_ROLE` / `USER_CREATE_DEFAULT_GROUP` apply instead). The account's payload gets `USER_PAYLOAD_SCHEMA` when it is set, and a payload that names any other schema is refused with `PROTECTED_FIELD` (see [User Profile Protection](/access-control#6-user-profile-protection)). Each address is proved by a code (`IS_OTP_FOR_CREATE_REQUIRED`, which the server does not start without while registration is open): first request one with `/user/otp-request` and `purpose: "register"`, and send it as `email_otp` (or `msisdn_otp`); a wrong code answers `SESSION` (50), and the issued one sent after it expired `OTP_EXPIRED` (308). A password must meet the password rule (see [Access Control](/access-control)).
+Registers a new user and signs them in: the answer carries an `access_token` and sets the `auth_token` cookie. Self-registration is off unless `IS_REGISTRABLE=true`, and takes only the channels in `REGISTRATION_ENABLED_CHANNELS`. The server ignores roles, groups and tags in the body (`USER_CREATE_DEFAULT_ROLE` / `USER_CREATE_DEFAULT_GROUP` apply instead, and only an admin tags an account); the sign-up still succeeds. The account's payload gets `USER_PAYLOAD_SCHEMA` when it is set, and a payload that names any other schema is refused with `PROTECTED_FIELD` (see [User Profile Protection](/access-control#6-user-profile-protection)). Each address is proved by a code (`IS_OTP_FOR_CREATE_REQUIRED`, which the server does not start without while registration is open): first request one with `/user/otp-request` and `purpose: "register"`, and send it as `email_otp` (or `msisdn_otp`); a wrong code answers `SESSION` (50), and the issued one sent after it expired `OTP_EXPIRED` (308). A password must meet the password rule (see [Access Control](/access-control)).
 
 - **Username.** A top-level `shortname` is the username the registrant chooses. Without one, or with `"auto"`, the server makes an 8-character one. A chosen name must be free and meet the shortname rule (letters, digits and `_`, up to 64 characters) and, when the regex file (`REGEX_CONFIG_PATH`) sets one, its `username` rule, which can only narrow it. A name the rule refuses answers `SESSION`, with the file's `username_hint` as the message when it sets one, and a taken one `SHORTNAME_ALREADY_EXIST` (HTTP `409`, "This username is taken"), both before the code is spent. An admin's create through `/managed/request` is held to the same rule (`INVALID_DATA`); a name the server makes is not.
 - **Email domain.** With `REGISTRATION_EMAIL_DOMAINS` set, the email must be at one of those domains, subdomains not included; any other answers `SESSION` with the list (see [Email Domains and Contact-Only Emails](#email-domains-and-contact-only-emails)).
@@ -306,7 +308,9 @@ A `mobile` account sends its device's `device_id` on every sign-in, by password,
 
 Accounts of type `admin` sign in with their password **and** a one-time code. The password alone, once it checks out, sends the code and answers `OTP_NEEDED` (115); the sign-in then completes with `password` and `otp` sent together. The password is checked first: without the right one the answer is `PASSWORD_NOT_VALIDATED` (13) and the code is not checked, so whoever knows only the username cannot spend it on guesses. For a shortname the code goes to the account's verified phone, else its verified email, else its phone, else its email, whatever `OTP_SHORTNAME_CHANNELS` says. `/user/otp-request` sends an admin no login code. Wrong passwords and codes count toward the account lockout (see [Access Control](/access-control#lockout)). An account that failed attempts have locked still signs in with a right code; a wrong one answers `USER_ACCOUNT_LOCKED` (110), and the issued code sent after it expired `OTP_EXPIRED` (308).
 
-The access token has no `kid` header. Its claims are `sub` (the shortname), `iss` (`JWT_ISSUER`), `aud` (`JWT_AUDIENCE`), `iat`, `exp`, `token_use` (`access`), `jti`, `roles`, `data` (`shortname`, `type`) and `expires`. `/user/login` issues no refresh token.
+An account with a security key or an authenticator app signs in with its password and that. The right password answers `OTP_NEEDED` (115) with the step in `error.info`, and the sign-in completes with the password and the key's answer (`webauthn`), the app's code (`totp`) or a recovery code (`recovery_code`). It takes the place of an admin's code, which is then not sent, and of the code a `mobile` account's new device or a web account's new browser would be asked for. See [Security Keys and Passkeys](#security-keys-and-passkeys) and [Authenticator Apps](#authenticator-apps).
+
+The access token's header is `{"alg":"RS256","typ":"at+jwt","kid":…}`, naming the node's key (an HS256 one, under `JWT_SIGNING_ALG=HS256`, has no `kid`). Its claims are `sub` (the shortname), `iss` (`JWT_ISSUER`), `aud` (`JWT_AUDIENCE`), `iat`, `exp`, `token_use` (`access`), `jti`, `roles`, `data` (`shortname`, `type`) and `expires`. `/user/login` issues no refresh token.
 
 GET `/user/profile`
 
@@ -369,7 +373,100 @@ POST `/user/google/mobile-login`, `/user/facebook/mobile-login`, `/user/apple/mo
 
 Sign in from a mobile app with a token the app got from the provider. Body: `token` (the ID token for Google and Apple, the access token for Facebook) and `device_id`, which a `mobile` account must send, in the body or an `X-DeviceId` header, as on `/user/login`.
 
-A provider sign-in only finds an existing account, by the provider's id or a verified email. It never creates one, and answers `401` when none matches. Accounts of type `admin` cannot sign in this way.
+A provider sign-in only finds an existing account, by the provider's id or a verified email. It never creates one, and answers `401` when none matches. Accounts of type `admin` cannot sign in this way, nor can an account with a security key or an authenticator app (`SECOND_FACTOR_REQUIRED`, 116).
+
+### Security Keys and Passkeys
+
+A security key (a YubiKey, say) or a passkey (kept on a phone or a laptop) is an account's second factor, with its password. The browser signs for the site it shows, so a look-alike site's page gets nothing it can use. Nothing changes for an account until it adds one, on cxb's profile page or through the routes below.
+
+- **Who may add one.** Any account but a bot; with `PASSKEYS_FOR=admins`, only accounts of type `admin` (see [Settings](/settings#security-keys-and-authenticator-apps)).
+- **Where.** Only on a domain name over HTTPS, or `http://localhost`. A key belongs to the host of `APP_URL`, and on the OpenID Connect and MCP sign-in pages to the host of `OIDC_ISSUER`, unless `WEBAUTHN_RP_ID` names a parent domain the two share. Without such an address, adding a key answers `NOT_ALLOWED`.
+- **Kinds.** ES256 keys (YubiKeys and most passkeys) and RS256 keys (Windows Hello). Every use asks for the key's PIN or a fingerprint.
+
+**Signing in** takes two requests to `/user/login`:
+
+1. **The password.** Once it checks out, an account with a key answers `OTP_NEEDED` (115) with `{"factors": ["passkey", "recovery"], "webauthn": {"challenge_id", "options"}}` in `error.info[0]`. `options` are for the browser's `navigator.credentials.get`. They list each of the account's keys with the transports it reported when it was added, and their `hints` name the kinds of key the account has, the most recently used one's kind first: `security-key` (USB, NFC, Bluetooth or a smart card), `client-device` (kept on the device) or `hybrid` (a phone, over a QR code). Without them Chrome offers only its password manager's passkey, and a USB key cannot be picked. An account whose keys all belong to another domain gets `"factors": ["recovery"]` alone.
+2. **The password and the key's answer.** The password again, with `webauthn: {"challenge_id", "credential"}`, where `credential` is the browser's `PublicKeyCredential` as JSON with base64url fields; or with `recovery_code`.
+
+A sign-in or proof challenge lasts two minutes and is spent once, answered or not, whichever server takes it. A refused answer, or an expired or spent challenge, is `SECOND_FACTOR_INVALID` (117), and the sign-in starts again from the password. The key takes the place of an admin's one-time code, which is then not sent, and of the code a `mobile` account's new device or a web account's new browser would be asked for.
+
+Once an account has a key or an authenticator app, nothing weaker signs it in:
+
+| Way in | For an account with a key or app |
+|---|---|
+| `/user/login` with a code | `SECOND_FACTOR_REQUIRED` (116), told only when the code was right |
+| Google, Facebook, Apple | `SECOND_FACTOR_REQUIRED` (116) |
+| The OpenID Connect and MCP sign-in pages | A second page after the password, asking for the key, the app's code or a recovery code |
+| A password reset by code | Works: it changes the password, and signing in still needs the key or app |
+| An LDAP bind | Works with the password, as before; admin accounts stay refused |
+
+On the sign-in pages, the second page carries the username and a challenge the password step issued once the password checked out, never the password itself. It runs one script that DMART serves, with no inline code.
+
+**Managing keys.** Every change carries proof, so a stolen session alone cannot add a factor of its own:
+
+- the account's `password`, which counts toward the [lockout](/access-control#lockout) as a sign-in's does;
+- once it has a key here, that key's answer to a `proof` challenge, as `webauthn`;
+- with an authenticator app and no key, a code from the app, as `totp`; a wrong one counts as a failed sign-in.
+
+An account that signs in with its [key alone](#key-only-sign-in) proves a change with the key's answer alone.
+
+| Route | What it does |
+|---|---|
+| GET `/user/passkeys` | The account's keys (`id`, `name`, `domain`, `created_at`, `last_used_at`), `recovery_codes_left`, whether it may add a key (`may_add`) or an app (`totp_may_add`), whether it has an app (`totp`, `totp_added_at`), and `key_only`. |
+| POST `/user/passkeys/proof-options` | A `proof` challenge for the account's keys here: `challenge_id` and `options`. |
+| POST `/user/passkeys/register-options` | Body: the proof. `challenge_id` and `options` for `navigator.credentials.create`, for five minutes. `?kind=security-key` asks the browser for a security key, and `?kind=passkey` for one kept on this device or on a phone; with no `kind` the browser chooses, and Chrome saves to its password manager. |
+| POST `/user/passkeys/register` | Body: `webauthn` and a `name` (up to 60 characters; "Security key" when left out). Adds the key. The account's first second factor, key or app, comes with ten new recovery codes, shown this once; a first key added beside an app keeps the app's codes. |
+| POST `/user/passkeys/rename` | Body: `id` and a `name` of 1 to 60 characters. |
+| POST `/user/passkeys/remove` | Body: `id` and the proof. Removing the account's last key ends its sessions and turns key-only sign-in off, and with no app left, its recovery codes go too. While `ADMIN_PASSKEY_REQUIRED` is on, an admin keeps its last key. |
+| POST `/user/passkeys/recovery-codes` | Body: the proof. Ten new recovery codes, shown once; the old ones stop working. Only for an account with a key or an app. |
+| POST `/user/passkeys/key-only` | Body: `enabled` and the proof. [Key-only sign-in](#key-only-sign-in) on or off; on needs a key here. |
+| POST `/user/passkeys/reset` | Body: `shortname`. A global admin removes another account's keys, app, key-only sign-in and recovery codes, and ends its sessions; never its own. The reset goes on that account's [history](/access-control#an-accounts-history), by the admin. The answer says how many keys it `removed`. |
+
+**Recovery codes** are ten letters and digits each, shown as `XXXXX-XXXXX`; case and dashes do not matter. Each signs in once, with the password, and the server logs it. An account that loses every key signs in with one, or a global admin resets its keys (above), or whoever runs the server does with [`dmart second-factor reset`](/cli#25-second-factor-reset).
+
+**`ADMIN_PASSKEY_REQUIRED`.** With it on (see [Settings](/settings#security-keys-and-authenticator-apps)), an admin without a key still passes its password and its code or app, but gets no session. The answer is `SECOND_FACTOR_REQUIRED` (116) with `{"factors": ["passkey_setup"], "webauthn": {"challenge_id", "options"}}` in `error.info[0]`: creation options for a new key, for five minutes. `POST /user/passkeys/setup` with `shortname`, `webauthn` and an optional `name` adds the key and signs the admin in, with ten recovery codes in the sign-in record's `recovery_codes`, or none for an admin with an app, which keeps the app's. From then on the key is its second factor.
+
+### Key-Only Sign-In
+
+An account with a key may sign in with the key alone: its name, then the key with its PIN, and no password. A key that checks a PIN is two factors already, something you have and something you know. It is off by default, and each account turns it on for itself, on cxb's profile page or with `POST /user/passkeys/key-only`. The password and key keep working either way.
+
+1. `POST /user/passkeys/login-options` with `shortname`, `email` or `msisdn`, and no session: `challenge_id` and `options` for `navigator.credentials.get`.
+2. `POST /user/login` with the same name and `webauthn`, and no password.
+
+Every name gets a challenge in step 1. A name that does not sign in this way, an account or not, gets a decoy: one 64-byte credential id, the same for that name every time. An account that does gets its own keys' ids, so one with several keys, or with an id of another length, can be told from a decoy. Asking can show that such a name uses key-only sign-in, though nothing signs it in without the key. This challenge names no transports and no `hints`, which a decoy would not have. Until the key's answer checks out, every refusal is `SECOND_FACTOR_INVALID` (117), for a wrong answer and for a name that does not sign in this way alike. The account's state, deactivated or deleted, is judged only after it, as a password sign-in judges it after the password.
+
+- **A wrong-password lock does not stop it,** as it does not stop a right one-time code: the lock stops guessing, and a key's answer is not a guess.
+- **Admins may use it,** from inside `ADMIN_IP_ALLOWLIST`.
+- **The sign-in pages** (OpenID Connect and MCP) offer "Sign in with a security key": the name, then the key.
+- **Removing the account's last key** turns it off.
+
+### Authenticator Apps
+
+An account with no key may use an app on its phone (Google Authenticator, Aegis, 1Password and the like) as its second factor instead: a six-digit code that changes every 30 seconds (RFC 6238: SHA-1, 6 digits, 30 seconds, and one step either side for a clock that drifts). An app's code can be phished where a key's answer cannot, so an account with a key signs in with the key, and its app is not asked. `TOTP_FOR` says who may add one (see [Settings](/settings#security-keys-and-authenticator-apps)).
+
+| Route | What it does |
+|---|---|
+| POST `/user/totp/begin` | Body: the proof (as for [keys](#security-keys-and-passkeys)). `setup_id`, `secret` and `uri`: `uri` is the `otpauth://` URI to show as a QR code, and `secret` the base32 key to type in by hand. The setup stays open ten minutes, and an app the account already has keeps working until the new one is confirmed. |
+| POST `/user/totp/confirm` | Body: `setup_id` and `code`, a code from the app. A mistyped one leaves the setup open for another try. An account that had no key or app comes away with ten recovery codes, shown once. |
+| POST `/user/totp/remove` | Body: the proof. With no key left either, the account's recovery codes go too. |
+
+Signing in, the right password answers `OTP_NEEDED` (115) with `{"factors": ["totp", "recovery"]}` in `error.info[0]`, and `/user/login` with the password and `totp` (or `recovery_code`) signs in. Each code signs in once, whichever server takes it, and a wrong one counts toward the lockout as a wrong password does. An admin's app takes the place of its one-time code, as a key does. The app lists the account under the host of `APP_URL`.
+
+The apps' secrets are stored sealed under the key in `KEYS_DIR/totp-key`, outside the database, so a copy of the database opens none of them. Every server of a deployment needs the same file (see [Settings](/settings#security-keys-and-authenticator-apps)).
+
+### Keys in Mobile Apps
+
+A phone offers an app the keys of a domain only when the domain names the app. With the apps listed in `WEBAUTHN_ANDROID_APPS` and `WEBAUTHN_IOS_APPS` (see [Settings](/settings#security-keys-and-authenticator-apps)), DMART serves:
+
+GET `/.well-known/assetlinks.json`
+
+For Android: each app's package and signing-certificate fingerprint, with the relations `delegate_permission/common.handle_all_urls` and `delegate_permission/common.get_login_creds`.
+
+GET `/.well-known/apple-app-site-association`
+
+For iOS: the apps under `webcredentials`.
+
+Each answers `404` while no app is listed. The phone reads them from `https://<the key's domain>/.well-known/`, so a proxy in front of DMART must pass that path through, and with `WEBAUTHN_RP_ID` set to a parent domain, that domain has to serve them. The app then signs in as cxb does: the challenge from `/user/login` (or `/user/passkeys/login-options`), the platform's passkey API (Credential Manager on Android, AuthenticationServices on iOS), and the answer back to `/user/login`. An Android app's answer names its signing key as its origin, which DMART accepts for the apps listed.
 
 ## Managed Content `/managed`
 
@@ -722,7 +819,7 @@ This narrows only the saved query. `/public/query` still lists and searches any 
 
 GET `/public/client-config`
 
-The server's values a frontend needs, for one that DMART does not serve itself: `otp_length`, `otp_resend_after`, `otp_token_ttl`, `max_upload_size_mb`, `default_query_limit`, `max_query_limit`, `ui_list_limit`, `password_rule_custom` and, when one is set, `password_hint`, `username_rule_custom` and, when one is set, `username_hint`, plus `backend_timeout` in milliseconds (`REQUEST_TIMEOUT` plus 5 s), a floor for the client's own timeout.
+The server's values a frontend needs, for one that DMART does not serve itself: `otp_length`, `otp_resend_after`, `otp_token_ttl`, `max_upload_size_mb`, `default_query_limit`, `max_query_limit`, `ui_list_limit`, `password_rule_custom` and, when one is set, `password_hint`, `username_rule_custom` and, when one is set, `username_hint`, `sign_up_open` (whether anyone may make their own account: `IS_REGISTRABLE` with a channel in `REGISTRATION_ENABLED_CHANNELS`), plus `backend_timeout` in milliseconds (`REQUEST_TIMEOUT` plus 5 s), a floor for the client's own timeout.
 
 GET `/public/byuuid/{uuid}`
 
@@ -804,17 +901,18 @@ The claims are in the ID token as well as at `/oidc/userinfo`, which releases on
 
 - **Single sign-on.** A browser with a live DMART session (the `auth_token` cookie) is not asked again, and a sign-in through the form opens that session. `prompt=login` and `max_age` force a fresh sign-in; `prompt=none` without a session answers `login_required`.
 - **The form** takes a shortname, contact email or hosted mailbox with the password. Under it, "Forgot password?" links to the catalog's reset page (`CAT_URL/reset-password`), and "Create account" to its sign-up page (`CAT_URL/register`), shown only while sign-up is open (`IS_REGISTRABLE` with a channel in `REGISTRATION_ENABLED_CHANNELS`). After either, the person goes back to the application and signs in.
-- **Who may sign in.** A client that lists `services` admits only users who hold one of them. An account with `force_password_change` set gets a page asking it to change its password in DMART first. Bots never sign in, and an admin only by single sign-on, from inside `ADMIN_IP_ALLOWLIST`, since the form takes no code.
+- **Security keys and authenticator apps.** For an account with one, a second page follows the password and asks for the key, the app's code or a recovery code (see [Security Keys and Passkeys](#security-keys-and-passkeys)). While keys work on the issuer's address, the form also offers "Sign in with a security key", for an account that turned on [key-only sign-in](#key-only-sign-in).
+- **Who may sign in.** A client that lists `services` admits only users who hold one of them. An account with `force_password_change` set gets a page asking it to change its password in DMART first. Bots never sign in. The form sends no code, so an admin signs in through it only with a security key or an authenticator app, and otherwise only by single sign-on; either way only from inside `ADMIN_IP_ALLOWLIST`.
 - **One instance.** Authorization codes live 60 seconds in the process's memory, so run the provider on one instance, or route `/oidc/*` to one.
 - **Not supported:** refresh tokens and a logout endpoint (`end_session_endpoint`).
 
 ### Apps and services: from a shared secret to OAuth 2
 
-By default DMART signs its session tokens with one shared secret, `JWT_SECRET`, and a service that checks them keeps a copy, which can also sign a token DMART takes for any bot. Under `JWT_SIGNING_ALG=RS256`, DMART signs with a key only it holds and publishes the public half, and a service gets its own tokens from DMART through OAuth 2. [Moving to RS256](/settings#moving-to-rs256) has the steps.
+DMART signs its session tokens with a key only it holds and publishes the public half, and a service gets its own tokens from DMART through OAuth 2. Under the deprecated `JWT_SIGNING_ALG=HS256`, which 1.9.0 removes, it signs them with one shared secret, `JWT_SECRET`, and a service that checks them keeps a copy, which can also sign a token DMART takes for any bot. [Moving off HS256](/settings#moving-off-hs256) has the steps.
 
 **An app, and a service it calls.** Nothing changes for the app. The service checks the user's token with DMART's public key instead of a copy of the secret.
 
-Before, with a shared secret (`HS256`, the default):
+Before, with a shared secret (`JWT_SIGNING_ALG=HS256`, deprecated):
 
 ```mermaid
 flowchart TB
@@ -826,7 +924,7 @@ flowchart TB
     Svc ~~~ D
 ```
 
-After, with a public key and OAuth 2 (`RS256`); the thick lines are what changes:
+After, with a public key and OAuth 2 (`RS256`, the default); the thick lines are what changes:
 
 ```mermaid
 flowchart TB
@@ -876,7 +974,7 @@ What changes for whom:
 | **A service that calls DMART for a user** | Passes the user's token on | Exchanges it for a token naming the service ([token exchange](#acting-for-a-user-token-exchange)) |
 | **A service that calls another service** | Sends a token DMART and every other service take | Sends a [token for that service alone](#tokens-for-one-service) |
 
-Once no service needs the secret, `JWT_ACCEPT_HS256=false` makes any copy of it sign nothing DMART takes.
+Under the default `JWT_ACCEPT_HS256=sessions` a copy of the secret signs nothing DMART takes: an HS256 token counts only with its session row, as a person's sign-in has.
 
 ### Integration records
 
@@ -985,9 +1083,9 @@ For a service that verifies DMART's tokens with the public key and must see a lo
 
 ### Verifying DMART's tokens in another service
 
-With `JWT_SIGNING_ALG=RS256` (see [JWT & Sessions](/settings#jwt--sessions)), DMART signs its session tokens with the provider's key, and a service verifies them from `{issuer}/oidc/jwks` without holding `JWT_SECRET`, which would also let it sign a token DMART takes for any bot. A service checks:
+DMART signs its session tokens with each node's own key (see [Keys](/settings#keys)), and a service verifies them from DMART's `/oidc/jwks`, served whether or not the OpenID Connect provider is on, holding nothing that signs. A service checks:
 
-- the signature, with the key the header's `kid` names in the JWKS (cache the set; fetch it again on an unknown `kid`);
+- the signature, with the key the header's `kid` names in the JWKS (cache the set; fetch it again on an unknown `kid`, as a new node's key appears there);
 - `alg` is `RS256` and `typ` is `at+jwt`;
 - `iss` is `JWT_ISSUER`, and `aud` is `JWT_AUDIENCE`, or the service's own URI for a [token for one service](#tokens-for-one-service);
 - `exp` is in the future, and `token_use` is `access`;
@@ -1052,7 +1150,7 @@ Returns information about active WebSocket connections. Global admins only.
 
 ## Model Context Protocol `/mcp`
 
-DMART ships a built-in **MCP server** (Streamable HTTP transport, spec `2025-03-26`) so AI agents can query and mutate entries as tools. It is **off by default** — set `ENABLE_MCP=true` to expose it; otherwise `/mcp` and the OAuth 2.1 endpoints are unmapped and answer `INVALID_ROUTE` (HTTP 422). All requests are authenticated — the caller's JWT flows through to each tool handler. Sessions are tracked via the `Mcp-Session-Id` header. Pair it with the OAuth 2.1 Authorization Server for automatic client onboarding. Its sign-in form takes a password only, so it refuses accounts of type `admin`; an integration signs in as a `bot` account.
+DMART ships a built-in **MCP server** (Streamable HTTP transport, spec `2025-03-26`) so AI agents can query and mutate entries as tools. It is **off by default** — set `ENABLE_MCP=true` to expose it; otherwise `/mcp` and the OAuth 2.1 endpoints are unmapped and answer `INVALID_ROUTE` (HTTP 422). All requests are authenticated — the caller's JWT flows through to each tool handler. Sessions are tracked via the `Mcp-Session-Id` header. Pair it with the OAuth 2.1 Authorization Server for automatic client onboarding. Its sign-in form takes a password, then, for an account with a security key or an authenticator app, the key, the app's code or a recovery code, as the OpenID Connect form does, and offers [key-only sign-in](#key-only-sign-in). Accounts of type `admin` are refused, one with a key or an app after that step, since `/oauth/token` gives no admin a token; an integration signs in as a `bot` account.
 
 - **Discovery.** A request to `/mcp` without a valid token answers `401` with `WWW-Authenticate: Bearer realm="dmart-mcp", resource_metadata="<base>/.well-known/oauth-protected-resource"`, which starts a client's OAuth discovery.
 - **`JWT_ISSUER`.** When it is an absolute `http(s)` URL, it is the base of the `/.well-known/oauth-*` and `/oauth/*` URLs; otherwise they are built from the request's host. Under a path prefix, set it to the public base URL (e.g. `https://host.example/dmart`). DMART then answers the discovery documents both at their bare names and where RFC 8414 and RFC 9728 put them for an issuer with a path, and where MCP clients look: `/.well-known/oauth-authorization-server/dmart`, and `/.well-known/oauth-protected-resource/dmart/mcp` (or `/dmart`). Any other path after the name is a 404. Every token carries it as `iss`, so changing it invalidates every token already issued.
@@ -1115,4 +1213,4 @@ The MCP server exposes these tools to agents. Every tool runs under the caller's
 
 - **`instructions`** in the `initialize` answer: a short text with the rules that trip a model most often (how records are addressed, paging, the search syntax, shortnames, the management space, partial failures) and where the full guide is. Clients that support it put it in the model's context.
 - **The skill as resources:** `dmart://skill/SKILL.md` (rules and recipes) and `dmart://skill/references/<page>.md` (these documentation pages), read with `resources/read` as `text/markdown` by any signed-in caller. They are the [agent skill](https://dmart.cc/skill/dmart.zip) built for the release that serves them and kept inside the binary, so they need no network. Its build note names the release it describes.
-- A URI under `dmart://skill/` always names the skill, and one that names no page answers a JSON-RPC error. A space called `skill` is still listed at `dmart://skill`, and reached below its root through the tools.
+- Only a URI under `dmart://skill/` ending in `.md` names the skill; one that names no page answers a JSON-RPC error. No record's path ends in `.md`, so a space called `skill` is reached as any other, `dmart://skill/<subpath>/<shortname>`.
