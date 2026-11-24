@@ -75,7 +75,7 @@ Security is granular and configurable to match organizational needs.
 
 - **Protected Administrator Sign-In:** Administrator accounts sign in with a password and a one-time code, or a security key or authenticator app in the code's place, and an instance can require each admin to have a key. Self-registration stays off until an instance turns it on.
 
-- **Security Keys, Passkeys and Authenticator Apps:** Any account can add a YubiKey, a passkey or an authenticator app as its second factor, and from then on nothing weaker signs it in. A look-alike site gets nothing it can use from a key. The single sign-on page and cxb ask for the key, mobile apps can use the account's keys through the phone's own passkey API, and an account can choose to sign in with its key and PIN alone.
+- **Security Keys, Passkeys and Authenticator Apps:** Any account can add a YubiKey, a passkey or an authenticator app as its second factor, and from then on nothing weaker signs it in. A look-alike site gets nothing it can use from a key. The single sign-on page, cxb and catalog ask for the key, mobile apps can use the account's keys through the phone's own passkey API, and an account can choose to sign in with its key and PIN alone.
 
 ## 5. Integration & Extensibility
 

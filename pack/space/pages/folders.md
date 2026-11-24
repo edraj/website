@@ -216,6 +216,8 @@ Semantics that matter in practice:
 
 - An update is checked for a compound when it changes any of its fields, and then against the record as it will be: a field a partial update leaves out counts with its stored value. An update that changes none of a compound's fields is not checked for it.
 
+- A soft-deleted account still counts in the users folder, so its delete removes from its payload the `payload.body` fields named here, as it clears its email and phone, and a new account can take those values. They are not kept, nor written to its history.
+
 - An entry's check runs inside the write's transaction, and writes into a folder with `unique_fields` take their turn, so two writes racing to the same values cannot both pass.
 
 - A folder save that changes its body checks the entries already in the folder against its `unique_fields`, and is refused (`DATA_SHOULD_BE_UNIQUE`) when two of them collide.

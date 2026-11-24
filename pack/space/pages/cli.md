@@ -367,6 +367,7 @@ Keys are matched whatever their case, and a line starting with `#` is a comment.
 - **Exit status:** a single command (`dmart cli c …`) exits with status 1 when it fails: the server answers `failed` (as `/managed/request` does when any record fails, though the others are written), an HTTP error comes back that is not JSON, or an export writes no file.
 - **Scripts:** `VAR <name> <value>` declares a variable and `${name}` uses it; `#` and `//` lines and `/* … */` blocks are comments. A script runs every line and exits 0 even when commands fail, unless `--strict` (`dmart cli --strict s <file>`) stops it at the first failure with status 1.
 - **Session:** a 401 in the middle of a session signs in again and retries once, without a word. The REPL keeps 1,000 lines of history in `~/.dmart/cli_history`.
+- **Without a terminal:** with its input redirected (a pipe, a file, a service), the REPL reads plain lines from it and exits at the end of input.
 
 ### 20. version
 
