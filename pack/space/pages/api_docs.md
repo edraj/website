@@ -819,7 +819,7 @@ This narrows only the saved query. `/public/query` still lists and searches any 
 
 GET `/public/client-config`
 
-The server's values a frontend needs, for one that DMART does not serve itself: `otp_length`, `otp_resend_after`, `otp_token_ttl`, `max_upload_size_mb`, `default_query_limit`, `max_query_limit`, `ui_list_limit`, `password_rule_custom` and, when one is set, `password_hint`, `username_rule_custom` and, when one is set, `username_hint`, plus `backend_timeout` in milliseconds (`REQUEST_TIMEOUT` plus 5 s), a floor for the client's own timeout.
+The server's values a frontend needs, for one that DMART does not serve itself: `otp_length`, `otp_resend_after`, `otp_token_ttl`, `max_upload_size_mb`, `default_query_limit`, `max_query_limit`, `ui_list_limit`, `password_rule_custom` and, when one is set, `password_hint`, `username_rule_custom` and, when one is set, `username_hint`, `sign_up_open` (whether anyone may make their own account: `IS_REGISTRABLE` with a channel in `REGISTRATION_ENABLED_CHANNELS`), plus `backend_timeout` in milliseconds (`REQUEST_TIMEOUT` plus 5 s), a floor for the client's own timeout.
 
 GET `/public/byuuid/{uuid}`
 

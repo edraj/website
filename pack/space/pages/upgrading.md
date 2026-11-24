@@ -33,6 +33,7 @@ sudo apk upgrade dmart && sudo rc-service dmart restart
 - **Several nodes need the same authenticator apps' key.** Each node makes `KEYS_DIR/totp-key` at its first start when it is missing, so copy one node's file to the others, or write the same file to each, before they serve app sign-ins. Each logs the key's id at start, for comparing. Back it up apart from the database: without it no app's secret opens, and every account adds its app again.
 - **New settings, all optional:** `KEYS_DIR`, `PASSKEYS_FOR`, `TOTP_FOR`, `ADMIN_PASSKEY_REQUIRED`, `WEBAUTHN_RP_ID`, `WEBAUTHN_ANDROID_APPS` and `WEBAUTHN_IOS_APPS`. `JWT_SIGNING_ALG` now defaults to `RS256`, and `JWT_ACCEPT_HS256` takes `sessions` (the default), `false` or `true`. Like any new setting, they go into `config.env` only after the upgrade.
 - **Users no longer set their own tags.** Sign-up ignores a registrant's `tags`, and an account's change to its own is refused. An app that tagged accounts at sign-up has an admin, or a plugin, tag them instead.
+- **Catalog offers sign-up only when the server takes it,** from the `sign_up_open` in the `config.json` DMART serves it. A catalog that DMART does not serve shows no sign-up link until its own `config.json` says `"sign_up_open": true`.
 - **A record's owner group must exist** when a create names it or an attachment update changes it: a missing one answers `OBJECT_NOT_FOUND`.
 - **Rolling back to 1.8.0:**
   - Remove `KEYS_DIR`, the second-factor settings and any `JWT_ACCEPT_HS256=sessions` from `config.env` first, or 1.8.0 refuses to start.
